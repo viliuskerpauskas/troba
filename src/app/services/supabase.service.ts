@@ -29,7 +29,7 @@ export class SupabaseService {
     }
   }
 
-  async logout() {
+  async signOut() {
     await this.supabase.auth.signOut();
   }
 
