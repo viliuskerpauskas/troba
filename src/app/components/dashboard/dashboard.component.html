@@ -1,3 +1,7 @@
 <h1>Dashboard</h1>
+@if(user){
+<img [src]="user.user_metadata['avatar_url']" alt="avatar" />
+<h3>Welcome, {{ user.user_metadata["full_name"] }}!</h3>
+}
 <button (click)="logout()">logout</button>
 <button (click)="logSession()">logSession</button>
