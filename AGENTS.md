@@ -66,13 +66,13 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue) and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
 - **Build in thin vertical slices**, one PR each, test-first for logic.
 - **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes. As soon as Verify passes, run the five-axis review (`code-review-and-quality`, in a fresh context such as the `code-reviewer` subagent) on the branch's local commits without waiting to be asked; it also checks the diff for personal information. Fix Critical and Important findings and re-verify. Once the review has none left, push and open the PR without asking. Merging and release tags always need the owner's go-ahead.
-- **Start a task only when every issue it's blocked by is merged.** Branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
+- **Start a task only when every issue it's blocked by is closed** (normally by its merged PR). Branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
 - **One task per session.** Sessions that run at the same time each work in their own worktree, never two on one checkout or branch.
 - **An open PR only takes fixes for its review and CI findings.** Anything else found on the way becomes a new issue, or a separate small PR for docs and workflow changes.
 - **Checkpoints:** the PR that completes a checkpoint item in `tasks/plan.md` ticks it in the same PR.
-- **After the owner merges:** switch to `main`, pull, delete the merged branch (local and remote) and its worktree, then name the next unblocked issue.
+- **After the owner merges:** switch to `main`, pull, remove the task's worktree, delete the merged branch locally with `git branch -D` (squash merges aren't detected by `-d`) and on the remote if it's still there, then name the next unblocked issue.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
-- **Branches:** `main` is always deployable. Use short-lived `feat/…` and `fix/…` branches merged by PR, with CI green.
+- **Branches:** `main` is always deployable. Use short-lived `feat/…`, `fix/…`, `docs/…` and `chore/…` branches merged by PR, with CI green.
 - **Environments:** PR checks (the `ci` job) run lint, typecheck, unit and integration tests, the migration drift check, build and the Playwright smoke test, and must pass to merge. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
 - **Record significant decisions** as an ADR in `docs/adr/`.
 
