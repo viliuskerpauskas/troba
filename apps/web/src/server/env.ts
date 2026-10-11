@@ -2,7 +2,6 @@ import { z } from "zod";
 
 const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
-  GIT_SHA: z.string().min(1).default("dev"),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -13,4 +12,9 @@ let cached: Env | undefined;
 export function env(): Env {
   cached ??= envSchema.parse(process.env);
   return cached;
+}
+
+// Kept out of env() so /api/health can report the version even when the rest of the env is broken.
+export function gitSha(): string {
+  return process.env.GIT_SHA || "dev";
 }

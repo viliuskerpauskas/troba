@@ -1,11 +1,10 @@
 import { pingDb } from "@troba/db";
 import { db } from "@/server/db";
-import { env } from "@/server/env";
+import { gitSha } from "@/server/env";
 import { checkHealth } from "@/server/health";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
-  const { httpStatus, body } = await checkHealth(env().GIT_SHA, () => pingDb(db()));
+  // db() runs inside the check, so a missing or invalid DATABASE_URL is a 503 too.
+  const { httpStatus, body } = await checkHealth(gitSha(), () => pingDb(db()));
   return Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
 }
