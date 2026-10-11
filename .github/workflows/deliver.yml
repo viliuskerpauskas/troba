@@ -1,8 +1,8 @@
 name: Deliver
 
 # Every push to main builds ghcr.io/<owner>/troba-web:<sha> once. release-please keeps a release
-# PR open; when merging it creates a release, that commit's image gets the :<version> tag without
-# a rebuild (ADR-0009). Deploys are added later (T8, T9).
+# PR open. Merging that PR creates a release, and the release commit's image gets the :<version>
+# tag without a rebuild (ADR-0009). Deploys are added later (T8, T9).
 
 on:
   push:
@@ -104,8 +104,12 @@ jobs:
         # With a single source, imagetools copies the manifest as is, so the digest doesn't change.
         # The release commit's image may come from an earlier, still running push, so wait for it.
         run: |
-          for _ in $(seq 90); do
+          for i in $(seq 90); do
             docker buildx imagetools inspect "$IMAGE:$SHA" > /dev/null 2>&1 && break
+            if [ "$i" -eq 90 ]; then
+              echo "::error::$IMAGE:$SHA didn't appear within 15 minutes"
+              exit 1
+            fi
             sleep 10
           done
           docker buildx imagetools create --tag "$IMAGE:$VERSION" "$IMAGE:$SHA"
