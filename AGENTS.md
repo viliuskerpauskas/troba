@@ -65,5 +65,5 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **Build in thin vertical slices**, one PR each, test-first for logic.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
 - **Branches:** `main` is always deployable. Use short-lived `feat/…` and `fix/…` branches merged by PR, with CI green.
-- **Environments:** PR checks run lint, typecheck, test and build. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
+- **Environments:** PR checks (the `ci` job) run lint, typecheck, unit and integration tests, the migration drift check, build and the Playwright smoke test, and must pass to merge. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
 - **Record significant decisions** as an ADR in `docs/adr/`.
