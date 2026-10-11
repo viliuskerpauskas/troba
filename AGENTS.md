@@ -61,7 +61,8 @@ Planned: `pnpm test:e2e` (see SPEC-platform.md).
 
 Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills): define, specify, plan, build, review, ship.
 
-- **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. One issue per task, with acceptance criteria and verification steps in the body and dependencies as "blocked by #N". `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
+- **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. One issue per task, with acceptance criteria and verification steps in the body and dependencies as native "blocked by" links. `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
+- **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue) and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
 - **Build in thin vertical slices**, one PR each, test-first for logic.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
 - **Branches:** `main` is always deployable. Use short-lived `feat/…` and `fix/…` branches merged by PR, with CI green.
