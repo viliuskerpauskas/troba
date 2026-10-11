@@ -28,7 +28,7 @@ No bank-specific code ships in the repo. A user teaches troba their bank's forma
 
 - **First upload of an unknown format:** the app shows the detected headers and the first rows, and the user maps columns to fields (see [Import profile](#import-profile)). The mapping is saved as a named profile.
 - **Later uploads:** the profile is matched automatically by the file's exact header set. The user can also pick or edit a profile by hand.
-- Delimiter (`,` `;` tab) and a UTF-8 BOM are detected. The encoding is UTF-8 unless the profile says otherwise (e.g. a `windows-125x` code page, decoded with the built-in `TextDecoder`). Decimal separator and date format come from the profile.
+- Delimiter (`,` `;` tab) and a UTF-8 BOM are detected. Banks may put preamble lines (a statement title) above the header: the profile stores how many lines to skip, the mapping step guesses it (first line with the file's usual column count) and lets the user correct it. A trailing delimiter on every line (an empty last column) is ignored. The encoding is UTF-8 unless the profile says otherwise (e.g. a `windows-125x` code page, decoded with the built-in `TextDecoder`). Decimal separator and date format come from the profile.
 - **Amount sign:** either a signed amount column, or an unsigned amount plus a debit/credit indicator column with the profile's list of debit values. Amounts are parsed from the decimal string into integer cents without going through a float.
 - **Account:** if the profile maps an own-account IBAN column, rows go to the user's account with that IBAN. If none matches, the user is offered to create a bank account with that IBAN and currency. A file with more than one own IBAN is rejected. Without that column, the user picks the account.
 - A row whose counterparty IBAN is one of the user's own account IBANs is auto-categorized as **Transfers**, before user rules run.
@@ -119,7 +119,7 @@ All tables have `id` (uuid), `user_id`, `created_at` and `updated_at`.
 | `money_transactions` | account_id, booked_on `date`, amount_cents `bigint` (negative = expense, account currency), currency, original_amount_cents null, original_currency null, counterparty, counterparty_iban null, description, bank_tx_type null, category_id null, category_source (`manual` \| `rule` \| `transfer` \| null), note, source (`manual` \| `csv_import`), import_id null, dedup_key null, raw `jsonb` null |
 | `money_categories` | name, excluded_from_spending `bool` |
 | `money_rules` | field, pattern, category_id, position |
-| `money_import_profiles` | name, header_fingerprint, delimiter null (auto), encoding, decimal_separator, date_format, columns `jsonb` (field → header), debit_values `text[]` null |
+| `money_import_profiles` | name, header_fingerprint, skip_lines `int` default 0, delimiter null (auto), encoding, decimal_separator, date_format, columns `jsonb` (field → header), debit_values `text[]` null |
 | `money_imports` | account_id, profile_id, filename, row counts, imported_at |
 | `money_attachments` | transaction_id, filename, mime, size_bytes, storage_path |
 
@@ -218,4 +218,4 @@ export async function monthlySpending(db: Db, userId: string, month: string /* Y
 
 ## Open Questions
 
-1. **Real-format check:** confirm delimiter and encoding from a raw export (notes in `.private/bank-format.md`) before the import task. Repo fixtures are always fictional.
+None. (Real-format check done 2026-10-11: findings in `.private/bank-format.md`, folded into M3 above. Repo fixtures are always fictional.)
