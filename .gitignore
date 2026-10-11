@@ -1,0 +1,6 @@
+# personal notes, real bank formats and real exports: never commit
+.private/
+
+.env
+.env.*
+!.env.example
