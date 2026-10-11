@@ -7,12 +7,16 @@
     "node": ">=24.18.0 <25"
   },
   "scripts": {
-    "dev": "pnpm --filter @troba/web dev",
+    "dev": "pnpm db:up && pnpm db:migrate && pnpm --filter @troba/web dev",
     "build": "pnpm --filter @troba/web build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm --filter @troba/web exec next typegen && tsc -b",
-    "test": "vitest run"
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:generate": "pnpm --filter @troba/db generate",
+    "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/migrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
