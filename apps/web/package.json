@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@troba/core": "workspace:*",
+    "@troba/db": "workspace:*",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

@@ -1,2 +1,2 @@
-// Drizzle schema and migrations land here (see issue #3).
-export {};
+export { createDb, pingDb, type Db } from "./client";
+export * as schema from "./schema";

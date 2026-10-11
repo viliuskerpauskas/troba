@@ -1,0 +1,1 @@
+-- Baseline migration: proves the pipeline end to end. Module tables follow in later migrations.
