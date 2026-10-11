@@ -6,8 +6,8 @@ import * as schema from "./schema";
 export function createDb(connectionString: string) {
   const pool = new pg.Pool({
     connectionString,
-    // Fail fast when the database is down so /api/health can answer 503 quickly.
-    connectionTimeoutMillis: 2_000,
+    // Don't queue forever for a connection; requests fail instead of piling up.
+    connectionTimeoutMillis: 10_000,
   });
   // An idle client dropped by the server (restart, failover) emits "error"; unhandled, that
   // crashes the process. The pool discards the client and the next query reconnects.
