@@ -41,6 +41,8 @@ pnpm build             # next build (standalone)
 pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
 pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
 pnpm db:migrate        # apply pending migrations
+docker build -f apps/web/Dockerfile --build-arg GIT_SHA=$(git rev-parse HEAD) -t troba-web .
+docker run troba-web node migrate.js   # one-shot migrations from the same image (needs DATABASE_URL)
 ```
 
 Env files live at the repo root. Real env vars win over `.env`; outside production, `.env.example` fills in the local defaults, so a fresh clone runs without copying it.

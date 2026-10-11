@@ -7,10 +7,13 @@ import pg from "pg";
 
 export const migrationsFolder = path.join(import.meta.dirname, "../migrations");
 
-export async function migrateDatabase(connectionString: string): Promise<void> {
+export async function migrateDatabase(
+  connectionString: string,
+  folder: string = migrationsFolder,
+): Promise<void> {
   const pool = new pg.Pool({ connectionString, max: 1 });
   try {
-    await migrate(drizzle(pool), { migrationsFolder });
+    await migrate(drizzle(pool), { migrationsFolder: folder });
   } finally {
     await pool.end();
   }
