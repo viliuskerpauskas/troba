@@ -13,9 +13,14 @@ for (const file of [".env", ".env.example"]) {
 const sources = ["apps/*/src/**", "packages/*/src/**"];
 
 export default defineConfig({
+  // Mirrors the "@/*" path in apps/web/tsconfig.json.
+  resolve: {
+    alias: [{ find: /^@\//, replacement: path.join(import.meta.dirname, "apps/web/src/") }],
+  },
   test: {
     projects: [
       {
+        extends: true,
         test: {
           name: "unit",
           include: sources.map((dir) => `${dir}/*.test.{ts,tsx}`),
@@ -24,6 +29,7 @@ export default defineConfig({
       },
       {
         // Needs Postgres: `pnpm db:up` locally, a service container in CI.
+        extends: true,
         test: {
           name: "integration",
           include: sources.map((dir) => `${dir}/*.int.test.{ts,tsx}`),
