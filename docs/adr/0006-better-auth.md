@@ -44,7 +44,7 @@ Identity tasks test sign-in, sign-out and session expiry against real Postgres. 
 ### Auth.js
 
 - Good, because widely known.
-- Bad, because the credentials (password) flow is discouraged, and the project is now in security-fix-only maintenance (see below).
+- Bad, because the credentials (password) flow is discouraged, and the project now has a new steward focused on existing users (see below).
 
 ### Lucia
 
@@ -59,5 +59,5 @@ Identity tasks test sign-in, sign-out and session expiry against real Postgres. 
 
 Checked 2026-10-11:
 
-- Auth.js joined Better Auth in September 2025 and is maintained by the Better Auth team with security patches and urgent fixes, no new features: <https://www.better-auth.com/blog/authjs-joins-better-auth>. On npm, `next-auth` `latest` is 4.24.15 and v5 is still `5.0.0-beta.32`.
+- Auth.js joined Better Auth in September 2025 and is maintained and overseen by the Better Auth team, which commits to security patches and urgent issues for existing users: <https://www.better-auth.com/blog/authjs-joins-better-auth>. On npm, `next-auth` `latest` is 4.24.15 and v5 is still `5.0.0-beta.32`.
 - `better-auth` `latest` on npm is 1.7.7.
