@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-// git calls are local and instant; gh calls hit the network. 4 calls x 5s stays
+// git calls are local and instant; the two gh calls hit the network. 2 x 5s stays
 // well inside the 30s hook timeout in .claude/settings.json.
 function run(cmd, args) {
   const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 5000 });
