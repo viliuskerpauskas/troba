@@ -55,4 +55,4 @@ CI runs `pnpm test`, `pnpm test:integration` and the Playwright smoke test on ev
 
 ## More Information
 
-Checked 2026-10-11: the scaffold pins `vitest@5.0.3`. Playwright `@playwright/test@1.64.0` was added with the CI task ([#4](https://github.com/viliuskerpauskas/troba/issues/4)); `pnpm test:e2e` runs it against the standalone build, not `next dev`.
+Checked 2026-10-11: the scaffold pins `vitest@5.0.3`. Playwright `@playwright/test@1.64.0` was added with the CI task ([T4](https://github.com/viliuskerpauskas/troba/issues/4)); `pnpm test:e2e` runs it against the standalone build, not `next dev`.
