@@ -19,5 +19,10 @@ test("health endpoint reports ok with a reachable database", async ({ request })
   const response = await request.get("/api/health");
 
   expect(response.status()).toBe(200);
-  expect(await response.json()).toMatchObject({ status: "ok", db: "ok" });
+  // The deploy polls for this version, so check GIT_SHA reaches the built server.
+  expect(await response.json()).toEqual({
+    status: "ok",
+    version: process.env.GIT_SHA || "dev",
+    db: "ok",
+  });
 });

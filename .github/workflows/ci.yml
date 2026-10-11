@@ -9,13 +9,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # Supersede stale PR runs; every push to main runs to completion.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A new push to a PR cancels its stale run. Each push to main gets its own group, because a
+  # shared group would cancel queued main runs and leave commits without a check.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   check:
-    name: lint, typecheck, test, build, e2e
+    # The ruleset requires this check by name; renaming it drops the requirement.
+    name: ci
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -59,6 +61,8 @@ jobs:
       - run: pnpm test
 
       - name: Migration drift check (ADR-0005)
+        # drizzle-kit may prompt on an ambiguous rename; fail fast instead of waiting for input.
+        timeout-minutes: 2
         run: |
           pnpm db:generate
           if [ -n "$(git status --porcelain packages/db)" ]; then
