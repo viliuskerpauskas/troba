@@ -38,6 +38,7 @@ pnpm typecheck         # next typegen (route types) && tsc -b
 pnpm test              # unit tests (vitest project "unit")
 pnpm test:integration  # *.int.test.ts against Postgres (needs db:up)
 pnpm build             # next build (standalone)
+pnpm test:e2e          # Playwright against the built app (needs build and db:up)
 pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
 pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
 pnpm db:migrate        # apply pending migrations
@@ -46,8 +47,6 @@ docker run troba-web node migrate.js   # one-shot migrations from the same image
 ```
 
 Env files live at the repo root. Real env vars win over `.env`; outside production, `.env.example` fills in the local defaults, so a fresh clone runs without copying it.
-
-Planned: `pnpm test:e2e` (see SPEC-platform.md).
 
 ## Rules
 
@@ -69,7 +68,7 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes. As soon as Verify passes, run the five-axis review (`code-review-and-quality`, in a fresh context such as the `code-reviewer` subagent) on the branch's local commits without waiting to be asked; it also checks the diff for personal information. Fix Critical and Important findings and re-verify. Once the review has none left, push and open the PR without asking. Merging and release tags always need the owner's go-ahead.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
 - **Branches:** `main` is always deployable. Use short-lived `feat/…` and `fix/…` branches merged by PR, with CI green.
-- **Environments:** PR checks run lint, typecheck, test and build. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
+- **Environments:** PR checks (the `ci` job) run lint, typecheck, unit and integration tests, the migration drift check, build and the Playwright smoke test, and must pass to merge. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
 - **Record significant decisions** as an ADR in `docs/adr/`.
 
 ### Guide the owner through it

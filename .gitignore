@@ -10,3 +10,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 next-env.d.ts
+test-results/
+playwright-report/
+
+# Claude Code agent worktrees
+.claude/worktrees/

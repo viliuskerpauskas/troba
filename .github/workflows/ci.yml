@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to a PR cancels its stale run. Each push to main gets its own group, because a
+  # shared group would cancel queued main runs and leave commits without a check.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # The ruleset requires this check by name; renaming it drops the requirement.
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: troba
+          POSTGRES_PASSWORD: troba
+          POSTGRES_DB: troba
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U troba -d troba"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+
+    env:
+      DATABASE_URL: postgres://troba:troba@localhost:5432/troba
+      GIT_SHA: ${{ github.sha }}
+
+    steps:
+      # Actions are pinned to a commit; the comment is the release it points to.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing after checkout needs git auth, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      # Reads the pnpm version from packageManager in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - name: Migration drift check (ADR-0005)
+        # drizzle-kit may prompt on an ambiguous rename; fail fast instead of waiting for input.
+        timeout-minutes: 2
+        run: |
+          pnpm db:generate
+          if [ -n "$(git status --porcelain packages/db)" ]; then
+            git status --porcelain packages/db
+            echo "::error::schema.ts changed without a migration. Run 'pnpm db:generate' and commit the result."
+            exit 1
+          fi
+
+      - run: pnpm db:migrate
+
+      - run: pnpm test:integration
+
+      - run: pnpm build
+
+      # Headless runs only use the headless shell; full Chrome is ~190 MiB more and has stalled.
+      - run: pnpm exec playwright install --with-deps --only-shell chromium
+        timeout-minutes: 5
+
+      - run: pnpm test:e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
