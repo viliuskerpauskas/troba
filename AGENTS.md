@@ -34,7 +34,7 @@ pnpm install
 pnpm dev          # next dev on http://localhost:3000
 pnpm lint         # eslint . && prettier --check . (Markdown is not Prettier-formatted)
 pnpm format       # prettier --write .
-pnpm typecheck    # tsc -b
+pnpm typecheck    # next typegen (route types) && tsc -b
 pnpm test         # vitest run
 pnpm build        # next build (standalone)
 ```

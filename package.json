@@ -11,7 +11,7 @@
     "build": "pnpm --filter @troba/web build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "tsc -b",
+    "typecheck": "pnpm --filter @troba/web exec next typegen && tsc -b",
     "test": "vitest run"
   },
   "devDependencies": {
