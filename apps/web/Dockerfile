@@ -3,10 +3,8 @@
 # Web:     docker run <image>
 # Migrate: docker run <image> node migrate.js
 
-# Keep in step with .nvmrc.
-ARG NODE_VERSION=24.18.0
-
-FROM node:${NODE_VERSION}-alpine AS deps
+# Keep the node tag in step with .nvmrc. Literal tags (not an ARG) so Dependabot can update them.
+FROM node:24.18.0-alpine AS deps
 WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -22,7 +20,7 @@ COPY . .
 # Typecheck first: next build checks types against the packages' tsc -b declarations.
 RUN pnpm typecheck && pnpm build && node apps/web/src/build-migrate.ts /out/migrate
 
-FROM node:${NODE_VERSION}-alpine AS runtime
+FROM node:24.18.0-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

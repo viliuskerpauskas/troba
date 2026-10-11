@@ -48,7 +48,7 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 ### Checkpoint A: platform
 - [x] Fresh clone → running app in under 5 minutes
 - [x] A PR with a failing test can't merge
-- [ ] `:<sha>` image in GHCR
+- [x] `:<sha>` image in GHCR
 
 ### Phase 2: Identity
 - [T10](https://github.com/viliuskerpauskas/troba/issues/10) feat(identity): Better Auth, sign-in/out and admin bootstrap CLI
