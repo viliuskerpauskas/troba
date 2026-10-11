@@ -35,15 +35,15 @@ T1 ADRs (independent)                                          T26 v1 E2E ← T2
 
 ## Task List
 
-T-numbers in the graph equal issue numbers (T7 = #7). Board: [troba project](https://github.com/users/viliuskerpauskas/projects/3).
+T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AGENTS.md). Board: [troba project](https://github.com/users/viliuskerpauskas/projects/3).
 
 ### Phase 1: Platform (local + CI)
-- [#1](https://github.com/viliuskerpauskas/troba/issues/1) docs: record stack decisions as ADRs
-- [#2](https://github.com/viliuskerpauskas/troba/issues/2) chore: scaffold pnpm monorepo with Next.js app
-- [#3](https://github.com/viliuskerpauskas/troba/issues/3) feat: Postgres, Drizzle migrations and health endpoint
-- [#4](https://github.com/viliuskerpauskas/troba/issues/4) ci: PR checks with Playwright smoke test
-- [#5](https://github.com/viliuskerpauskas/troba/issues/5) feat: production container image with migrate step
-- [#6](https://github.com/viliuskerpauskas/troba/issues/6) ci: publish image to GHCR, release-please and Dependabot
+- [T1](https://github.com/viliuskerpauskas/troba/issues/1) docs: record stack decisions as ADRs
+- [T2](https://github.com/viliuskerpauskas/troba/issues/2) chore: scaffold pnpm monorepo with Next.js app
+- [T3](https://github.com/viliuskerpauskas/troba/issues/3) feat: Postgres, Drizzle migrations and health endpoint
+- [T4](https://github.com/viliuskerpauskas/troba/issues/4) ci: PR checks with Playwright smoke test
+- [T5](https://github.com/viliuskerpauskas/troba/issues/5) feat: production container image with migrate step
+- [T6](https://github.com/viliuskerpauskas/troba/issues/6) ci: publish image to GHCR, release-please and Dependabot
 
 ### Checkpoint A: platform
 - [ ] Fresh clone → running app in under 5 minutes
@@ -51,12 +51,12 @@ T-numbers in the graph equal issue numbers (T7 = #7). Board: [troba project](htt
 - [ ] `:<sha>` image in GHCR
 
 ### Phase 2: Identity
-- [#10](https://github.com/viliuskerpauskas/troba/issues/10) feat(identity): Better Auth, sign-in/out and admin bootstrap CLI
-- [#11](https://github.com/viliuskerpauskas/troba/issues/11) feat(identity): sign-in rate limiting
-- [#12](https://github.com/viliuskerpauskas/troba/issues/12) feat(identity): invites and invite sign-up
-- [#13](https://github.com/viliuskerpauskas/troba/issues/13) feat(identity): account settings and sessions
-- [#14](https://github.com/viliuskerpauskas/troba/issues/14) feat(identity): delete account
-- [#15](https://github.com/viliuskerpauskas/troba/issues/15) feat(identity): admin user management and password reset links
+- [T10](https://github.com/viliuskerpauskas/troba/issues/10) feat(identity): Better Auth, sign-in/out and admin bootstrap CLI
+- [T11](https://github.com/viliuskerpauskas/troba/issues/11) feat(identity): sign-in rate limiting
+- [T12](https://github.com/viliuskerpauskas/troba/issues/12) feat(identity): invites and invite sign-up
+- [T13](https://github.com/viliuskerpauskas/troba/issues/13) feat(identity): account settings and sessions
+- [T14](https://github.com/viliuskerpauskas/troba/issues/14) feat(identity): delete account
+- [T15](https://github.com/viliuskerpauskas/troba/issues/15) feat(identity): admin user management and password reset links
 
 ### Checkpoint B: identity
 - [ ] Invite → sign up → sign in works locally end to end
@@ -64,17 +64,17 @@ T-numbers in the graph equal issue numbers (T7 = #7). Board: [troba project](htt
 - [ ] Review with owner before money
 
 ### Phase 3: Money
-- [#19](https://github.com/viliuskerpauskas/troba/issues/19) feat(money): CSV decoding and profile row parsing (can start after T2)
-- [#16](https://github.com/viliuskerpauskas/troba/issues/16) feat(money): schema, defaults and financial accounts
-- [#17](https://github.com/viliuskerpauskas/troba/issues/17) feat(money): manual transactions and basic list
-- [#18](https://github.com/viliuskerpauskas/troba/issues/18) feat(money): categories
-- [#20](https://github.com/viliuskerpauskas/troba/issues/20) feat(money): import preview and atomic commit
-- [#21](https://github.com/viliuskerpauskas/troba/issues/21) feat(money): import UI with column mapping
-- [#22](https://github.com/viliuskerpauskas/troba/issues/22) feat(money): auto-categorization rules
-- [#23](https://github.com/viliuskerpauskas/troba/issues/23) feat(money): monthly spending view
-- [#24](https://github.com/viliuskerpauskas/troba/issues/24) feat(money): transaction list filters, search and pagination
-- [#25](https://github.com/viliuskerpauskas/troba/issues/25) feat(money): receipt attachments
-- [#26](https://github.com/viliuskerpauskas/troba/issues/26) test(money): v1 end-to-end, phone viewport and accessibility pass
+- [T19](https://github.com/viliuskerpauskas/troba/issues/19) feat(money): CSV decoding and profile row parsing (can start after T2)
+- [T16](https://github.com/viliuskerpauskas/troba/issues/16) feat(money): schema, defaults and financial accounts
+- [T17](https://github.com/viliuskerpauskas/troba/issues/17) feat(money): manual transactions and basic list
+- [T18](https://github.com/viliuskerpauskas/troba/issues/18) feat(money): categories
+- [T20](https://github.com/viliuskerpauskas/troba/issues/20) feat(money): import preview and atomic commit
+- [T21](https://github.com/viliuskerpauskas/troba/issues/21) feat(money): import UI with column mapping
+- [T22](https://github.com/viliuskerpauskas/troba/issues/22) feat(money): auto-categorization rules
+- [T23](https://github.com/viliuskerpauskas/troba/issues/23) feat(money): monthly spending view
+- [T24](https://github.com/viliuskerpauskas/troba/issues/24) feat(money): transaction list filters, search and pagination
+- [T25](https://github.com/viliuskerpauskas/troba/issues/25) feat(money): receipt attachments
+- [T26](https://github.com/viliuskerpauskas/troba/issues/26) test(money): v1 end-to-end, phone viewport and accessibility pass
 
 ### Checkpoint C: money
 - [ ] Owner imports a real export locally in under 2 minutes, re-import adds 0
@@ -82,9 +82,9 @@ T-numbers in the graph equal issue numbers (T7 = #7). Board: [troba project](htt
 - [ ] All SPEC-money success criteria checked
 
 ### Phase 4: Deploy (blocked: needs VPS + domain)
-- [#7](https://github.com/viliuskerpauskas/troba/issues/7) docs: VPS runbook and deploy scripts
-- [#8](https://github.com/viliuskerpauskas/troba/issues/8) ci: auto-deploy main to staging
-- [#9](https://github.com/viliuskerpauskas/troba/issues/9) ci: production deploy behind approval
+- [T7](https://github.com/viliuskerpauskas/troba/issues/7) docs: VPS runbook and deploy scripts
+- [T8](https://github.com/viliuskerpauskas/troba/issues/8) ci: auto-deploy main to staging
+- [T9](https://github.com/viliuskerpauskas/troba/issues/9) ci: production deploy behind approval
 
 ### Checkpoint D: shipped
 - [ ] All platform success criteria, including rollback and `nmap` check
