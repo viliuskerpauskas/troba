@@ -5,7 +5,7 @@ troba is a self-hosted personal hub. The first module is money tracking: bank CS
 Read before working:
 - Intent and scope: [docs/intent/personal-hub.md](docs/intent/personal-hub.md)
 - Stack reasoning: [docs/ideas/stack-options.md](docs/ideas/stack-options.md)
-- Decisions: `docs/adr/` (MADR format, `NNNN-kebab-title.md`)
+- Decisions: [docs/adr/](docs/adr/README.md) (MADR format, `NNNN-kebab-title.md`, copy [the template](docs/adr/0000-template.md))
 - Specs: `SPEC.md` (capability map) and `SPEC-<module>.md`
 - Plan: `tasks/plan.md`
 
