@@ -46,8 +46,8 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 - [T6](https://github.com/viliuskerpauskas/troba/issues/6) ci: publish image to GHCR, release-please and Dependabot
 
 ### Checkpoint A: platform
-- [ ] Fresh clone → running app in under 5 minutes
-- [ ] A PR with a failing test can't merge
+- [x] Fresh clone → running app in under 5 minutes
+- [x] A PR with a failing test can't merge
 - [ ] `:<sha>` image in GHCR
 
 ### Phase 2: Identity
