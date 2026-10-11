@@ -9,34 +9,37 @@ Read before working:
 - Specs: `SPEC.md` (capability map) and `SPEC-<module>.md`
 - Plan: `tasks/plan.md`
 
-The repo has no code yet. Update the Layout and Commands sections when the scaffold lands.
-
 ## Stack
 
 TypeScript, pnpm workspaces, Next.js (App Router), a Node worker with pg-boss, Drizzle, PostgreSQL, Better Auth, Tailwind with shadcn/ui on Base UI, Recharts, Zod, Vitest, Playwright, Docker Compose, Caddy, GitHub Actions, GHCR.
 
 Use only free/open-source tools or generous free tiers. Don't add a dependency without a reason, and record notable ones as an ADR.
 
-## Layout (planned)
+## Layout
 
 ```
-apps/web       Next.js UI, server actions, /api/v1 route handlers
-apps/worker    pg-boss jobs: OCR, bank sync, voice (added with receipts-ocr; v1 imports run in web)
+apps/web       Next.js App Router (standalone output): UI, server actions, /api/v1 route handlers
 packages/core  domain logic: plain functions that take a db, no framework imports
-packages/db    Drizzle schema + migrations, shared by web and worker
+packages/db    Drizzle schema + migrations, shared by web and (later) worker
 ```
 
-## Commands (planned)
+Planned: `apps/worker` (pg-boss jobs: OCR, bank sync, voice), added with receipts-ocr; v1 imports run in web.
+
+Workspace packages export TypeScript source (`exports: ./src/index.ts`); `apps/web` lists them in `transpilePackages`. `tsc -b` type-checks everything through project references from the root `tsconfig.json`. Node is pinned in `.nvmrc`, pnpm in `packageManager`, and dependencies use exact versions (`.npmrc` `save-exact`).
+
+## Commands
 
 ```
 pnpm install
-pnpm dev
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm test:e2e
-pnpm db:migrate
+pnpm dev          # next dev on http://localhost:3000
+pnpm lint         # eslint . && prettier --check . (Markdown is not Prettier-formatted)
+pnpm format       # prettier --write .
+pnpm typecheck    # tsc -b
+pnpm test         # vitest run
+pnpm build        # next build (standalone)
 ```
+
+Planned: `pnpm test:e2e`, `pnpm db:up`, `pnpm db:generate`, `pnpm db:migrate` (see SPEC-platform.md).
 
 ## Rules
 
