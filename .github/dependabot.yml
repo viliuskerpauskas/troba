@@ -1,0 +1,50 @@
+version: 2
+
+# Weekly, one grouped PR per ecosystem for minor and patch updates. Majors arrive as their own PRs
+# so each can be reviewed alone. New releases wait a week first, to let bad publishes get pulled.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      npm:
+        update-types: [minor, patch]
+    ignore:
+      # Node is pinned to the 24 LTS line (.nvmrc, Dockerfile).
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      docker:
+        update-types: [minor, patch]
+    ignore:
+      # Node is pinned to the 24 LTS line; a node bump also needs .nvmrc updated in the same PR.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
