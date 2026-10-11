@@ -64,7 +64,23 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. One issue per task, with acceptance criteria and verification steps in the body and dependencies as native "blocked by" links. `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
 - **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue) and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
 - **Build in thin vertical slices**, one PR each, test-first for logic.
+- **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes. As soon as Verify passes, run the five-axis review (`code-review-and-quality`, in a fresh context such as the `code-reviewer` subagent) on the branch's local commits without waiting to be asked; it also checks the diff for personal information. Fix Critical and Important findings and re-verify. Once the review has none left, push and open the PR without asking. Merging and release tags always need the owner's go-ahead.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
 - **Branches:** `main` is always deployable. Use short-lived `feat/…` and `fix/…` branches merged by PR, with CI green.
 - **Environments:** PR checks run lint, typecheck, test and build. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
 - **Record significant decisions** as an ADR in `docs/adr/`.
+
+### Guide the owner through it
+
+The owner follows this workflow for every feature and can lose track of where they are. At the start of a session, after each step finishes, and whenever they seem unsure, say in a line or two where the work stands and what comes next, naming the command to run. Work out where things stand from the current branch, `git status`, `gh pr status`, the PR's CI checks and the open issues; don't guess.
+
+| Phase | Done when | Next | Who starts it |
+|---|---|---|---|
+| Spec | `SPEC-<module>.md` is agreed | `/agent-skills:plan` | owner |
+| Plan | issues exist with acceptance criteria and "blocked by" links, `tasks/plan.md` lists them | `/agent-skills:build` on the next unblocked issue | owner |
+| Build | the task's tests pass and the work is committed on a `feat/…` or `fix/…` branch | Verify | agent |
+| Verify | the checks in the slice loop pass | Review | agent, automatically |
+| Review | no Critical or Important findings remain | push and open the PR | agent, automatically |
+| PR | CI is green | merge | owner |
+| Merge | `main` deploys to staging | next issue, or Ship when a release is due | owner |
+| Ship | `/agent-skills:ship` says go | tag `vX.Y.Z` and approve the production deploy | owner |
