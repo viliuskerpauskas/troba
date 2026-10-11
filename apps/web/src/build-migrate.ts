@@ -20,9 +20,6 @@ export async function buildMigrate(outdir: string): Promise<void> {
     banner: {
       js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
     },
-    // Bundled modules all share the entry's import.meta.main, so the db package's own CLI block
-    // would run too. The entry doesn't check it.
-    define: { "import.meta.main": "false" },
     logLevel: "warning",
   });
   await cp(migrationsFolder, path.join(outdir, "migrations"), { recursive: true });

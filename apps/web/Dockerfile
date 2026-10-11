@@ -19,7 +19,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM deps AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
-# typecheck first: next build checks types against the packages' tsc -b declarations.
+# Typecheck first: next build checks types against the packages' tsc -b declarations.
 RUN pnpm typecheck && pnpm build && node apps/web/src/build-migrate.ts /out/migrate
 
 FROM node:${NODE_VERSION}-alpine AS runtime

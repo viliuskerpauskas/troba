@@ -16,7 +16,7 @@
     "test:integration": "vitest run --project integration",
     "db:up": "docker compose up -d --wait postgres",
     "db:generate": "pnpm --filter @troba/db generate",
-    "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/migrate.ts"
+    "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/migrate-cli.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
