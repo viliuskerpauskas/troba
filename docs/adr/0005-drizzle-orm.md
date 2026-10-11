@@ -39,7 +39,7 @@ We stay on the **0.x `latest` line** (pinned exactly) and use the core SQL-like 
 
 ### Confirmation
 
-`pnpm db:generate` produces no diff in CI once migrations are committed (to be added with the CI task).
+`pnpm db:generate` produces no diff in CI (added with [#4](https://github.com/viliuskerpauskas/troba/issues/4)).
 
 ## Pros and Cons of the Options
 
