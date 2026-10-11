@@ -38,14 +38,13 @@ pnpm typecheck         # next typegen (route types) && tsc -b
 pnpm test              # unit tests (vitest project "unit")
 pnpm test:integration  # *.int.test.ts against Postgres (needs db:up)
 pnpm build             # next build (standalone)
+pnpm test:e2e          # Playwright against the built app (needs build and db:up)
 pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
 pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
 pnpm db:migrate        # apply pending migrations
 ```
 
 Env files live at the repo root. Real env vars win over `.env`; outside production, `.env.example` fills in the local defaults, so a fresh clone runs without copying it.
-
-Planned: `pnpm test:e2e` (see SPEC-platform.md).
 
 ## Rules
 

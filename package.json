@@ -14,12 +14,14 @@
     "typecheck": "pnpm --filter @troba/web exec next typegen && tsc -b",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test -c apps/web/playwright.config.ts",
     "db:up": "docker compose up -d --wait postgres",
     "db:generate": "pnpm --filter @troba/db generate",
     "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/migrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.64.0",
     "@types/node": "24.19.2",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.0",
