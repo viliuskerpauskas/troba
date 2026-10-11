@@ -31,15 +31,21 @@ Workspace packages export TypeScript source (`exports: ./src/index.ts`); `apps/w
 
 ```
 pnpm install
-pnpm dev          # next dev on http://localhost:3000
-pnpm lint         # eslint . && prettier --check . (Markdown is not Prettier-formatted)
-pnpm format       # prettier --write .
-pnpm typecheck    # next typegen (route types) && tsc -b
-pnpm test         # vitest run
-pnpm build        # next build (standalone)
+pnpm dev               # db:up, db:migrate, then next dev on http://localhost:3000
+pnpm lint              # eslint . && prettier --check . (Markdown is not Prettier-formatted)
+pnpm format            # prettier --write .
+pnpm typecheck         # next typegen (route types) && tsc -b
+pnpm test              # unit tests (vitest project "unit")
+pnpm test:integration  # *.int.test.ts against Postgres (needs db:up)
+pnpm build             # next build (standalone)
+pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
+pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
+pnpm db:migrate        # apply pending migrations
 ```
 
-Planned: `pnpm test:e2e`, `pnpm db:up`, `pnpm db:generate`, `pnpm db:migrate` (see SPEC-platform.md).
+Env files live at the repo root. Real env vars win over `.env`; outside production, `.env.example` fills in the local defaults, so a fresh clone runs without copying it.
+
+Planned: `pnpm test:e2e` (see SPEC-platform.md).
 
 ## Rules
 
