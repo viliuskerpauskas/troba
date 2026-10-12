@@ -14,6 +14,7 @@ let modules: {
   account: typeof import("./account");
   auth: typeof import("./auth");
   db: typeof import("./db");
+  signIn: typeof import("./sign-in");
 };
 
 let userCount = 0;
@@ -54,6 +55,7 @@ describe("account", () => {
       account: await import("./account"),
       auth: await import("./auth"),
       db: await import("./db"),
+      signIn: await import("./sign-in"),
     };
   });
   afterAll(async () => {
@@ -120,6 +122,26 @@ describe("account", () => {
         }),
       ).rejects.toThrow("The current password is incorrect.");
       expect(await sessionsOf(user.id)).toHaveLength(2);
+    });
+
+    it("refuses the 6th wrong current password in 15 minutes, even with the right one", async () => {
+      const laptop = await signIn(user.email, firefoxOnWindows);
+      for (let i = 0; i < 5; i++) {
+        await expect(
+          modules.account.changePassword(laptop, {
+            currentPassword: "not the right password",
+            newPassword,
+          }),
+        ).rejects.toThrow("The current password is incorrect.");
+      }
+
+      await expect(
+        modules.account.changePassword(laptop, { currentPassword: password, newPassword }),
+      ).rejects.toThrow("Too many wrong passwords. Wait 15 minutes and try again.");
+      // The same limit covers signing in, since both guess the same password.
+      await expect(
+        modules.signIn.signInWithPassword(new Headers(), { email: user.email, password }),
+      ).resolves.toEqual({ ok: false, reason: "limited" });
     });
 
     it.each([
