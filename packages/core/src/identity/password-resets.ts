@@ -21,7 +21,6 @@ export async function createPasswordReset(
   input: { userId: string; now?: Date },
 ): Promise<{ token: string } | null> {
   const now = input.now ?? new Date();
-  const token = newToken();
   return db.transaction(async (tx) => {
     // Locked, so two links created at once for one user leave only the second.
     const [user] = await tx
@@ -31,6 +30,7 @@ export async function createPasswordReset(
       .for("update");
     if (!user) return null;
 
+    const token = newToken();
     await tx
       .delete(passwordResets)
       .where(and(eq(passwordResets.userId, user.id), isNull(passwordResets.usedAt)));

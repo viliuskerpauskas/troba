@@ -53,7 +53,10 @@ export function ResetLinkForm({ userId, email }: { userId: string; email: string
             onFocus={(event) => event.currentTarget.select()}
           />
           <br />
-          <small>Copy it now and send it yourself. It works once, for 1 hour.</small>
+          <small>
+            Copy it now and send it yourself. It works once, for 1 hour. Creating a new link
+            replaces this one.
+          </small>
         </>
       )}
     </form>
