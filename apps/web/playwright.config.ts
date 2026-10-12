@@ -15,14 +15,18 @@ for (const file of [".env", ".env.example"]) {
 
 // Not 3000, so a running `pnpm dev` is never mistaken for the build under test.
 const port = 3100;
+const baseURL = `http://127.0.0.1:${port}`;
+// Better Auth checks request origins against its URL, so it must be the one tests use.
+process.env.BETTER_AUTH_URL = baseURL;
 
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
+  globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL,
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
@@ -31,7 +35,7 @@ export default defineConfig({
     command: "node scripts/start-standalone.ts",
     // The home page, not /api/health: with the database down, the smoke test should fail on
     // the health assertion, not time out waiting for the server.
-    url: `http://127.0.0.1:${port}`,
+    url: baseURL,
     env: { PORT: String(port), HOSTNAME: "127.0.0.1" },
     reuseExistingServer: false,
     timeout: 60_000,

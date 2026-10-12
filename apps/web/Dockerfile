@@ -2,6 +2,7 @@
 # Build from the repo root: docker build -f apps/web/Dockerfile --build-arg GIT_SHA=$(git rev-parse HEAD) .
 # Web:     docker run <image>
 # Migrate: docker run <image> node migrate.js
+# Admin:   docker run -it <image> node scripts/create-admin.js <email>
 
 # Keep the node tag in step with .nvmrc. Literal tags (not an ARG) so Dependabot can update them.
 FROM node:24.18.0-alpine AS deps
@@ -18,7 +19,7 @@ FROM deps AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 # Typecheck first: next build checks types against the packages' tsc -b declarations.
-RUN pnpm typecheck && pnpm build && node apps/web/src/build-migrate.ts /out/migrate
+RUN pnpm typecheck && pnpm build && node apps/web/src/build-cli.ts /out/cli
 
 FROM node:24.18.0-alpine AS runtime
 WORKDIR /app
@@ -29,7 +30,8 @@ ENV NODE_ENV=production \
 # Files stay owned by root, so the app user can't modify them.
 COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build /out/migrate ./
+# migrate.js, migrations/ and scripts/create-admin.js
+COPY --from=build /out/cli ./
 # Next writes its cache here at runtime.
 RUN mkdir -p apps/web/.next/cache && chown node:node apps/web/.next/cache
 USER node

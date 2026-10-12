@@ -4,7 +4,7 @@ import { defineConfig } from "drizzle-kit";
 // `pnpm db:migrate` (src/migrate.ts), so there are no dbCredentials here.
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/schema.ts",
+  schema: "./src/schema/index.ts",
   out: "./migrations",
   strict: true,
 });

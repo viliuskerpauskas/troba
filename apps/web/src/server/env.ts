@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  // Signs and encrypts session cookies. Generate one with `openssl rand -base64 32`.
+  BETTER_AUTH_SECRET: z.string().min(32),
+  // The public origin users reach the app at, e.g. https://troba.example.
+  BETTER_AUTH_URL: z.url({ protocol: /^https?$/ }),
 });
 
 export type Env = z.infer<typeof envSchema>;
