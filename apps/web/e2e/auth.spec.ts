@@ -1,7 +1,14 @@
+import { randomBytes } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
+import { auth } from "../src/server/auth";
+import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
 
 const genericError = "Email or password is incorrect.";
+
+test.afterAll(async () => {
+  await db().$client.end();
+});
 
 async function signIn(page: Page, email: string, password: string) {
   await page.goto("/sign-in");
@@ -54,5 +61,28 @@ test("a wrong password and an unknown email get the same generic error", async (
 
   await signIn(page, "nobody@example.test", "not the right password");
   await expect(page.getByRole("main").getByRole("alert")).toHaveText(genericError);
+  await expect(page).toHaveURL("/sign-in");
+});
+
+test("the 6th failed sign-in in 15 minutes is refused, even with the right password", async ({
+  page,
+}) => {
+  // Its own user and client address, so the lockout can't affect other tests: without a proxy,
+  // the app sees every test's requests as coming from 127.0.0.1. 192.0.2.0/24 is TEST-NET-1.
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": "192.0.2.11" });
+  const email = "e2e-locked-out@example.test";
+  await db().$client.query("delete from users where email = $1", [email]);
+  const password = randomBytes(18).toString("base64");
+  await auth().api.createUser({ body: { email, password, name: "Locked Out" } });
+
+  for (let i = 0; i < 5; i++) {
+    await signIn(page, email, "not the right password");
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText(genericError);
+  }
+  await signIn(page, email, password);
+
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(
+    "Too many failed sign-ins. Wait 15 minutes and try again.",
+  );
   await expect(page).toHaveURL("/sign-in");
 });
