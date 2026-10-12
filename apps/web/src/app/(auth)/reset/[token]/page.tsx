@@ -5,7 +5,8 @@ import { db } from "@/server/db";
 import { ResetForm } from "./reset-form";
 
 export const metadata: Metadata = {
-  title: "Set a new password · troba",
+  // Neutral, since an invalid link gets this page too.
+  title: "Reset password · troba",
   robots: { index: false, follow: false },
 };
 
