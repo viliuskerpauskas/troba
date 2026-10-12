@@ -136,9 +136,10 @@ describe("deleteUser", () => {
   it("refuses a user id that isn't a uuid, so it can't reach outside the uploads folder", async () => {
     const outside = await mkdtemp(path.join(tmpdir(), "troba-outside-"));
     try {
+      // Refused by the guard itself; without it, Postgres would reject the id first.
       await expect(
         deleteUser(db, { userId: path.relative(uploadsDir, outside), uploadsDir }),
-      ).rejects.toThrow();
+      ).rejects.toThrow("deleteUser: userId must be a uuid.");
       expect(existsSync(outside)).toBe(true);
     } finally {
       await rm(outside, { recursive: true, force: true });
