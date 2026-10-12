@@ -7,8 +7,9 @@ import { admin } from "better-auth/plugins/admin";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { db } from "./db";
 import { env } from "./env";
+import { passwordLength } from "./password-length";
 
-export const passwordLength = { min: 12, max: 128 } as const;
+export { passwordLength };
 
 const day = 60 * 60 * 24;
 
@@ -32,7 +33,7 @@ function createAuth() {
     database: drizzleAdapter(db(), { provider: "pg", schema, usePlural: true }),
     emailAndPassword: {
       enabled: true,
-      // Accounts come from the admin CLI and, later, invites.
+      // Accounts come from the admin CLI and invites (server/invite-sign-up.ts).
       disableSignUp: true,
       minPasswordLength: passwordLength.min,
       maxPasswordLength: passwordLength.max,
