@@ -9,7 +9,7 @@ import { requireAdmin } from "@/server/session";
 
 export type CreateInviteState = { link?: string; error?: string };
 
-const Email = z.email({ error: "Enter a valid email address or leave it empty." });
+const Email = z.email().max(254);
 
 export async function createInviteAction(
   _state: CreateInviteState,

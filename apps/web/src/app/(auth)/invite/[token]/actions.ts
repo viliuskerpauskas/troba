@@ -1,5 +1,6 @@
 "use server";
 
+import { APIError } from "better-auth/api";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/server/auth";
@@ -32,10 +33,17 @@ export async function signUp(
     }
   }
 
-  // nextCookies() sets the session cookie on the response.
-  await auth().api.signInEmail({
-    body: { email: result.email, password },
-    headers: await headers(),
-  });
+  try {
+    // nextCookies() sets the session cookie on the response.
+    await auth().api.signInEmail({
+      body: { email: result.email, password },
+      headers: await headers(),
+    });
+  } catch (error) {
+    // The account exists and the invite is used up, so a retry here would hit the
+    // invalid-invite page. Send them to sign in with the password they just chose.
+    if (error instanceof APIError) redirect("/sign-in");
+    throw error;
+  }
   redirect("/money");
 }

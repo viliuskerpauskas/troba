@@ -53,11 +53,12 @@ test("an admin invites a friend, who signs up and lands in an empty app", async 
   // The invite is used up.
   await friend.goto(path);
   await expect(friend.getByRole("heading", { level: 1, name: invalidHeading })).toBeVisible();
-  await page.reload();
-  await expect(page.getByRole("row", { name: /used/ }).first()).toBeVisible();
 });
 
-test("a bound invite pre-fills and locks the email", async ({ page, browser }) => {
+test("a bound invite pre-fills and locks the email, and shows as used", async ({
+  page,
+  browser,
+}) => {
   await signInAsAdmin(page);
   const email = uniqueEmail("bound");
   const path = await createInvite(page, email);
@@ -72,6 +73,11 @@ test("a bound invite pre-fills and locks the email", async ({ page, browser }) =
   await friend.getByLabel("Password").fill("a long enough password");
   await friend.getByRole("button", { name: "Create account" }).click();
   await expect(friend).toHaveURL("/money");
+
+  await page.reload();
+  const row = page.getByRole("row", { name: new RegExp(email) });
+  await expect(row.getByRole("cell", { name: "used", exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Revoke" })).toHaveCount(0);
 });
 
 test("a revoked invite shows the same page as an unknown one", async ({ page, browser }) => {

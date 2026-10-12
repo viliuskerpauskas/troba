@@ -19,7 +19,10 @@ const Input = z.object({
     }),
 });
 
-const Email = z.email({ error: "Enter a valid email address." });
+// 254 characters is the longest address that fits in SMTP's path limit (RFC 5321).
+const Email = z
+  .email({ error: "Enter a valid email address." })
+  .max(254, { error: "The email can have at most 254 characters." });
 
 export type SignUpResult = RedeemResult | { ok: false; reason: "input"; message: string };
 

@@ -95,6 +95,24 @@ describe("signUpWithInvite", () => {
     });
   });
 
+  it("rejects an email longer than 254 characters", async () => {
+    const { token } = await newInvite();
+
+    const result = await modules.signUp.signUpWithInvite({
+      token,
+      name: "Friend",
+      email: `${"a".repeat(64)}@${"b".repeat(185)}.test`,
+      password,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "input",
+      message: expect.stringMatching(/email/i),
+    });
+    expect(await modules.core.findPendingInvite(modules.db.db(), token)).not.toBeNull();
+  });
+
   it("reports an invalid token without creating anyone", async () => {
     const result = await modules.signUp.signUpWithInvite({
       token: "not-a-real-token",
