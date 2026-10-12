@@ -75,10 +75,13 @@ export async function resetPassword(
     if (!reset) return { ok: false };
 
     // Every troba account has a credential account: the admin CLI and invites both create one.
-    await tx
+    // Without one there'd be no password to set, so roll back rather than end the sessions.
+    const updated = await tx
       .update(accounts)
       .set({ password: input.passwordHash })
-      .where(and(eq(accounts.userId, reset.userId), eq(accounts.providerId, "credential")));
+      .where(and(eq(accounts.userId, reset.userId), eq(accounts.providerId, "credential")))
+      .returning({ id: accounts.id });
+    if (updated.length === 0) throw new Error("resetPassword: the user has no password account.");
     await tx.delete(sessions).where(eq(sessions.userId, reset.userId));
     await tx.update(passwordResets).set({ usedAt: now }).where(eq(passwordResets.id, reset.id));
     return { ok: true };

@@ -122,6 +122,15 @@ describe("admin user management", () => {
 
       expect(await lastActiveAt(user.id)).not.toBeNull();
     });
+
+    // Better Auth passes the update's result, which is null when the session was deleted while
+    // it was being refreshed (the user was disabled or reset their password at that moment).
+    it("ignores a refresh of a session that no longer exists", async () => {
+      const { options } = await modules.auth.auth().$context;
+      const afterUpdate = options.databaseHooks!.session!.update!.after!;
+
+      await expect(afterUpdate(null as never)).resolves.toBeUndefined();
+    });
   });
 
   describe("resetPasswordWithLink", () => {

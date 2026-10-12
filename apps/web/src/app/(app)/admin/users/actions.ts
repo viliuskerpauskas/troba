@@ -30,7 +30,7 @@ export async function disableUserAction(
     case "self":
       return { error: "You can't disable your own account." };
     case "last-admin":
-      return { error: "This is the only active admin. Make someone else an admin first." };
+      return { error: "This is the only active admin, so it can't be disabled." };
     case "not-found":
       return { error: "That user doesn't exist." };
     default:

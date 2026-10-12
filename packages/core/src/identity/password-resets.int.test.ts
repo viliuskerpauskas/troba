@@ -188,6 +188,18 @@ describe("password resets", () => {
       expect(await sessionsOf(userId)).toHaveLength(2);
     });
 
+    it("fails and changes nothing for a user without a password account", async () => {
+      const { userId } = await createUser();
+      await db.delete(schema.accounts).where(eq(schema.accounts.userId, userId));
+      const reset = await createPasswordReset(db, { userId });
+
+      await expect(
+        resetPassword(db, { token: reset!.token, passwordHash: "new-hash" }),
+      ).rejects.toThrow("resetPassword: the user has no password account.");
+      expect(await sessionsOf(userId)).toHaveLength(2);
+      expect(await findPendingPasswordReset(db, reset!.token)).not.toBeNull();
+    });
+
     it("refuses an unknown token", async () => {
       expect(await resetPassword(db, { token: "no-such-token", passwordHash: "new-hash" })).toEqual(
         {

@@ -183,36 +183,33 @@ describe("users", () => {
       expect(await enableUser(db, { userId: crypto.randomUUID() })).toBe(false);
     });
   });
-});
 
-describe("deleteUser and disabled admins", () => {
-  beforeAll(async () => {
-    database = await createTestDatabase();
-    db = createDb(database.url);
-  });
-  afterAll(async () => {
-    await db?.$client.end();
-    await database?.drop();
-  });
+  describe("deleteUser", () => {
+    it("refuses to delete the last active admin even when a disabled admin is left", async () => {
+      const disabledAdminId = await createUser("admin");
+      const adminId = await createUser("admin");
+      await db
+        .update(schema.users)
+        .set({ banned: true })
+        .where(eq(schema.users.id, disabledAdminId));
 
-  it("refuses to delete the last active admin even when a disabled admin is left", async () => {
-    const disabledAdminId = await createUser("admin");
-    const adminId = await createUser("admin");
-    await db.update(schema.users).set({ banned: true }).where(eq(schema.users.id, disabledAdminId));
-
-    expect(await deleteUser(db, { userId: adminId, uploadsDir: "unused-uploads-dir" })).toEqual({
-      ok: false,
-      reason: "last-admin",
+      expect(await deleteUser(db, { userId: adminId, uploadsDir: "unused-uploads-dir" })).toEqual({
+        ok: false,
+        reason: "last-admin",
+      });
     });
-  });
 
-  it("deletes a disabled admin, who doesn't count towards the last admin", async () => {
-    const disabledAdminId = await createUser("admin");
-    await createUser("admin");
-    await db.update(schema.users).set({ banned: true }).where(eq(schema.users.id, disabledAdminId));
+    it("deletes a disabled admin, who doesn't count towards the last admin", async () => {
+      const disabledAdminId = await createUser("admin");
+      await createUser("admin");
+      await db
+        .update(schema.users)
+        .set({ banned: true })
+        .where(eq(schema.users.id, disabledAdminId));
 
-    expect(
-      await deleteUser(db, { userId: disabledAdminId, uploadsDir: "unused-uploads-dir" }),
-    ).toEqual({ ok: true });
+      expect(
+        await deleteUser(db, { userId: disabledAdminId, uploadsDir: "unused-uploads-dir" }),
+      ).toEqual({ ok: true });
+    });
   });
 });

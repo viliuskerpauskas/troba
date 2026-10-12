@@ -50,11 +50,16 @@ function createAuth() {
       useSecureCookies: true,
     },
     // Last active for the admin users list (SPEC-identity I6). A session is refreshed at most
-    // once a day (updateAge), so this is day-accurate.
+    // once a day (updateAge), so this is day-accurate. A refresh passes null when the session was
+    // deleted meanwhile (disabled, password reset); Better Auth then signs the browser out.
     databaseHooks: {
       session: {
         create: { after: (session) => recordActivity(db(), session.userId) },
-        update: { after: (session) => recordActivity(db(), session.userId) },
+        update: {
+          after: async (session) => {
+            if (session) await recordActivity(db(), session.userId);
+          },
+        },
       },
     },
     plugins: [admin({ ac, roles, defaultRole: "user", adminRoles: ["admin"] }), nextCookies()],
