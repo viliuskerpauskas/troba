@@ -227,6 +227,58 @@ describe("checkReview", () => {
     });
   });
 
+  it("keeps reading a section past a pasted ## heading that isn't a step", () => {
+    const filesRead =
+      "## Review summary\n\nFiles read:\n- `packages/core/src/a.ts`\n- `packages/core/src/a.test.ts`";
+    expect(check(reviewFile({ filesRead }))).toEqual([]);
+  });
+
+  it("names an empty section", () => {
+    const review = reviewFile().replace(
+      "## Personal information\nClean.",
+      "## Personal information\n",
+    );
+    expect(check(review)).toEqual(["## Personal information is empty"]);
+  });
+
+  it("names an empty Mutation: line", () => {
+    expect(check(reviewFile({ mutation: "Mutation:" }))).toEqual([
+      '## code-review-and-quality has no "Mutation:" line',
+    ]);
+  });
+
+  describe("commit lines", () => {
+    it("accept a list or bold label and text after the sha", () => {
+      const review = reviewFile({
+        first: `- **First reviewed commit:** \`${A}\``,
+        reviewed: `**Reviewed commit:** ${C} (after the pass)`,
+      });
+      expect(check(review)).toEqual([]);
+    });
+
+    it("name a commit line whose sha can't be read", () => {
+      const review = reviewFile({ reviewed: `Reviewed commit: ${C.slice(0, 7)}` });
+      expect(check(review)).toEqual([
+        `can't read a full 40-character sha in: "Reviewed commit: ${C.slice(0, 7)}"`,
+      ]);
+    });
+
+    it("name a round line whose range can't be read", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}...${C}: tidied.\nPass: ${B}..${C}: tidied.`;
+      expect(check(reviewFile({ log }))).toEqual([
+        `can't read a "<full sha>..<full sha>" range in: "Pass: ${B}...${C}: tidied."`,
+      ]);
+    });
+
+    it("name a range with a 41-character sha", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}a..${C}: tidied.`;
+      expect(check(reviewFile({ log }))).toEqual([
+        `can't read a "<full sha>..<full sha>" range in: "Pass: ${B}a..${C}: tidied."`,
+        `the review history ends at ${B}, but "Reviewed commit:" is ${C}`,
+      ]);
+    });
+  });
+
   it("lists every problem at once", () => {
     const review = reviewFile({ mutation: "", audit: "", first: "" });
     expect(check(review)).toEqual([
