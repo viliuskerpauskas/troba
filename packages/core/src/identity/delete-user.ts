@@ -37,7 +37,9 @@ export async function deleteUser(
     }
 
     await tx.delete(users).where(eq(users.id, userId));
-    // Inside the transaction: if the files can't be removed, the rows stay and the user can retry.
+    // Before the commit: if the files can't be removed, the rows stay and the user can retry. If
+    // the commit itself fails after this, the account is left without its files; deleting it
+    // again finishes the job.
     await rm(path.join(uploadsDir, userId), { recursive: true, force: true });
     return { ok: true } as const;
   });

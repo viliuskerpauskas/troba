@@ -21,25 +21,25 @@ describe("user tables", () => {
     expect(await userTables(db)).toEqual(expect.arrayContaining(["accounts", "sessions"]));
   });
 
-  // SPEC-identity I7: deleting a user must delete everything they own.
-  it("gives every user_id a foreign key to users that cascades on delete", async () => {
+  // SPEC-identity I7: every user-owned table has user_id uuid not null references users(id) on
+  // delete cascade, so deleting a user deletes everything they own.
+  it("gives every user_id a non-null uuid foreign key to users that cascades on delete", async () => {
     const tables = await userTables(db);
-    const { rows } = await db.$client.query<{ table_name: string }>(
-      `select tc.table_name
-         from information_schema.table_constraints tc
-         join information_schema.key_column_usage kcu
-           on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
-         join information_schema.constraint_column_usage ccu
-           on ccu.constraint_name = tc.constraint_name and ccu.table_schema = tc.table_schema
-         join information_schema.referential_constraints rc
-           on rc.constraint_name = tc.constraint_name and rc.constraint_schema = tc.table_schema
-        where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public'
-          and kcu.column_name = 'user_id'
-          and ccu.table_name = 'users' and ccu.column_name = 'id'
-          and rc.delete_rule = 'CASCADE'`,
+    const { rows: columns } = await db.$client.query<{ table_name: string }>(
+      `select table_name from information_schema.columns
+        where table_schema = 'public' and column_name = 'user_id'
+          and data_type = 'uuid' and is_nullable = 'NO'`,
+    );
+    const { rows: cascades } = await db.$client.query<{ table_name: string }>(
+      `select c.conrelid::regclass::text as table_name
+         from pg_constraint c
+         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+        where c.contype = 'f' and c.confrelid = 'users'::regclass and c.confdeltype = 'c'
+          and a.attname = 'user_id' and array_length(c.conkey, 1) = 1`,
     );
 
-    expect(rows.map((row) => row.table_name).sort()).toEqual([...tables].sort());
+    expect(columns.map((row) => row.table_name).sort()).toEqual([...tables].sort());
+    expect(cascades.map((row) => row.table_name).sort()).toEqual([...tables].sort());
   });
 
   it("counts a user's rows in each of those tables", async () => {

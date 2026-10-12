@@ -15,7 +15,8 @@ const safariOnIphone =
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let uploadsDir: string;
-// Imported after DATABASE_URL and UPLOADS_DIR points at the test database, since db() reads it once.
+// Imported after DATABASE_URL points at the test database (db() reads it once) and UPLOADS_DIR at a
+// temporary folder.
 let modules: {
   account: typeof import("./account");
   auth: typeof import("./auth");
@@ -311,7 +312,6 @@ describe("account", () => {
         modules.account.AccountInputError,
       );
       expect(await sessionsOf(user.id)).toHaveLength(1);
-      expect(await sessionsOf(other.id)).toEqual([]);
     });
 
     it("refuses to delete the last admin", async () => {

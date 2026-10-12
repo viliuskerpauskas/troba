@@ -33,7 +33,8 @@ COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
 # migrate.js, migrations/ and scripts/create-admin.js
 COPY --from=build /out/cli ./
 # Next writes its cache here at runtime; users' files go in /data/uploads (mount a volume there).
-RUN mkdir -p apps/web/.next/cache /data/uploads     && chown node:node apps/web/.next/cache /data/uploads
+RUN mkdir -p apps/web/.next/cache /data/uploads \
+    && chown node:node apps/web/.next/cache /data/uploads
 ENV UPLOADS_DIR=/data/uploads
 USER node
 EXPOSE 3000

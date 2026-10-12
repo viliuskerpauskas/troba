@@ -6,7 +6,7 @@ import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
 import { rowsOwnedBy } from "@troba/db/user-tables";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { deleteUser } from "./delete-user";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -88,8 +88,12 @@ describe("deleteUser", () => {
   });
 
   describe("last admin", () => {
+    // Each test starts with no admins and creates the ones it needs.
+    beforeEach(async () => {
+      await db.update(schema.users).set({ role: "user" }).where(eq(schema.users.role, "admin"));
+    });
+
     it("refuses to delete the last admin and changes nothing", async () => {
-      // Run alone among admins: this database has no other admin at this point.
       const adminId = await createUser("admin");
 
       expect(await deleteUser(db, { userId: adminId, uploadsDir })).toEqual({
@@ -98,9 +102,6 @@ describe("deleteUser", () => {
       });
       expect(await userExists(adminId)).toBe(true);
       expect(existsSync(path.join(uploadsDir, adminId, "receipts", "receipt.jpg"))).toBe(true);
-
-      // Leave no admins behind for the next tests.
-      await db.update(schema.users).set({ role: "user" }).where(eq(schema.users.id, adminId));
     });
 
     it("deletes an admin when another admin is left", async () => {
@@ -109,8 +110,6 @@ describe("deleteUser", () => {
 
       expect(await deleteUser(db, { userId: adminId, uploadsDir })).toEqual({ ok: true });
       expect(await userExists(otherAdminId)).toBe(true);
-
-      await db.update(schema.users).set({ role: "user" }).where(eq(schema.users.id, otherAdminId));
     });
 
     it("keeps one of several admins who delete themselves at the same time", async () => {
