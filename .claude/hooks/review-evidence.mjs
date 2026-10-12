@@ -3,7 +3,7 @@
 // and gets back one line per problem, so a refusal names everything that's missing at once.
 
 // One heading per review step, so a skipped step is visible.
-export const SECTIONS = [
+const SECTIONS = [
   "## code-review-and-quality",
   "## security-and-hardening",
   "## performance-optimization",
