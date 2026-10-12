@@ -14,16 +14,16 @@ const SECTIONS = [
 
 const SHA = "[0-9a-f]{40}(?![0-9a-f])";
 const LIST_ITEM = /^\s*(?:[-*+]|\d+\.)\s/;
-const BOLD = String.raw`(?:\*\*|__)?`;
+const MARK = String.raw`(?:\*\*|__|\`)?`;
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const indent = (line) => line.match(/^\s*/)[0].length;
 
-// Matches "Label:", "- Label:", "**Label:**" and "**Label**:" at the start of a line, and
-// captures the rest of the line. `label` is a regex source.
+// Matches "Label:", "- Label:", "### Label:", "**Label:**", "**Label**:" and "`Label:`" at the
+// start of a line, and captures the rest of the line. `label` is a regex source.
 function labelRegex(label) {
   return new RegExp(
-    String.raw`^\s*(?:(?:[-*+]|\d+\.)\s+)?${BOLD}(?:${label})${BOLD}:${BOLD}(.*)$`,
+    String.raw`^\s*(?:(?:[-*+]|\d+\.|#{1,6})\s+)?${MARK}(?:${label})${MARK}:${MARK}(.*)$`,
     "i",
   );
 }
@@ -96,16 +96,19 @@ function checkChain(lines, head, isCommit) {
   const firstLines = lines.filter((line) => labelRegex("First reviewed commit").test(line));
   const [first] = commitLines(firstLines, "First reviewed commit", problems);
   if (firstLines.length === 0) problems.push('no "First reviewed commit: <sha>" line');
-  if (!first) return problems;
+  if (firstLines.length > 1) problems.push('more than one "First reviewed commit:" line');
+  if (!first || firstLines.length > 1) return problems;
 
   // Round and pass lines in file order, each "<from>..<to>"; together they must run from
-  // the first reviewed commit to the Reviewed commit without a gap.
+  // the first reviewed commit to the Reviewed commit without a gap. A line counts once its
+  // text starts like a sha, so prose such as "Pass: all checklist items" is left alone, while
+  // a short sha or a three-dot range is named.
   const range = new RegExp(String.raw`^\s*\`?(${SHA})\.\.(${SHA})`);
   let reached = first;
   const shas = new Set([reached]);
   for (const line of lines) {
     const value = labelRegex(String.raw`Round \d+|Pass`).exec(line)?.[1];
-    if (value === undefined) continue;
+    if (value === undefined || !/^\s*`?[0-9a-f]{7,}(?![g-z])/i.test(value)) continue;
     const match = value.match(range);
     if (!match) {
       problems.push(`can't read a "<full sha>..<full sha>" range in: "${line.trim()}"`);

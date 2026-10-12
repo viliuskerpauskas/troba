@@ -247,7 +247,34 @@ describe("checkReview", () => {
     ]);
   });
 
+  it("accepts evidence labels written in backticks", () => {
+    const files = ["packages/core/src/a.ts", "packages/core/src/a.test.ts", "pnpm-lock.yaml"];
+    const review = reviewFile({
+      filesRead: `\`Files read:\`\n${files.map((f) => `- \`${f}\``).join("\n")}`,
+      mutation: "- `Mutation`: dropping the guard fails a.test.ts.",
+      security: "- `pnpm audit:` no known vulnerabilities.",
+    });
+    expect(check(review, files)).toEqual([]);
+  });
+
   describe("commit lines", () => {
+    it("ignore prose that starts with Pass: or Round N:", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\n- Pass: all checklist items.\nRound 1: the range exists in git log.\nPass: ${B}..${C}: tidied.`;
+      expect(check(reviewFile({ log }))).toEqual([]);
+    });
+
+    it("read a round written as a heading", () => {
+      const log = `### Round 1: ${A}..${B}\n\nFixed.\n\n### Pass: ${B}..${C}`;
+      expect(check(reviewFile({ log }))).toEqual([]);
+    });
+
+    it("refuse more than one First reviewed commit line", () => {
+      const review = reviewFile({
+        first: `First reviewed commit: ${A}\nFirst reviewed commit: ${B}`,
+      });
+      expect(check(review)).toEqual(['more than one "First reviewed commit:" line']);
+    });
+
     it("accept a list or bold label and text after the sha", () => {
       const review = reviewFile({
         first: `- **First reviewed commit:** \`${A}\``,
