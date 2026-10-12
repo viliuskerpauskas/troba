@@ -10,7 +10,9 @@ export type SessionUser = { userId: string; role: Role };
 type Caller = "page" | "api";
 
 export async function currentUser(): Promise<SessionUser | null> {
-  const session = await auth().api.getSession({ headers: await headers() });
+  // headers() first: it marks the page dynamic before auth() reads env, which a build lacks.
+  const requestHeaders = await headers();
+  const session = await auth().api.getSession({ headers: requestHeaders });
   if (!session || session.user.banned) return null;
   return {
     userId: session.user.id,
