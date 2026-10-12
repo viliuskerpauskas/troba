@@ -62,7 +62,7 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 
 ### Checkpoint B: identity
 - [x] Invite → sign up → sign in works locally end to end
-- [ ] Isolation helper and delete-account test green
+- [x] Isolation helper and delete-account test green
 - [ ] Review with owner before money
 
 ### Phase 3: Money
