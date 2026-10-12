@@ -67,7 +67,13 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. One issue per task, with acceptance criteria and verification steps in the body and dependencies as native "blocked by" links. `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
 - **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue) and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
 - **Build in thin vertical slices**, one PR each, test-first for logic.
-- **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes. As soon as Verify passes, run `/agent-skills:review` on the branch's local commits without waiting to be asked. It's the five-axis review from the `code-review-and-quality` skill, with `security-and-hardening` and `performance-optimization`; a `code-reviewer` subagent doesn't replace it. The review also checks the diff for personal information. Fix Critical and Important findings and re-verify. Once the review has none left, push and open the PR without asking. Merging and release tags always need the owner's go-ahead.
+- **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes.
+- **Review:** as soon as Verify passes, without waiting to be asked, review the branch's local commits in these steps:
+  1. Run `/agent-skills:review`, the five-axis review from the `code-review-and-quality` skill.
+  2. Load `security-and-hardening` and `performance-optimization` with the Skill tool as well, and work through their checklists against the diff. The review command only names these skills; it doesn't load them, so this step is easy to skip by accident. For security that includes `pnpm audit` when dependencies change and checking response headers when pages change.
+  3. Check the diff and the commit messages for personal information.
+
+  A `code-reviewer` subagent doesn't replace these steps. Fix Critical and Important findings and re-verify. Findings that belong to another task become issues. Once no Critical or Important findings are left, push and open the PR without asking. The PR body has a **Review** section that names the three skills and what each one found, even if that's "nothing", so the owner can see the whole review ran. Merging and release tags always need the owner's go-ahead.
 - **Start a task only when every issue it's blocked by is closed** (normally by its merged PR). Branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
 - **One task per session.** Sessions that run at the same time each work in their own worktree, never two on one checkout or branch.
 - **An open PR only takes fixes for its review and CI findings.** Anything else found on the way becomes a new issue, or a separate small PR for docs and workflow changes.
@@ -89,7 +95,7 @@ The owner follows this workflow for every feature and can lose track of where th
 | Plan | issues exist with acceptance criteria and "blocked by" links, `tasks/plan.md` lists them | `/agent-skills:build` on the next unblocked issue | owner |
 | Build | the task's tests pass and the work is committed on a `feat/…` or `fix/…` branch | Verify | agent |
 | Verify | the checks in the slice loop pass | Review | agent, automatically |
-| Review | no Critical or Important findings remain | push and open the PR | agent, automatically |
+| Review | all three review skills ran and no Critical or Important findings remain | push and open the PR | agent, automatically |
 | PR | CI is green | merge | owner |
 | Merge | `main` deploys to staging | next issue, or Ship when a release is due | owner |
 | Ship | `/agent-skills:ship` says go | tag `vX.Y.Z` and approve the production deploy | owner |

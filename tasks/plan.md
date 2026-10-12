@@ -44,6 +44,7 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 - [T4](https://github.com/viliuskerpauskas/troba/issues/4) ci: PR checks with Playwright smoke test
 - [T5](https://github.com/viliuskerpauskas/troba/issues/5) feat: production container image with migrate step
 - [T6](https://github.com/viliuskerpauskas/troba/issues/6) ci: publish image to GHCR, release-please and Dependabot
+- [T43](https://github.com/viliuskerpauskas/troba/issues/43) feat: content security policy for scripts and HSTS
 
 ### Checkpoint A: platform
 - [x] Fresh clone → running app in under 5 minutes
@@ -57,6 +58,7 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 - [T13](https://github.com/viliuskerpauskas/troba/issues/13) feat(identity): account settings and sessions
 - [T14](https://github.com/viliuskerpauskas/troba/issues/14) feat(identity): delete account
 - [T15](https://github.com/viliuskerpauskas/troba/issues/15) feat(identity): admin user management and password reset links
+- [T44](https://github.com/viliuskerpauskas/troba/issues/44) feat(identity): delete expired sessions (after T13)
 
 ### Checkpoint B: identity
 - [ ] Invite → sign up → sign in works locally end to end
