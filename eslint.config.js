@@ -7,6 +7,7 @@ import tseslint from "typescript-eslint";
 export default defineConfig([
   globalIgnores([
     "**/.next/",
+    "**/.cli/",
     "**/dist/",
     "**/next-env.d.ts",
     "**/test-results/",

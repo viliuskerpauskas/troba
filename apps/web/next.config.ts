@@ -22,6 +22,10 @@ const nextConfig: NextConfig = {
   // Trace workspace packages from the monorepo root into the standalone bundle.
   outputFileTracingRoot: root,
   transpilePackages: ["@troba/core", "@troba/db"],
+  experimental: {
+    // forbidden() and unauthorized() from next/navigation, used by requireUser/requireAdmin.
+    authInterrupts: true,
+  },
 };
 
 export default nextConfig;

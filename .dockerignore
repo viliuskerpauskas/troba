@@ -8,6 +8,7 @@
 .claude/
 **/node_modules/
 **/.next/
+**/.cli/
 **/dist/
 **/*.tsbuildinfo
 **/next-env.d.ts
