@@ -263,6 +263,13 @@ describe("checkReview", () => {
       ]);
     });
 
+    it("name a commit line with a 41-character sha instead of reading its first 40", () => {
+      const review = reviewFile({ reviewed: `Reviewed commit: ${C}c` });
+      expect(check(review)).toEqual([
+        `can't read a full 40-character sha in: "Reviewed commit: ${C}c"`,
+      ]);
+    });
+
     it("name a round line whose range can't be read", () => {
       const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}...${C}: tidied.\nPass: ${B}..${C}: tidied.`;
       expect(check(reviewFile({ log }))).toEqual([
