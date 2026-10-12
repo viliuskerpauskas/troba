@@ -96,7 +96,7 @@ The owner follows this workflow for every feature and can lose track of where th
 | Plan | issues exist with acceptance criteria and "blocked by" links, `tasks/plan.md` lists them | `/agent-skills:build` on the next unblocked issue | owner |
 | Build | the task's tests pass and the work is committed on a `feat/…` or `fix/…` branch | Verify | agent |
 | Verify | the checks in the slice loop pass | Review | agent, automatically |
-| Review | all three review skills ran and no Critical or Important findings remain | push and open the PR | agent, automatically |
+| Review | all four review steps ran, `.reviews/<branch>.md` names the HEAD commit, and no Critical or Important findings remain | push and open the PR | agent, automatically |
 | PR | CI is green | merge | owner |
 | Merge | `main` deploys to staging | next issue, or Ship when a release is due | owner |
 | Ship | `/agent-skills:ship` says go | tag `vX.Y.Z` and approve the production deploy | owner |
