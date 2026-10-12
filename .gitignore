@@ -16,3 +16,6 @@ playwright-report/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Local review write-ups, checked by .claude/hooks/review-gate.mjs; posted to the PR
+.reviews/
