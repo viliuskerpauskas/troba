@@ -1,35 +1,28 @@
 "use server";
 
-import { APIError } from "better-auth/api";
+import { signInLimit } from "@troba/core";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { z } from "zod";
-import { auth } from "@/server/auth";
+import { signInWithPassword, type SignInResult } from "@/server/sign-in";
 
 export type SignInState = { error?: string };
 
-// One message for every failure, so the form never reveals whether an account exists.
-const genericError = "Email or password is incorrect.";
+const errors = {
+  // One message for every failure, so the form never reveals whether an account exists.
+  invalid: "Email or password is incorrect.",
+  limited: `Too many failed sign-ins. Wait ${signInLimit.windowMinutes} minutes and try again.`,
+} satisfies Record<Extract<SignInResult, { ok: false }>["reason"], string>;
 
-const SignInForm = z.object({
-  email: z.email(),
-  password: z.string().min(1),
-});
+function text(formData: FormData, field: string): string {
+  const value = formData.get(field);
+  return typeof value === "string" ? value : "";
+}
 
 export async function signIn(_state: SignInState, formData: FormData): Promise<SignInState> {
-  const input = SignInForm.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
+  const result = await signInWithPassword(await headers(), {
+    email: text(formData, "email"),
+    password: text(formData, "password"),
   });
-  if (!input.success) return { error: genericError };
-
-  try {
-    // nextCookies() sets the session cookie on the response.
-    await auth().api.signInEmail({ body: input.data, headers: await headers() });
-  } catch (error) {
-    // Wrong password, unknown email, banned user: all look the same from outside.
-    if (error instanceof APIError) return { error: genericError };
-    throw error;
-  }
+  if (!result.ok) return { error: errors[result.reason] };
   redirect("/money");
 }

@@ -12,6 +12,9 @@ export default async function globalSetup() {
   await client.connect();
   try {
     await client.query("delete from users where email = $1", [adminEmail]);
+    // Failed sign-ins from earlier runs would otherwise lock test users out for 15 minutes. All
+    // tests share the loopback address's limit of 5 failures; a test that fails more sets its own address.
+    await client.query("delete from sign_in_attempts");
   } finally {
     await client.end();
   }

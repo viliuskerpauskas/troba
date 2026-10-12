@@ -1,6 +1,8 @@
+import { beginSignInAttempt, signInLimit, signInSucceeded } from "@troba/core";
 import { APIError } from "better-auth/api";
 import { z } from "zod";
 import { auth, passwordLength } from "./auth";
+import { clientIp } from "./client-ip";
 import { db } from "./db";
 import { describeDevice } from "./user-agent";
 
@@ -66,18 +68,30 @@ export async function changeName(requestHeaders: Headers, name: string): Promise
 // Signs out every other device (SPEC-identity I4): Better Auth deletes all the user's sessions
 // and starts a new one for this device, whose cookie is in the returned headers; inside a server
 // action nextCookies() also sets it on the response.
+//
+// Wrong current passwords count towards the sign-in limit (SPEC-identity I3): both guess the same
+// password, and Better Auth's server API, unlike its HTTP endpoints, has no limiter of its own.
 export async function changePassword(
   requestHeaders: Headers,
   input: { currentPassword: string; newPassword: string },
 ): Promise<{ headers: Headers }> {
-  await signedInSession(requestHeaders);
+  const { user } = await signedInSession(requestHeaders);
   const newPassword = parse(NewPassword, input.newPassword);
+  const attempt = await beginSignInAttempt(db(), {
+    email: user.email,
+    ipAddress: clientIp(requestHeaders),
+  });
+  if (!attempt)
+    throw new AccountInputError(
+      `Too many wrong passwords. Wait ${signInLimit.windowMinutes} minutes and try again.`,
+    );
   try {
     const { headers } = await auth().api.changePassword({
       body: { currentPassword: input.currentPassword, newPassword, revokeOtherSessions: true },
       headers: requestHeaders,
       returnHeaders: true,
     });
+    await signInSucceeded(db(), attempt);
     return { headers };
   } catch (error) {
     if (error instanceof APIError && error.body?.code === "INVALID_PASSWORD") {
