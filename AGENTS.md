@@ -69,6 +69,7 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 - **Start a task only when every issue it's blocked by is closed** (normally by its merged PR). Branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
 - **One task per session.** Sessions that run at the same time each work in their own worktree, never two on one checkout or branch.
 - **An open PR only takes fixes for its review and CI findings.** Anything else found on the way becomes a new issue, or a separate small PR for docs and workflow changes.
+- **Issue checkboxes:** just before opening the PR, tick each acceptance and verification item in the issue that is done and checked, and say in the PR body how each was verified. Items that need an owner setting or only happen after merge stay unticked and are listed in the PR under "Owner / after merge"; whoever does them ticks them. An item that was dropped or changed is struck through or edited with a reason, never ticked.
 - **Checkpoints:** the PR that completes a checkpoint item in `tasks/plan.md` ticks it in the same PR.
 - **After the owner merges:** switch to `main`, pull, remove the task's worktree, delete the merged branch locally with `git branch -D` (squash merges aren't detected by `-d`) and on the remote if it's still there, then name the next unblocked issue.
 - **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
