@@ -268,6 +268,13 @@ describe("checkReview", () => {
       expect(check(reviewFile({ log }))).toEqual([]);
     });
 
+    it("accept an audit that quotes ranges out of order or only in part", () => {
+      const audit = `## Review audit\n\n- Pass: \`${B}..${C}\` exists; diff only renames.\n- Round 1: \`${A}..${B}\` exists.\n- Reviewed commit: \`${C}\` is HEAD.`;
+      expect(check(reviewFile({ audit }))).toEqual([]);
+      const partial = `## Review audit\n\n- Pass: \`${B}..${C}\` exists.`;
+      expect(check(reviewFile({ audit: partial }))).toEqual([]);
+    });
+
     it("ignore a Reviewed commit line in prose", () => {
       const review = reviewFile({ audit: "## Review audit\n\nReviewed commit: matches HEAD." });
       expect(check(review)).toEqual([]);

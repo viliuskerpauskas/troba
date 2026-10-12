@@ -94,43 +94,47 @@ function commitShas(found, problems) {
 
 function checkChain(lines, head, isCommit) {
   const problems = [];
+  // The same sha may be quoted again (say, by the audit); two different ones conflict.
   const reviewedLines = shaLines(lines, "Reviewed commit");
-  const reviewed = commitShas(reviewedLines, problems);
+  const reviewed = new Set(commitShas(reviewedLines, problems));
   if (reviewedLines.length === 0) problems.push('no "Reviewed commit: <sha>" line');
-  if (reviewedLines.length > 1) problems.push('more than one "Reviewed commit:" line');
-  const last = reviewedLines.length === 1 ? (reviewed[0] ?? null) : null;
+  if (reviewed.size > 1) problems.push('more than one "Reviewed commit:" line');
+  const last = reviewed.size === 1 ? [...reviewed][0] : null;
   if (last && last !== head) problems.push(`"Reviewed commit:" is ${last}, not HEAD (${head})`);
 
   const firstLines = shaLines(lines, "First reviewed commit");
-  const [first] = commitShas(firstLines, problems);
+  const firsts = new Set(commitShas(firstLines, problems));
   if (firstLines.length === 0) problems.push('no "First reviewed commit: <sha>" line');
-  if (firstLines.length > 1) problems.push('more than one "First reviewed commit:" line');
-  if (!first || firstLines.length > 1) return problems;
+  if (firsts.size > 1) problems.push('more than one "First reviewed commit:" line');
+  if (firsts.size !== 1) return problems;
+  const [first] = firsts;
 
-  // Round and pass lines in file order, each "<from>..<to>"; together they must run from
-  // the first reviewed commit to the Reviewed commit without a gap. A range already read
-  // (say, quoted again by the audit) is skipped. Shas are only checked to exist: after a
-  // rebase the history isn't an ancestry chain, so ancestry is left to the audit.
+  // The distinct "<from>..<to>" ranges of the round and pass lines must run from the first
+  // reviewed commit to the Reviewed commit without a gap. They're followed by sha, not by
+  // file order, so an audit that quotes some of them again, in any order, changes nothing.
+  // Shas are only checked to exist: after a rebase the history isn't an ancestry chain, so
+  // ancestry is left to the audit.
   const range = new RegExp(String.raw`^\s*\`?(${SHA})\.\.(${SHA})`);
-  let reached = first;
-  const shas = new Set([reached]);
-  const seen = new Set();
+  const ranges = new Map();
   for (const { line, value } of shaLines(lines, String.raw`Round \d+|Pass`)) {
     const match = value.match(range);
-    if (!match) {
-      problems.push(`can't read a "<full sha>..<full sha>" range in: "${line.trim()}"`);
-      continue;
-    }
-    const [, from, to] = match;
-    if (seen.has(`${from}..${to}`)) continue;
-    seen.add(`${from}..${to}`);
-    if (from !== reached) {
+    if (match) ranges.set(`${match[1]}..${match[2]}`, [match[1], match[2]]);
+    else problems.push(`can't read a "<full sha>..<full sha>" range in: "${line.trim()}"`);
+  }
+  let reached = first;
+  const shas = new Set([reached]);
+  const unused = [...ranges.values()];
+  while (unused.length) {
+    let next = unused.findIndex(([from]) => from === reached);
+    if (next === -1) {
+      next = 0;
       problems.push(
-        `the review history has a gap: it reaches ${reached}, but the next range starts at ${from}`,
+        `the review history has a gap: it reaches ${reached}, but the next range starts at ${unused[0][0]}`,
       );
     }
-    reached = to;
+    const [[from, to]] = unused.splice(next, 1);
     shas.add(from).add(to);
+    reached = to;
   }
   if (last && reached !== last) {
     problems.push(`the review history ends at ${reached}, but "Reviewed commit:" is ${last}`);
