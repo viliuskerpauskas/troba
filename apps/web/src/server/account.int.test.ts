@@ -1,5 +1,10 @@
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTestDatabase } from "@troba/db/test-database";
+import { rowsOwnedBy } from "@troba/db/user-tables";
 
 const password = "correct horse battery";
 const newPassword = "another long passphrase";
@@ -9,7 +14,9 @@ const safariOnIphone =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
-// Imported after DATABASE_URL points at the test database, since db() reads it once.
+let uploadsDir: string;
+// Imported after DATABASE_URL points at the test database (db() reads it once) and UPLOADS_DIR at a
+// temporary folder.
 let modules: {
   account: typeof import("./account");
   auth: typeof import("./auth");
@@ -51,6 +58,8 @@ describe("account", () => {
   beforeAll(async () => {
     database = await createTestDatabase();
     process.env.DATABASE_URL = database.url;
+    uploadsDir = await mkdtemp(path.join(tmpdir(), "troba-uploads-"));
+    process.env.UPLOADS_DIR = uploadsDir;
     modules = {
       account: await import("./account"),
       auth: await import("./auth"),
@@ -61,6 +70,7 @@ describe("account", () => {
   afterAll(async () => {
     await modules?.db.db().$client.end();
     await database?.drop();
+    if (uploadsDir) await rm(uploadsDir, { recursive: true, force: true });
   });
 
   let user: { id: string; email: string };
@@ -271,6 +281,56 @@ describe("account", () => {
     });
   });
 
+  describe("deleteAccount", () => {
+    it("deletes the user, their rows, files and sessions once they type their email", async () => {
+      const phone = await signIn(user.email, safariOnIphone);
+      const laptop = await signIn(user.email, firefoxOnWindows);
+      await mkdir(path.join(uploadsDir, user.id), { recursive: true });
+      await writeFile(path.join(uploadsDir, user.id, "receipt.jpg"), "not really a jpeg");
+
+      await modules.account.deleteAccount(laptop, ` ${user.email.toUpperCase()} `);
+
+      const counts = await rowsOwnedBy(modules.db.db(), user.id);
+      expect(Object.values(counts).every((count) => count === 0)).toBe(true);
+      expect(
+        await modules.db
+          .db()
+          .query.users.findFirst({ where: (users, { eq }) => eq(users.id, user.id) }),
+      ).toBeUndefined();
+      expect(existsSync(path.join(uploadsDir, user.id))).toBe(false);
+      expect(await modules.auth.auth().api.getSession({ headers: phone })).toBeNull();
+    });
+
+    it("refuses when the typed email isn't the user's and deletes nothing", async () => {
+      const laptop = await signIn(user.email, firefoxOnWindows);
+      const other = await createUser();
+
+      await expect(modules.account.deleteAccount(laptop, other.email)).rejects.toThrow(
+        modules.account.AccountInputError,
+      );
+      await expect(modules.account.deleteAccount(laptop, "")).rejects.toThrow(
+        modules.account.AccountInputError,
+      );
+      expect(await sessionsOf(user.id)).toHaveLength(1);
+    });
+
+    it("refuses to delete the last admin", async () => {
+      const admin = await createUser();
+      await modules.db
+        .db()
+        .$client.query("update users set role = 'admin' where id = $1", [admin.id]);
+      const laptop = await signIn(admin.email, firefoxOnWindows);
+
+      await expect(modules.account.deleteAccount(laptop, admin.email)).rejects.toThrow(
+        "You're the only admin",
+      );
+      expect(await sessionsOf(admin.id)).toHaveLength(1);
+      await modules.db
+        .db()
+        .$client.query("update users set role = 'user' where id = $1", [admin.id]);
+    });
+  });
+
   it("refuses every call without a session", async () => {
     const signedOut = new Headers();
     const { account } = modules;
@@ -282,6 +342,7 @@ describe("account", () => {
     await expect(account.listSessions(signedOut)).rejects.toThrow();
     await expect(account.revokeSession(signedOut, crypto.randomUUID())).rejects.toThrow();
     await expect(account.signOutEverywhere(signedOut)).rejects.toThrow();
+    await expect(account.deleteAccount(signedOut, "")).rejects.toThrow();
   });
 
   it("refuses every call for a banned user and changes nothing", async () => {
@@ -302,6 +363,9 @@ describe("account", () => {
       account.NotSignedInError,
     );
     await expect(account.signOutEverywhere(laptop)).rejects.toThrow(account.NotSignedInError);
+    await expect(account.deleteAccount(laptop, user.email)).rejects.toThrow(
+      account.NotSignedInError,
+    );
 
     const saved = await modules.db
       .db()

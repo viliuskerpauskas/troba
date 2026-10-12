@@ -3,6 +3,7 @@ import { getProfile, listSessions } from "@/server/account";
 import { passwordLength } from "@/server/auth";
 import { authHeaders, requireUser } from "@/server/session";
 import { revoke, signOutAll } from "./actions";
+import { DeleteAccountForm } from "./delete-account-form";
 import { NameForm } from "./name-form";
 import { PasswordForm } from "./password-form";
 
@@ -57,6 +58,11 @@ export default async function SettingsPage() {
         <form action={signOutAll}>
           <button type="submit">Sign out everywhere</button>
         </form>
+      </section>
+
+      <section aria-labelledby="delete-account">
+        <h2 id="delete-account">Delete account</h2>
+        <DeleteAccountForm email={profile.email} />
       </section>
     </main>
   );

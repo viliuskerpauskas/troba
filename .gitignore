@@ -13,6 +13,8 @@ dist/
 next-env.d.ts
 test-results/
 playwright-report/
+# Users' files in local development (UPLOADS_DIR)
+uploads/
 
 # Claude Code agent worktrees
 .claude/worktrees/

@@ -84,12 +84,12 @@ test("changing the name shows the new name", async ({ browser }) => {
   const laptop = await signedInDevice(browser, user);
 
   await laptop.goto("/settings");
-  await laptop.getByLabel("Name").fill("Renamed Tester");
+  await laptop.getByLabel("Name", { exact: true }).fill("Renamed Tester");
   await laptop.getByRole("button", { name: "Save name" }).click();
   await expect(laptop.getByRole("main").getByRole("status")).toHaveText("Name saved.");
 
   await laptop.reload();
-  await expect(laptop.getByLabel("Name")).toHaveValue("Renamed Tester");
+  await expect(laptop.getByLabel("Name", { exact: true })).toHaveValue("Renamed Tester");
 });
 
 test("sign out everywhere ends every session", async ({ browser }) => {
@@ -103,4 +103,32 @@ test("sign out everywhere ends every session", async ({ browser }) => {
   await expect(laptop).toHaveURL("/sign-in");
   await expectSignedOut(laptop);
   await expectSignedOut(phone);
+});
+
+test("deleting the account signs out every browser and the account can't sign in", async ({
+  browser,
+}) => {
+  const user = await createUser("e2e-delete@example.test");
+  const phone = await signedInDevice(browser, user);
+  const laptop = await signedInDevice(browser, user);
+
+  await laptop.goto("/settings");
+  const confirm = laptop.getByLabel(`Type ${user.email} to confirm`);
+  await confirm.fill("someone-else@example.test");
+  await laptop.getByRole("button", { name: "Delete account" }).click();
+  await expect(laptop.getByRole("main").getByRole("alert")).toHaveText(
+    "Type your email exactly as shown to confirm.",
+  );
+
+  await confirm.fill(user.email);
+  await laptop.getByRole("button", { name: "Delete account" }).click();
+
+  await expect(laptop).toHaveURL("/sign-in");
+  await expectSignedOut(laptop);
+  await expectSignedOut(phone);
+  await laptop.getByLabel("Email").fill(user.email);
+  await laptop.getByLabel("Password").fill(user.password);
+  await laptop.getByRole("button", { name: "Sign in" }).click();
+  await expect(laptop.getByRole("main").getByRole("alert")).toBeVisible();
+  await expect(laptop).toHaveURL("/sign-in");
 });

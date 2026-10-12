@@ -1,9 +1,16 @@
-import { beginSignInAttempt, signInLimit, signInSucceeded } from "@troba/core";
+import {
+  assertNever,
+  beginSignInAttempt,
+  deleteUser,
+  signInLimit,
+  signInSucceeded,
+} from "@troba/core";
 import { APIError } from "better-auth/api";
 import { z } from "zod";
 import { auth, passwordLength } from "./auth";
 import { clientIp } from "./client-ip";
 import { db } from "./db";
+import { uploadsDir } from "./env";
 import { describeDevice } from "./user-agent";
 
 // Account settings (SPEC-identity I3, I4). Each function acts as the user whose session cookie
@@ -137,5 +144,33 @@ export async function signOutEverywhere(requestHeaders: Headers): Promise<void> 
   await signedInSession(requestHeaders);
   await auth().api.revokeSessions({ headers: requestHeaders });
   // The session is already gone; this clears its cookie.
+  await auth().api.signOut({ headers: requestHeaders });
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+// Irreversible (SPEC-identity I4): the user confirms by typing their own email. Their rows,
+// sessions and uploads/<userId>/ are deleted; the last admin is refused.
+export async function deleteAccount(requestHeaders: Headers, confirmEmail: string): Promise<void> {
+  const { user } = await signedInSession(requestHeaders);
+  if (normalizeEmail(confirmEmail) !== normalizeEmail(user.email)) {
+    throw new AccountInputError("Type your email exactly as shown to confirm.");
+  }
+  const result = await deleteUser(db(), { userId: user.id, uploadsDir: uploadsDir() });
+  if (!result.ok) {
+    switch (result.reason) {
+      case "last-admin":
+        throw new AccountInputError(
+          "You're the only admin. Make someone else an admin before deleting your account.",
+        );
+      case "not-found":
+        throw new NotSignedInError();
+      default:
+        assertNever(result.reason);
+    }
+  }
+  // The session row went with the user; this clears its cookie.
   await auth().api.signOut({ headers: requestHeaders });
 }

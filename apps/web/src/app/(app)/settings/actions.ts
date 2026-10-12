@@ -6,6 +6,7 @@ import {
   AccountInputError,
   changeName,
   changePassword,
+  deleteAccount,
   revokeSession,
   signOutEverywhere,
 } from "@/server/account";
@@ -61,5 +62,17 @@ export async function revoke(formData: FormData) {
 export async function signOutAll() {
   await requireUser();
   await signOutEverywhere(await authHeaders());
+  redirect("/sign-in");
+}
+
+export async function deleteMyAccount(_state: FormState, formData: FormData): Promise<FormState> {
+  await requireUser();
+  const requestHeaders = await authHeaders();
+  try {
+    await deleteAccount(requestHeaders, text(formData, "confirmEmail"));
+  } catch (error) {
+    if (error instanceof AccountInputError) return { error: error.message };
+    throw error;
+  }
   redirect("/sign-in");
 }
