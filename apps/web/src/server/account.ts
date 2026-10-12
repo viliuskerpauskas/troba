@@ -50,6 +50,13 @@ async function signedInSession(requestHeaders: Headers) {
   return session;
 }
 
+export async function getProfile(
+  requestHeaders: Headers,
+): Promise<{ name: string; email: string }> {
+  const { user } = await signedInSession(requestHeaders);
+  return { name: user.name, email: user.email };
+}
+
 export async function changeName(requestHeaders: Headers, name: string): Promise<void> {
   const body = { name: parse(Name, name) };
   await auth().api.updateUser({ body, headers: requestHeaders });
