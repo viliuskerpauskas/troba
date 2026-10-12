@@ -263,6 +263,16 @@ describe("checkReview", () => {
       expect(check(reviewFile({ log }))).toEqual([]);
     });
 
+    it("ignore a range repeated in prose, such as the audit's", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}..${C}: tidied.\n- Round 1: \`${A}..${B}\` exists in git log.`;
+      expect(check(reviewFile({ log }))).toEqual([]);
+    });
+
+    it("ignore a Reviewed commit line in prose", () => {
+      const review = reviewFile({ audit: "## Review audit\n\nReviewed commit: matches HEAD." });
+      expect(check(review)).toEqual([]);
+    });
+
     it("read a round written as a heading", () => {
       const log = `### Round 1: ${A}..${B}\n\nFixed.\n\n### Pass: ${B}..${C}`;
       expect(check(reviewFile({ log }))).toEqual([]);

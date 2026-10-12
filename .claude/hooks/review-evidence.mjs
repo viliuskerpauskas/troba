@@ -71,50 +71,59 @@ function mentions(text, file) {
 
 const isPage = (file) => file.startsWith("apps/web/src/app/") || file === "apps/web/next.config.ts";
 
-// The sha on each line labelled `label`; a labelled line without a readable sha is a problem.
-function commitLines(lines, label, problems) {
-  const found = [];
-  for (const line of lines) {
-    const value = labelRegex(label).exec(line)?.[1];
-    if (value === undefined) continue;
+// The lines labelled `label` whose text starts like a sha, with that text. Only these count, so
+// prose such as "Pass: all checklist items" or "Reviewed commit: matches HEAD." is left alone,
+// while a short sha or a three-dot range is still named.
+function shaLines(lines, label) {
+  const regex = labelRegex(label);
+  return lines
+    .map((line) => ({ line, value: regex.exec(line)?.[1] }))
+    .filter(({ value }) => value !== undefined && /^\s*`?[0-9a-f]{7,}(?![g-z])/i.test(value));
+}
+
+// The sha on each line; a line without a readable full sha is a problem.
+function commitShas(found, problems) {
+  const shas = [];
+  for (const { line, value } of found) {
     const sha = value.match(new RegExp(String.raw`^\s*\`?(${SHA})`))?.[1];
-    if (sha) found.push(sha);
+    if (sha) shas.push(sha);
     else problems.push(`can't read a full 40-character sha in: "${line.trim()}"`);
   }
-  return found;
+  return shas;
 }
 
 function checkChain(lines, head, isCommit) {
   const problems = [];
-  const labelled = lines.filter((line) => labelRegex("Reviewed commit").test(line)).length;
-  const reviewed = commitLines(lines, "Reviewed commit", problems);
-  if (labelled === 0) problems.push('no "Reviewed commit: <sha>" line');
-  if (labelled > 1) problems.push('more than one "Reviewed commit:" line');
-  const last = labelled === 1 ? (reviewed[0] ?? null) : null;
+  const reviewedLines = shaLines(lines, "Reviewed commit");
+  const reviewed = commitShas(reviewedLines, problems);
+  if (reviewedLines.length === 0) problems.push('no "Reviewed commit: <sha>" line');
+  if (reviewedLines.length > 1) problems.push('more than one "Reviewed commit:" line');
+  const last = reviewedLines.length === 1 ? (reviewed[0] ?? null) : null;
   if (last && last !== head) problems.push(`"Reviewed commit:" is ${last}, not HEAD (${head})`);
 
-  const firstLines = lines.filter((line) => labelRegex("First reviewed commit").test(line));
-  const [first] = commitLines(firstLines, "First reviewed commit", problems);
+  const firstLines = shaLines(lines, "First reviewed commit");
+  const [first] = commitShas(firstLines, problems);
   if (firstLines.length === 0) problems.push('no "First reviewed commit: <sha>" line');
   if (firstLines.length > 1) problems.push('more than one "First reviewed commit:" line');
   if (!first || firstLines.length > 1) return problems;
 
   // Round and pass lines in file order, each "<from>..<to>"; together they must run from
-  // the first reviewed commit to the Reviewed commit without a gap. A line counts once its
-  // text starts like a sha, so prose such as "Pass: all checklist items" is left alone, while
-  // a short sha or a three-dot range is named.
+  // the first reviewed commit to the Reviewed commit without a gap. A range already read
+  // (say, quoted again by the audit) is skipped. Shas are only checked to exist: after a
+  // rebase the history isn't an ancestry chain, so ancestry is left to the audit.
   const range = new RegExp(String.raw`^\s*\`?(${SHA})\.\.(${SHA})`);
   let reached = first;
   const shas = new Set([reached]);
-  for (const line of lines) {
-    const value = labelRegex(String.raw`Round \d+|Pass`).exec(line)?.[1];
-    if (value === undefined || !/^\s*`?[0-9a-f]{7,}(?![g-z])/i.test(value)) continue;
+  const seen = new Set();
+  for (const { line, value } of shaLines(lines, String.raw`Round \d+|Pass`)) {
     const match = value.match(range);
     if (!match) {
       problems.push(`can't read a "<full sha>..<full sha>" range in: "${line.trim()}"`);
       continue;
     }
     const [, from, to] = match;
+    if (seen.has(`${from}..${to}`)) continue;
+    seen.add(`${from}..${to}`);
     if (from !== reached) {
       problems.push(
         `the review history has a gap: it reaches ${reached}, but the next range starts at ${from}`,
