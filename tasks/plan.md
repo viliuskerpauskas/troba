@@ -61,7 +61,7 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 - [T44](https://github.com/viliuskerpauskas/troba/issues/44) feat(identity): delete expired sessions (after T13)
 
 ### Checkpoint B: identity
-- [ ] Invite → sign up → sign in works locally end to end
+- [x] Invite → sign up → sign in works locally end to end
 - [ ] Isolation helper and delete-account test green
 - [ ] Review with owner before money
 
