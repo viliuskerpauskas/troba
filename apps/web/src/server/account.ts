@@ -58,16 +58,19 @@ export async function getProfile(
 }
 
 export async function changeName(requestHeaders: Headers, name: string): Promise<void> {
+  await signedInSession(requestHeaders);
   const body = { name: parse(Name, name) };
   await auth().api.updateUser({ body, headers: requestHeaders });
 }
 
-// Ends every other session (SPEC-identity I4). The current device gets a new session cookie in
-// the returned headers; inside a server action nextCookies() also sets it on the response.
+// Signs out every other device (SPEC-identity I4): Better Auth deletes all the user's sessions
+// and starts a new one for this device, whose cookie is in the returned headers; inside a server
+// action nextCookies() also sets it on the response.
 export async function changePassword(
   requestHeaders: Headers,
   input: { currentPassword: string; newPassword: string },
 ): Promise<{ headers: Headers }> {
+  await signedInSession(requestHeaders);
   const newPassword = parse(NewPassword, input.newPassword);
   try {
     const { headers } = await auth().api.changePassword({

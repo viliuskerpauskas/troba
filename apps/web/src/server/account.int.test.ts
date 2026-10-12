@@ -238,4 +238,32 @@ describe("account", () => {
     await expect(account.revokeSession(signedOut, crypto.randomUUID())).rejects.toThrow();
     await expect(account.signOutEverywhere(signedOut)).rejects.toThrow();
   });
+
+  it("refuses every call for a banned user and changes nothing", async () => {
+    const laptop = await signIn(user.email, firefoxOnWindows);
+    // Set directly: banning through the admin plugin also revokes the sessions, and this checks
+    // the account functions themselves, for callers that don't go through requireUser().
+    await modules.db.db().$client.query("update users set banned = true where id = $1", [user.id]);
+    const { account } = modules;
+
+    await expect(account.changeName(laptop, "Banned Rename")).rejects.toThrow(
+      account.NotSignedInError,
+    );
+    await expect(
+      account.changePassword(laptop, { currentPassword: password, newPassword }),
+    ).rejects.toThrow(account.NotSignedInError);
+    await expect(account.listSessions(laptop)).rejects.toThrow(account.NotSignedInError);
+    await expect(account.revokeSession(laptop, crypto.randomUUID())).rejects.toThrow(
+      account.NotSignedInError,
+    );
+    await expect(account.signOutEverywhere(laptop)).rejects.toThrow(account.NotSignedInError);
+
+    const saved = await modules.db
+      .db()
+      .query.users.findFirst({ where: (users, { eq }) => eq(users.id, user.id) });
+    expect(saved?.name).toBe("Example User");
+    expect(await sessionsOf(user.id)).toHaveLength(1);
+    await modules.db.db().$client.query("update users set banned = false where id = $1", [user.id]);
+    await expect(signIn(user.email, firefoxOnWindows)).resolves.toBeDefined();
+  });
 });
