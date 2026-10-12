@@ -42,7 +42,7 @@ export async function signUpWithInvite(input: {
   if (!parsed.success) return inputError(parsed.error);
   // A bound invite signs up its own email, so the submitted one only matters when unbound.
   if (!invite.email) {
-    const email = Email.safeParse(input.email);
+    const email = Email.safeParse(input.email.trim());
     if (!email.success) return inputError(email.error);
   }
 

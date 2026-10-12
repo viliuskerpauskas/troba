@@ -18,6 +18,7 @@ export type InviteSummary = {
   createdAt: Date;
   expiresAt: Date;
   usedAt: Date | null;
+  revokedAt: Date | null;
 };
 
 export type RedeemResult =
@@ -143,10 +144,7 @@ export async function listInvites(db: Db, now = new Date()): Promise<InviteSumma
     })
     .from(invites)
     .orderBy(desc(invites.createdAt));
-  return rows.map(({ revokedAt, ...invite }) => ({
-    ...invite,
-    status: statusOf({ ...invite, revokedAt }, now),
-  }));
+  return rows.map((invite) => ({ ...invite, status: statusOf(invite, now) }));
 }
 
 // Only pending invites can be revoked. Returns whether one was.
