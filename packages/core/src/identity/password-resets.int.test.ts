@@ -78,6 +78,32 @@ describe("password resets", () => {
       expect(resetLifetimeMs).toBe(hour);
     });
 
+    it("replaces the user's earlier links, so only the newest one works", async () => {
+      const { userId } = await createUser();
+      const other = await createUser();
+      const othersReset = await createPasswordReset(db, { userId: other.userId });
+      const first = await createPasswordReset(db, { userId });
+
+      const second = await createPasswordReset(db, { userId });
+
+      expect(await findPendingPasswordReset(db, first!.token)).toBeNull();
+      expect(await findPendingPasswordReset(db, second!.token)).not.toBeNull();
+      expect(await findPendingPasswordReset(db, othersReset!.token)).not.toBeNull();
+    });
+
+    it("leaves one working link when several are created at the same time", async () => {
+      const { userId } = await createUser();
+
+      const resets = await Promise.all(
+        Array.from({ length: 4 }, () => createPasswordReset(db, { userId })),
+      );
+
+      const pending = await Promise.all(
+        resets.map((reset) => findPendingPasswordReset(db, reset!.token)),
+      );
+      expect(pending.filter((reset) => reset !== null)).toHaveLength(1);
+    });
+
     it("returns null for a user that doesn't exist", async () => {
       expect(await createPasswordReset(db, { userId: crypto.randomUUID() })).toBeNull();
     });
@@ -92,12 +118,12 @@ describe("password resets", () => {
     });
 
     it("returns null for an unknown, expired or used token", async () => {
-      const { userId } = await createUser();
+      // Separate users: a new link would replace the same user's expired one.
       const expired = await createPasswordReset(db, {
-        userId,
+        userId: (await createUser()).userId,
         now: new Date(Date.now() - hour - 1000),
       });
-      const used = await createPasswordReset(db, { userId });
+      const used = await createPasswordReset(db, { userId: (await createUser()).userId });
       await resetPassword(db, { token: used!.token, passwordHash: "new-hash" });
 
       expect(await findPendingPasswordReset(db, "no-such-token")).toBeNull();

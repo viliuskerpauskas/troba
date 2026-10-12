@@ -14,23 +14,34 @@ function isPending(now: Date) {
   return and(isNull(passwordResets.usedAt), gt(passwordResets.expiresAt, now));
 }
 
-// Returns null if the user doesn't exist.
+// Replaces the user's unused links, so only the newest one works. Returns null if the user
+// doesn't exist.
 export async function createPasswordReset(
   db: Db,
   input: { userId: string; now?: Date },
 ): Promise<{ token: string } | null> {
   const now = input.now ?? new Date();
-  const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId));
-  if (!user) return null;
-
   const token = newToken();
-  await db.insert(passwordResets).values({
-    tokenHash: hashToken(token),
-    userId: user.id,
-    createdAt: now,
-    expiresAt: new Date(now.getTime() + resetLifetimeMs),
+  return db.transaction(async (tx) => {
+    // Locked, so two links created at once for one user leave only the second.
+    const [user] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .for("update");
+    if (!user) return null;
+
+    await tx
+      .delete(passwordResets)
+      .where(and(eq(passwordResets.userId, user.id), isNull(passwordResets.usedAt)));
+    await tx.insert(passwordResets).values({
+      tokenHash: hashToken(token),
+      userId: user.id,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + resetLifetimeMs),
+    });
+    return { token };
   });
-  return { token };
 }
 
 // Unknown, expired and used tokens all return null, so callers can't tell them apart.
