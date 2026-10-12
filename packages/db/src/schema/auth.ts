@@ -110,3 +110,22 @@ export const invites = pgTable("invites", {
   usedBy: uuid("used_by").references(() => users.id, { onDelete: "set null" }),
   revokedAt: timestamptz("revoked_at"),
 });
+
+// Sign-in attempts (SPEC-identity I3), for rate limiting by email and IP. A row is written before
+// the password is checked and deleted when the sign-in succeeds, so the rows left are failures
+// (or attempts still in progress). Rows older than the limit's window are deleted as new ones come.
+export const signInAttempts = pgTable(
+  "sign_in_attempts",
+  {
+    id: id(),
+    // Lowercased, like Better Auth stores it.
+    email: text("email").notNull(),
+    // Null when the request carried no client address (local development without a proxy).
+    ipAddress: text("ip_address"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("sign_in_attempts_email_idx").on(table.email, table.createdAt),
+    index("sign_in_attempts_ip_address_idx").on(table.ipAddress, table.createdAt),
+  ],
+);
