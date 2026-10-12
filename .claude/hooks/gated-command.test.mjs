@@ -112,6 +112,48 @@ describe("gatedCommands", () => {
     ]);
   });
 
+  it("skips # comments, so an apostrophe in one doesn't open a quote", () => {
+    const twoComments =
+      "# Push the branch's commits\ngit push -u origin HEAD\n# Then open the PR's page";
+    expect(gatedCommands(twoComments)).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands(twoComments, "powershell")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("# Don't forget\ngit push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push # it's done")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("<# it's a\nblock #>\ngit push", "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("doesn't treat a # inside a word as a comment", () => {
+    expect(gatedCommands("git log --format=%h#x; git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("echo a#b'; git push'")).toEqual([]);
+  });
+
+  it("finds a push in a $(…) inside double quotes", () => {
+    expect(gatedCommands('out="$(git push 2>&1)"')).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands('out="`gh pr create --fill`"')).toEqual([
+      { kind: "pr-create", cwd: null },
+    ]);
+    expect(gatedCommands('$out = "$(git push)"', "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    expect(gatedCommands("git commit -m \"$(cat <<'EOF'\ngit push\nEOF\n)\"")).toEqual([]);
+  });
+
+  it("reads the directory after Push-Location, -Path, -- and a prefix word", () => {
+    expect(gatedCommands("Push-Location ..\\wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "..\\wt" },
+    ]);
+    expect(gatedCommands("Set-Location -Path ..\\wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "..\\wt" },
+    ]);
+    expect(gatedCommands("cd -- ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("{ cd ../wt && git push; }")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("if cd ../wt; then git push; fi")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+  });
+
   it("finds a PR create with -R after pr", () => {
     expect(gatedCommands("gh pr -R o/r create")).toEqual([{ kind: "pr-create", cwd: null }]);
   });

@@ -1,13 +1,17 @@
 // Which parts of a Bash or PowerShell command .claude/hooks/review-gate.mjs must check: each
 // `git push` and `gh pr create` (or `gh pr new`), with the directory it runs in when the command
 // names one (`git -C <dir>`, or an earlier `cd <dir>`). Text that only mentions them, in quotes,
-// a heredoc or a here-string, doesn't count. It's a guardrail for the agent's usual commands,
+// a comment, a heredoc or a here-string, doesn't count, but a `$(…)` inside double quotes runs
+// and is checked. It's a guardrail for the agent's usual commands,
 // not a full shell parser, so where it can't be sure it errs towards checking: a push is found
 // after any prefix word (`time`, `env`, `if`, `sudo`…), an unquoted `echo git push` counts, and a
 // quote left open makes any mention of the commands "unclear", which the hook refuses.
 // `git push --dry-run` is checked too.
 
-const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl"]);
+const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl", "push-location"]);
+// Words that can come before a `cd`, and the options a `cd` can take before its directory.
+const CD_PREFIXES = new Set(["{", "!", "if", "then", "else", "elif", "do", "while", "until"]);
+const CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
 const HELP = new Set(["--help", "-h"]);
 // Global options whose value is the next word.
 const GIT_VALUE_OPTIONS = new Set([
@@ -38,13 +42,18 @@ function joinLines(command, shell) {
 // and ")" kept as markers so a `cd` inside a subshell stays inside it. Commands end at unquoted
 // newlines, `;`, `|`, `&`, `(` and `)`. Bash escapes with
 // a backslash and PowerShell with a backtick; in PowerShell a backslash is just a character,
-// and '' inside single quotes is a quote.
+// and '' inside single quotes is a quote. A `#` that starts a word comments out the rest of the
+// line, as does PowerShell's `<# … #>` block. A `$(…)` (or a bash `…` in backticks) inside
+// double quotes is tokenized too, as a subshell.
 function tokenize(command, shell) {
   const ps = shell === "powershell";
+  const substitution = ps ? /\$\(([\s\S]*)\)/g : /\$\(([\s\S]*)\)|`([^`]*)`/g;
   const items = [];
   let words = [];
   let word = null;
   let quote = null;
+  let quoteStart = 0;
+  let unbalanced = false;
   const add = (text, quoted = false) => {
     word ??= { text: "", quoted: false };
     word.text += text;
@@ -68,13 +77,25 @@ function tokenize(command, shell) {
       else if (ps && next === "'") add(command[++i], true);
       else quote = null;
     } else if (quote === '"') {
-      if (c === '"') quote = null;
-      else if (escapes && next !== undefined && (ps || '"\\$`'.includes(next))) {
+      if (c === '"') {
+        quote = null;
+        for (const [, dollar, backtick] of command.slice(quoteStart, i).matchAll(substitution)) {
+          const inner = tokenize(dollar ?? backtick, shell);
+          items.push("(", ...inner.items, ")");
+          unbalanced ||= inner.unbalanced;
+        }
+      } else if (escapes && next !== undefined && (ps || '"\\$`'.includes(next))) {
         add(command[++i], true);
       } else add(c, true);
     } else if (c === "'" || c === '"') {
       quote = c;
+      quoteStart = i + 1;
       add("", true);
+    } else if (word === null && c === "#") {
+      while (command[i + 1] !== undefined && command[i + 1] !== "\n") i++;
+    } else if (ps && word === null && c === "<" && next === "#") {
+      const end = command.indexOf("#>", i + 2);
+      i = end === -1 ? command.length : end + 1;
     } else if (escapes && next !== undefined) {
       add(command[++i]);
     } else if (c === "\n" || c === ";" || c === "|") {
@@ -92,7 +113,7 @@ function tokenize(command, shell) {
     }
   }
   endCommand();
-  return { items, unbalanced: quote !== null };
+  return { items, unbalanced: unbalanced || quote !== null };
 }
 
 const isAbsolute = (dir) => /^([/\\~]|[A-Za-z]:)/.test(dir);
@@ -136,12 +157,14 @@ export function gatedCommands(command, shell = "bash") {
     else if (item === ")") cwd = subshells.length ? subshells.pop() : cwd;
     else {
       const words = item;
-      const start = words.findIndex(
-        (w) => w.quoted || (w.text !== "&" && !/^[A-Za-z_]\w*=/.test(w.text)),
-      );
+      const start = words.findIndex((w) => w.quoted || !/^[A-Za-z_]\w*=/.test(w.text));
       if (start === -1 || words.some((w) => !w.quoted && HELP.has(w.text))) continue;
-      if (CD.has(program(words[start])) && !words[start].quoted) {
-        if (words[start + 1]) cwd = join(cwd, words[start + 1].text);
+      let at = start;
+      while (at < words.length - 1 && !words[at].quoted && CD_PREFIXES.has(words[at].text)) at++;
+      if (CD.has(program(words[at])) && !words[at].quoted) {
+        let dir = at + 1;
+        while (words[dir] && CD_OPTIONS.has(words[dir].text.toLowerCase())) dir++;
+        if (words[dir]) cwd = join(cwd, words[dir].text);
         continue;
       }
       // The program can follow prefix words; quoted words only count as the first word.
