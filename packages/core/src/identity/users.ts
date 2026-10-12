@@ -67,3 +67,8 @@ export async function enableUser(db: Db, input: { userId: string }): Promise<boo
     .returning({ id: users.id });
   return enabled.length > 0;
 }
+
+// Called when a session is created or refreshed, for the users list's "last active".
+export async function recordActivity(db: Db, userId: string, now = new Date()): Promise<void> {
+  await db.update(users).set({ lastActiveAt: now }).where(eq(users.id, userId));
+}

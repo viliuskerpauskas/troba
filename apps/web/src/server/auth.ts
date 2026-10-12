@@ -1,3 +1,4 @@
+import { recordActivity } from "@troba/core";
 import { schema } from "@troba/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -47,6 +48,14 @@ function createAuth() {
       database: { generateId: "uuid" },
       // Secure even over http://localhost, which browsers treat as a secure context.
       useSecureCookies: true,
+    },
+    // Last active for the admin users list (SPEC-identity I6). A session is refreshed at most
+    // once a day (updateAge), so this is day-accurate.
+    databaseHooks: {
+      session: {
+        create: { after: (session) => recordActivity(db(), session.userId) },
+        update: { after: (session) => recordActivity(db(), session.userId) },
+      },
     },
     plugins: [admin({ ac, roles, defaultRole: "user", adminRoles: ["admin"] }), nextCookies()],
   });
