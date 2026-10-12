@@ -140,6 +140,16 @@ describe("gatedCommands", () => {
     expect(gatedCommands("git commit -m \"$(cat <<'EOF'\ngit push\nEOF\n)\"")).toEqual([]);
   });
 
+  it("refuses to guess when quotes inside a $(…) in double quotes cut it short", () => {
+    expect(gatedCommands('out="$(git commit -m "msg" && git push)"')).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+    expect(gatedCommands('out="`git commit -m "msg" && git push`"')).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+    expect(gatedCommands('out="$(git push \'x)"')).toEqual([{ kind: "unclear", cwd: null }]);
+  });
+
   it("reads the directory after Push-Location, -Path, -- and a prefix word", () => {
     expect(gatedCommands("Push-Location ..\\wt; git push", "powershell")).toEqual([
       { kind: "push", cwd: "..\\wt" },

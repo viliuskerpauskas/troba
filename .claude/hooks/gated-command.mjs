@@ -79,7 +79,14 @@ function tokenize(command, shell) {
     } else if (quote === '"') {
       if (c === '"') {
         quote = null;
-        for (const [, dollar, backtick] of command.slice(quoteStart, i).matchAll(substitution)) {
+        // Quotes nested inside a `$(…)` end this string early in a reading this simple, which
+        // leaves a `$(` unclosed or a bash backtick unpaired: then the command can't be read.
+        const raw = command.slice(quoteStart, i);
+        const count = (char) => raw.split(char).length - 1;
+        if ((raw.includes("$(") && count("(") > count(")")) || (!ps && count("`") % 2)) {
+          unbalanced = true;
+        }
+        for (const [, dollar, backtick] of raw.matchAll(substitution)) {
           const inner = tokenize(dollar ?? backtick, shell);
           items.push("(", ...inner.items, ")");
           unbalanced ||= inner.unbalanced;
