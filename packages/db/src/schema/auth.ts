@@ -35,6 +35,9 @@ export const users = pgTable(
     banned: boolean("banned").default(false),
     banReason: text("ban_reason"),
     banExpires: timestamptz("ban_expires"),
+    // When a session was last created or refreshed (server/auth.ts), for the admin users list.
+    // Kept on the user because sessions are deleted on sign-out and when a user is disabled.
+    lastActiveAt: timestamptz("last_active_at"),
   },
   (table) => [check("users_role_check", sql`${table.role} in ('admin', 'user')`)],
 );
@@ -110,6 +113,23 @@ export const invites = pgTable("invites", {
   usedBy: uuid("used_by").references(() => users.id, { onDelete: "set null" }),
   revokedAt: timestamptz("revoked_at"),
 });
+
+// Password reset links (SPEC-identity I5): an admin creates one for a user and sends it
+// themselves. Single-use, short-lived, and only a SHA-256 hash of the token is stored.
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: id(),
+    tokenHash: text("token_hash").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    usedAt: timestamptz("used_at"),
+  },
+  (table) => [index("password_resets_user_id_idx").on(table.userId)],
+);
 
 // Sign-in attempts (SPEC-identity I3), for rate limiting by email and IP. A row is written before
 // the password is checked and deleted when the sign-in succeeds, so the rows left are failures
