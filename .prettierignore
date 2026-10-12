@@ -1,6 +1,7 @@
 pnpm-lock.yaml
 .private/
 **/.next/
+**/.cli/
 **/dist/
 **/test-results/
 **/playwright-report/

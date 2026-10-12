@@ -1,4 +1,4 @@
-// One-shot migrate command for the container image, bundled to migrate.js by build-migrate.ts.
+// One-shot migrate command for the container image, bundled to migrate.js by build-cli.ts.
 // The migrations folder is copied next to the bundle.
 import path from "node:path";
 import { runMigrateCommand } from "@troba/db/migrate";

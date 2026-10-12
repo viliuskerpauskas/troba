@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { migrationsFolder } from "@troba/db/migrate";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildMigrate } from "./build-migrate";
+import { buildCli } from "./build-cli";
 
 let outdir: string;
 const adminUrl = process.env.DATABASE_URL!;
@@ -42,7 +42,7 @@ async function runMigrate(env: Record<string, string>) {
 describe("migrate.js bundle", () => {
   beforeAll(async () => {
     outdir = await mkdtemp(path.join(tmpdir(), "troba-migrate-"));
-    await buildMigrate(outdir);
+    await buildCli(outdir);
     await query(adminUrl, `create database ${dbName}`);
   });
   afterAll(async () => {
