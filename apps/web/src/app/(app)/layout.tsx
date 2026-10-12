@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { signOut } from "./actions";
 
@@ -7,6 +8,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <header>
+        <nav>
+          <Link href="/money">Money</Link> <Link href="/settings">Settings</Link>
+        </nav>
         <form action={signOut}>
           <button type="submit">Sign out</button>
         </form>
