@@ -18,6 +18,13 @@ export function env(): Env {
   return cached;
 }
 
+// Users' files, one folder per user: <UPLOADS_DIR>/<userId>/. A relative path is resolved against
+// the working directory. Kept out of env() so the admin CLI, which never touches files, doesn't
+// need it.
+export function uploadsDir(): string {
+  return z.string().min(1, { error: "UPLOADS_DIR is not set." }).parse(process.env.UPLOADS_DIR);
+}
+
 // Kept out of env() so /api/health can report the version even when the rest of the env is broken.
 export function gitSha(): string {
   return process.env.GIT_SHA || "dev";
