@@ -14,7 +14,14 @@ type Caller = "page" | "api";
 // request, and headers() still holds the old cookie there.
 export async function authHeaders(): Promise<Headers> {
   const requestHeaders = new Headers(await headers());
-  requestHeaders.set("cookie", (await cookies()).toString());
+  // Built from the entries, not cookies().toString(): inside an action that's Set-Cookie syntax
+  // (with Path, Expires and deleted cookies), not a Cookie header.
+  const cookie = (await cookies())
+    .getAll()
+    .filter(({ value }) => value !== "")
+    .map(({ name, value }) => `${name}=${encodeURIComponent(value)}`)
+    .join("; ");
+  requestHeaders.set("cookie", cookie);
   return requestHeaders;
 }
 
