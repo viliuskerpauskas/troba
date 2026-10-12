@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDatabase } from "./test-database";
+import { createTestDatabase } from "@troba/db/test-database";
 
 const password = "correct horse battery";
 

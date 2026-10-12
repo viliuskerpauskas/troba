@@ -6,7 +6,7 @@ import path from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildCli } from "./build-cli";
-import { createTestDatabase } from "./server/test-database";
+import { createTestDatabase } from "@troba/db/test-database";
 
 const password = "correct horse battery";
 

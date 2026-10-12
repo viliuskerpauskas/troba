@@ -5,5 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@troba/db": "workspace:*",
+    "drizzle-orm": "0.45.4"
   }
 }

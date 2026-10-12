@@ -1,5 +1,5 @@
 import { schema } from "@troba/db";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { forbidden, redirect, unauthorized } from "next/navigation";
 import { auth } from "./auth";
 
@@ -9,9 +9,18 @@ export type SessionUser = { userId: string; role: Role };
 // Pages and server actions redirect to the sign-in page; /api/* route handlers answer 401.
 type Caller = "page" | "api";
 
+// The request headers to hand Better Auth, with the cookies as they are now. A server action
+// that replaces the session cookie (changing the password does) re-renders the page in the same
+// request, and headers() still holds the old cookie there.
+export async function authHeaders(): Promise<Headers> {
+  const requestHeaders = new Headers(await headers());
+  requestHeaders.set("cookie", (await cookies()).toString());
+  return requestHeaders;
+}
+
 export async function currentUser(): Promise<SessionUser | null> {
   // headers() first: it marks the page dynamic before auth() reads env, which a build lacks.
-  const requestHeaders = await headers();
+  const requestHeaders = await authHeaders();
   const session = await auth().api.getSession({ headers: requestHeaders });
   if (!session || session.user.banned) return null;
   return {

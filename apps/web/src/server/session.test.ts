@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
 
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+// The request arrived with an old session cookie; an action has since replaced it.
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ cookie: "session_token=old", "user-agent": "test" }),
+  cookies: async () => ({ toString: () => "session_token=new" }),
+}));
 // The real functions throw special errors that Next turns into a redirect, 401 or 403.
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -17,7 +21,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("./auth", () => ({ auth: () => ({ api: { getSession } }) }));
 
-const { requireAdmin, requireUser } = await import("./session");
+const { authHeaders, requireAdmin, requireUser } = await import("./session");
 
 function sessionFor(user: { role?: string | null; banned?: boolean | null }) {
   return { session: { id: "s1" }, user: { id: "u1", ...user } };
@@ -79,5 +83,22 @@ describe("requireAdmin", () => {
 
     await expect(requireAdmin()).rejects.toThrow("redirect:/sign-in");
     await expect(requireAdmin("api")).rejects.toThrow("unauthorized");
+  });
+});
+
+describe("authHeaders", () => {
+  it("carries the cookies as they are now, not as the request sent them", async () => {
+    const requestHeaders = await authHeaders();
+
+    expect(requestHeaders.get("cookie")).toBe("session_token=new");
+    expect(requestHeaders.get("user-agent")).toBe("test");
+  });
+
+  it("is what requireUser reads the session from", async () => {
+    getSession.mockReset().mockResolvedValue(sessionFor({ role: "user" }));
+
+    await requireUser();
+
+    expect(getSession.mock.calls[0]![0].headers.get("cookie")).toBe("session_token=new");
   });
 });

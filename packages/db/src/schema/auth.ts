@@ -93,3 +93,20 @@ export const verifications = pgTable(
   },
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
 );
+
+// Invites (SPEC-identity I2). Admin data shared by all admins rather than a user-owned row: any
+// admin can see and revoke any invite. Only a SHA-256 hash of the token is stored.
+export const invites = pgTable("invites", {
+  id: id(),
+  tokenHash: text("token_hash").notNull().unique(),
+  // When set, only this email can sign up with the invite.
+  email: text("email"),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: createdAt(),
+  expiresAt: timestamptz("expires_at").notNull(),
+  usedAt: timestamptz("used_at"),
+  usedBy: uuid("used_by").references(() => users.id, { onDelete: "set null" }),
+  revokedAt: timestamptz("revoked_at"),
+});

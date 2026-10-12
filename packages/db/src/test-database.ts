@@ -1,8 +1,8 @@
 // Integration-test helper: a fresh, migrated database, so tests don't depend on (or touch)
 // whatever is in the dev database.
 import { randomBytes } from "node:crypto";
-import { migrateDatabase } from "@troba/db/migrate";
 import pg from "pg";
+import { migrateDatabase } from "./migrate";
 
 async function run(url: string, sql: string) {
   const client = new pg.Client({ connectionString: url });
