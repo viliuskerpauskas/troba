@@ -1,4 +1,9 @@
-import { MutableRequestCookiesAdapter } from "next/dist/server/web/spec-extension/adapters/request-cookies";
+// Next internals, not public API: the real cookie jars cookies() returns. A Next upgrade can move
+// these paths; the import then fails loudly rather than the tests passing wrongly.
+import {
+  MutableRequestCookiesAdapter,
+  responseCookiesToRequestCookies,
+} from "next/dist/server/web/spec-extension/adapters/request-cookies";
 import { RequestCookies, type ResponseCookies } from "next/dist/server/web/spec-extension/cookies";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -108,9 +113,9 @@ describe("authHeaders", () => {
     expect(authRequest.get("user-agent")).toBe("test");
   });
 
-  it("in a server action, sends cookies set or deleted earlier in the action as a Cookie header", async () => {
+  // What Better Auth does when changing the password: a new session cookie with attributes.
+  function actionJarAfterPasswordChange() {
     const actionJar = MutableRequestCookiesAdapter.wrap(new RequestCookies(requestHeaders));
-    // What Better Auth does when changing the password: a new session cookie with attributes.
     actionJar.set(sessionCookie, "new.sig+=", {
       path: "/",
       httpOnly: true,
@@ -119,7 +124,21 @@ describe("authHeaders", () => {
       maxAge: 2_592_000,
     });
     actionJar.delete("stale");
-    jar = actionJar;
+    return actionJar;
+  }
+
+  it("in a server action, reflects cookies set or deleted so far", async () => {
+    jar = actionJarAfterPasswordChange();
+
+    const authRequest = await authHeaders();
+
+    expect(authRequest.get("cookie")).toBe(`${sessionCookie}=new.sig%2B%3D; theme=dark`);
+  });
+
+  it("in the re-render after an action, leaves out cookies the action deleted", async () => {
+    // Next hands the re-render a request jar made from the action's cookies, where a deleted
+    // cookie is still an entry with an empty value.
+    jar = responseCookiesToRequestCookies(actionJarAfterPasswordChange());
 
     const authRequest = await authHeaders();
 
