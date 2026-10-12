@@ -120,7 +120,7 @@ export const signInAttempts = pgTable(
     id: id(),
     // Lowercased, like Better Auth stores it.
     email: text("email").notNull(),
-    // Null when the request carried no client address (local development without a proxy).
+    // Null when the request carried no client address.
     ipAddress: text("ip_address"),
     createdAt: createdAt(),
   },

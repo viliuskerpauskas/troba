@@ -58,7 +58,7 @@ Only invited people can use troba. Each user signs in securely, and **no user ca
 
 ## Tech Stack
 
-Better Auth with its Drizzle adapter (Postgres) and the email/password, admin (roles, ban, list users) and rate-limit features. Invites are a small custom table plus a server action that creates the user through Better Auth's server API, with public sign-up disabled. *Verify* the current plugin APIs (`source-driven-development`) before building.
+Better Auth with its Drizzle adapter (Postgres) and the email/password and admin (roles, ban, list users) features. Sign-in rate limiting is a small custom table (`sign_in_attempts`) in `packages/core`: sign-in runs as a server action through Better Auth's server API, which Better Auth's own rate limiter (HTTP endpoints only) doesn't cover. Invites are a small custom table plus a server action that creates the user through Better Auth's server API, with public sign-up disabled. *Verify* the current plugin APIs (`source-driven-development`) before building.
 
 ## Commands
 

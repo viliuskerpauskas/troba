@@ -24,7 +24,8 @@ function normalizeEmail(email: string): string {
 // The attempt is inserted before counting, so concurrent requests can't all slip under the limit:
 // every request counts the attempts committed before it, and attempts let through are never
 // removed, so at most 5 are let through. A refused attempt is removed again, so retrying while
-// locked out doesn't push the lockout further back.
+// locked out doesn't push the lockout further back. This relies on each statement committing on
+// its own: don't call it inside a transaction, which would hide the insert from other requests.
 export async function beginSignInAttempt(
   db: Db,
   input: { email: string; ipAddress: string | null },

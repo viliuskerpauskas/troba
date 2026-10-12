@@ -104,7 +104,11 @@ describe("sign-in limit", () => {
       Array.from({ length: 20 }, () => beginSignInAttempt(db, { email, ipAddress: null })),
     );
 
-    expect(attempts.filter((attempt) => attempt !== null).length).toBeLessThanOrEqual(5);
+    const allowed = attempts.filter((attempt) => attempt !== null).length;
+    expect(allowed).toBeLessThanOrEqual(5);
+    // Refusing everything would also pass the line above: the rest of the 5 are still allowed.
+    await fail(5 - allowed, { email, ipAddress: null });
+    expect(await beginSignInAttempt(db, { email, ipAddress: null })).toBeNull();
   });
 
   describe("signInSucceeded", () => {

@@ -68,7 +68,7 @@ test("the 6th failed sign-in in 15 minutes is refused, even with the right passw
   page,
 }) => {
   // Its own user and client address, so the lockout can't affect other tests: without a proxy,
-  // the app sees every test's requests as coming from 127.0.0.1. 192.0.2.0/24 is TEST-NET-1.
+  // the app sees every test's requests as coming from the loopback address. 192.0.2.0/24 is TEST-NET-1.
   await page.setExtraHTTPHeaders({ "x-forwarded-for": "192.0.2.11" });
   const email = "e2e-locked-out@example.test";
   await db().$client.query("delete from users where email = $1", [email]);

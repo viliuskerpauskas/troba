@@ -66,7 +66,12 @@ describe("signInWithPassword", () => {
 
   it("refuses the 6th attempt in 15 minutes for one email, even with the right password", async () => {
     const email = await createUser();
-    for (let i = 0; i < 5; i++) await signIn(fromIp(newIp()), email, wrongPassword);
+    for (let i = 0; i < 5; i++) {
+      expect(await signIn(fromIp(newIp()), email, wrongPassword)).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+    }
 
     expect(await signIn(fromIp(newIp()), email, password)).toEqual({
       ok: false,
@@ -76,7 +81,12 @@ describe("signInWithPassword", () => {
 
   it("refuses the 6th failed attempt from one IP address", async () => {
     const ip = newIp();
-    for (let i = 0; i < 5; i++) await signIn(fromIp(ip), await createUser(), wrongPassword);
+    for (let i = 0; i < 5; i++) {
+      expect(await signIn(fromIp(ip), await createUser(), wrongPassword)).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+    }
 
     expect(await signIn(fromIp(ip), await createUser(), password)).toEqual({
       ok: false,
