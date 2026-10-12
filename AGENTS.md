@@ -78,7 +78,7 @@ Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agen
 
   Fix Critical and Important findings in fix rounds, so the review can't loop:
   - A fix round re-runs Verify, then reviews only the fix commits (`git diff <reviewed sha>..HEAD`): the five-axis review, plus the security and performance checklist items the fix touches. Re-run the fresh-context review only if a fix changes the design.
-  - Fixes for Suggestions and Nits need Verify but don't start a fix round.
+  - Fixes for Suggestions and Nits don't start a fix round: re-run Verify, read their diff, and update the `Reviewed commit:` line. A fix that turns out to change behaviour beyond the finding is reviewed as a fix round.
   - The review is done when a fix round finds no new Critical or Important finding. Update the `Reviewed commit:` line and add a line per round to the review file saying what it covered.
   - After 2 fix rounds, stop and ask the owner instead of starting a third: fixes that keep producing findings usually point at a design problem.
 
