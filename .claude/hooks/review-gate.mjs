@@ -109,8 +109,9 @@ try {
   for (const { kind, cwd } of gatedCommands(input.tool_input?.command ?? "", shell)) {
     if (kind === "unclear") {
       block(
-        "this command has an unclosed quote and mentions `git push` or `gh pr create`, " +
-          "so it can't tell what runs. Close the quote or split the command up.",
+        "this command has an unclosed quote, or quotes nested inside a `$(…)` in double " +
+          "quotes, and mentions `git push` or `gh pr create`, so it can't tell what runs. " +
+          "Close the quote, use single quotes inside the `$(…)`, or split the command up.",
       );
     }
     check(kind, cwd ? path.resolve(base, nativePath(cwd)) : base);

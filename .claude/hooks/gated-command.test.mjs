@@ -79,6 +79,13 @@ describe("gatedCommands", () => {
     expect(gatedCommands('echo "unfinished')).toEqual([]);
   });
 
+  it("checks a long unparsable command in linear time", () => {
+    expect(gatedCommands(`echo "${"gh pr ".repeat(6000)}`)).toEqual([]);
+    expect(gatedCommands(`echo "${"git ".repeat(30000)}push`)).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+  });
+
   it("finds a push inside a subshell or group, and keeps the subshell's cd inside it", () => {
     expect(gatedCommands("(cd ../wt && git push)")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("(git push)")).toEqual([{ kind: "push", cwd: null }]);

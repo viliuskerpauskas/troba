@@ -23,8 +23,11 @@ const GIT_VALUE_OPTIONS = new Set([
   "--config-env",
 ]);
 const GH_VALUE_OPTIONS = new Set(["-R", "--repo"]);
-const MENTIONS =
-  /\bgit(?:\.exe)?\b[\s\S]*\bpush\b|\bgh(?:\.exe)?\b[\s\S]*\bpr\b[\s\S]*\b(?:create|new)\b/i;
+// Whether the text mentions both commands' words anywhere. Separate linear tests, since one
+// regex with `[\s\S]*` between the words backtracks badly on long input.
+const mentions = (text) =>
+  (/\bgit(?:\.exe)?\b/i.test(text) && /\bpush\b/i.test(text)) ||
+  (/\bgh(?:\.exe)?\b/i.test(text) && /\bpr\b/i.test(text) && /\b(?:create|new)\b/i.test(text));
 
 // Heredoc bodies and PowerShell here-strings are data, never commands.
 function dropBodies(command) {
@@ -154,7 +157,7 @@ function isPrCreate(words, at) {
 export function gatedCommands(command, shell = "bash") {
   const text = joinLines(dropBodies(command), shell);
   const { items, unbalanced } = tokenize(text, shell);
-  if (unbalanced) return MENTIONS.test(text) ? [{ kind: "unclear", cwd: null }] : [];
+  if (unbalanced) return mentions(text) ? [{ kind: "unclear", cwd: null }] : [];
 
   const found = [];
   let cwd = null;
