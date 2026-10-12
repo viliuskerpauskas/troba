@@ -13,10 +13,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <>
       <header>
         <nav>
-          <Link href="/money">Money</Link>
+          <Link href="/money">Money</Link> <Link href="/settings">Settings</Link>
           {user?.role === "admin" && (
             <>
-              {" · "}
+              {" "}
               <Link href="/admin/invites">Invites</Link>
             </>
           )}
