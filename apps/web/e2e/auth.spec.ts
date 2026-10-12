@@ -17,6 +17,17 @@ test("an unauthenticated visit to /money redirects to /sign-in", async ({ page }
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
 
+test("the sign-in page can't be framed by another site", async ({ request }) => {
+  const response = await request.get("/sign-in");
+
+  expect(response.headers()).toMatchObject({
+    "content-security-policy": "frame-ancestors 'none'",
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  });
+});
+
 test("the admin signs in and out", async ({ page, context }) => {
   await signIn(page, adminEmail, process.env.E2E_ADMIN_PASSWORD!);
 

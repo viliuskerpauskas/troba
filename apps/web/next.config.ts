@@ -26,6 +26,21 @@ const nextConfig: NextConfig = {
     // forbidden() and unauthorized() from next/navigation, used by requireUser/requireAdmin.
     authInterrupts: true,
   },
+  // No other site may frame troba (clickjacking on the sign-in form). A full script CSP and
+  // HSTS are still to come.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
