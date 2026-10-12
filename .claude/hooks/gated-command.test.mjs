@@ -41,9 +41,72 @@ describe("gatedCommands", () => {
       { kind: "push", cwd: "../wt" },
       { kind: "pr-create", cwd: "../wt" },
     ]);
-    expect(gatedCommands("Set-Location C:\\wt; git push")).toEqual([
+    expect(gatedCommands("Set-Location C:\\wt; git push", "powershell")).toEqual([
       { kind: "push", cwd: "C:\\wt" },
     ]);
+  });
+
+  it("follows bash escapes, so an escaped quote doesn't hide what comes after", () => {
+    expect(gatedCommands("git commit -m 'it'\\''s' && git push")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    expect(gatedCommands("echo it\\'s done; git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands('git commit -m "a\\\\" && git push')).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("follows PowerShell quoting, where a backslash is just a character", () => {
+    expect(gatedCommands('Set-Location "C:\\wt\\"; git push', "powershell")).toEqual([
+      { kind: "push", cwd: "C:\\wt\\" },
+    ]);
+    expect(gatedCommands("git commit -m 'it''s'; git push", "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("refuses to guess when a quote is left open and the text mentions a gated command", () => {
+    expect(gatedCommands('git commit -m "unfinished && git push')).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+    expect(gatedCommands('echo "unfinished')).toEqual([]);
+  });
+
+  it("finds a push inside a subshell or group, and keeps the subshell's cd inside it", () => {
+    expect(gatedCommands("(cd ../wt && git push)")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("(git push)")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("{ git push; }")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("(cd ../wt && ls); git push")).toEqual([{ kind: "push", cwd: null }]);
+  });
+
+  it("splits on a single & but not on a redirection", () => {
+    expect(gatedCommands("git fetch & git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push 2>&1 | tail -3")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push &> out.log")).toEqual([{ kind: "push", cwd: null }]);
+  });
+
+  it("finds a push after prefix words", () => {
+    for (const command of [
+      "time git push",
+      "env GIT_TRACE=1 git push",
+      "command git push",
+      "if git push; then echo ok; fi",
+    ]) {
+      expect(gatedCommands(command)).toEqual([{ kind: "push", cwd: null }]);
+    }
+  });
+
+  it("joins line continuations", () => {
+    expect(gatedCommands("git -C dir \\\npush -u origin HEAD")).toEqual([
+      { kind: "push", cwd: "dir" },
+    ]);
+    expect(gatedCommands("git -C dir `\npush", "powershell")).toEqual([
+      { kind: "push", cwd: "dir" },
+    ]);
+  });
+
+  it("finds a PR create with -R after pr", () => {
+    expect(gatedCommands("gh pr -R o/r create")).toEqual([{ kind: "pr-create", cwd: null }]);
   });
 
   it("ignores the commands when they're only mentioned in quotes or a message", () => {

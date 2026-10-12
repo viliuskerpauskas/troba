@@ -30,7 +30,12 @@ function run(cmd, args, { cwd, input, timeout = 5000 } = {}) {
 
 function git(args, cwd) {
   const r = run("git", args, { cwd });
-  if (r.status !== 0) block(`\`git ${args.join(" ")}\` failed, so the review can't be checked.`);
+  if (r.status !== 0) {
+    block(
+      `\`git ${args.join(" ")}\` failed in ${cwd}, so the review can't be checked. ` +
+        "Shell variables and ~ in a directory aren't expanded here; use a literal path.",
+    );
+  }
   return r.stdout.trim();
 }
 
@@ -67,7 +72,7 @@ function check(kind, cwd) {
     block(`no review file at ${file}. Run the review steps and write the review there.`);
   }
 
-  // One lookup for every sha in the file; -z keeps paths with non-ASCII characters unquoted.
+  // One lookup for every sha in the file.
   const shas = [...new Set(review.match(/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/g))];
   const lookup = run("git", ["cat-file", "--batch-check"], { cwd, input: `${shas.join("\n")}\n` });
   if (lookup.status !== 0)
@@ -81,6 +86,7 @@ function check(kind, cwd) {
   const problems = checkReview({
     review,
     head: git(["rev-parse", "HEAD"], cwd),
+    // -z keeps paths with non-ASCII characters unquoted.
     changedFiles: git(["diff", "--name-only", "-z", "main...HEAD"], cwd)
       .split("\0")
       .filter(Boolean),
@@ -95,7 +101,20 @@ function check(kind, cwd) {
   }
 }
 
-const input = JSON.parse(readFileSync(0, "utf8"));
-for (const { kind, cwd } of gatedCommands(input.tool_input?.command ?? "")) {
-  check(kind, cwd ? path.resolve(input.cwd, nativePath(cwd)) : input.cwd);
+// An uncaught error would exit 1, which lets the command through, so it refuses instead.
+try {
+  const input = JSON.parse(readFileSync(0, "utf8"));
+  const shell = input.tool_name === "PowerShell" ? "powershell" : "bash";
+  const base = input.cwd ?? process.cwd();
+  for (const { kind, cwd } of gatedCommands(input.tool_input?.command ?? "", shell)) {
+    if (kind === "unclear") {
+      block(
+        "this command has an unclosed quote and mentions `git push` or `gh pr create`, " +
+          "so it can't tell what runs. Close the quote or split the command up.",
+      );
+    }
+    check(kind, cwd ? path.resolve(base, nativePath(cwd)) : base);
+  }
+} catch (error) {
+  block(`couldn't check the review: ${error.message}`);
 }
