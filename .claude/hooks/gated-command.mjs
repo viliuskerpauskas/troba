@@ -36,7 +36,7 @@ function joinLines(command, shell) {
 
 // Splits a command into a list of commands, each a list of words ({ text, quoted }), with "("
 // and ")" kept as markers so a `cd` inside a subshell stays inside it. Commands end at unquoted
-// newlines, `;`, `|`, `&` (but not the `&` of `2>&1` or `&>`), `(` and `)`. Bash escapes with
+// newlines, `;`, `|`, `&`, `(` and `)`. Bash escapes with
 // a backslash and PowerShell with a backtick; in PowerShell a backslash is just a character,
 // and '' inside single quotes is a quote.
 function tokenize(command, shell) {
@@ -80,11 +80,8 @@ function tokenize(command, shell) {
     } else if (c === "\n" || c === ";" || c === "|") {
       endCommand();
     } else if (c === "&") {
-      if (command[i - 1] === ">" || next === ">") add(c);
-      else {
-        endCommand();
-        if (next === "&") i++;
-      }
+      // Also splits `2>&1` and `&>`, which only cuts a redirection's target off the command.
+      endCommand();
     } else if (c === "(" || c === ")") {
       endCommand();
       items.push(c);

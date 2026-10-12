@@ -51,6 +51,9 @@ describe("gatedCommands", () => {
       { kind: "push", cwd: null },
     ]);
     expect(gatedCommands("echo it\\'s done; git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands('git commit -m "say \\"hi\\"" && git push')).toEqual([
+      { kind: "push", cwd: null },
+    ]);
     expect(gatedCommands('git commit -m "a\\\\" && git push')).toEqual([
       { kind: "push", cwd: null },
     ]);
@@ -60,7 +63,11 @@ describe("gatedCommands", () => {
     expect(gatedCommands('Set-Location "C:\\wt\\"; git push', "powershell")).toEqual([
       { kind: "push", cwd: "C:\\wt\\" },
     ]);
-    expect(gatedCommands("git commit -m 'it''s'; git push", "powershell")).toEqual([
+    expect(gatedCommands("Set-Location 'C:\\it''s'; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "C:\\it's" },
+    ]);
+    expect(gatedCommands('git commit -m "say `"hi`"; git push"', "powershell")).toEqual([]);
+    expect(gatedCommands('git commit -m "say `"hi`""; git push', "powershell")).toEqual([
       { kind: "push", cwd: null },
     ]);
   });
@@ -79,7 +86,7 @@ describe("gatedCommands", () => {
     expect(gatedCommands("(cd ../wt && ls); git push")).toEqual([{ kind: "push", cwd: null }]);
   });
 
-  it("splits on a single & but not on a redirection", () => {
+  it("splits on a single &, and a redirection doesn't hide the push", () => {
     expect(gatedCommands("git fetch & git push")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("git push 2>&1 | tail -3")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("git push &> out.log")).toEqual([{ kind: "push", cwd: null }]);
