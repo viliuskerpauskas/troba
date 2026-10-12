@@ -7,8 +7,7 @@ export function PasswordForm({ minLength, maxLength }: { minLength: number; maxL
   const [state, action, pending] = useActionState<FormState, FormData>(updatePassword, {});
 
   return (
-    // Keyed on the outcome so the fields clear after a successful change.
-    <form action={action} key={state.message}>
+    <form action={action}>
       <p>
         <label htmlFor="currentPassword">Current password</label>
         <br />

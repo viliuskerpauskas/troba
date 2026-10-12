@@ -1,11 +1,26 @@
+// Next internals, not public API: the real cookie jars cookies() returns. A Next upgrade can move
+// these paths; the import then fails loudly rather than the tests passing wrongly.
+import {
+  MutableRequestCookiesAdapter,
+  responseCookiesToRequestCookies,
+} from "next/dist/server/web/spec-extension/adapters/request-cookies";
+import { RequestCookies, type ResponseCookies } from "next/dist/server/web/spec-extension/cookies";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
 
-// The request arrived with an old session cookie; an action has since replaced it.
+const sessionCookie = "__Secure-better-auth.session_token";
+const requestHeaders = new Headers({
+  cookie: `${sessionCookie}=old.sig%2B%3D; theme=dark; stale=1`,
+  "user-agent": "test",
+});
+// What cookies() returns: a page render reads the request's cookies; a server action gets a
+// mutable jar whose toString() is Set-Cookie syntax, so tests use the real Next classes.
+let jar: RequestCookies | ResponseCookies = new RequestCookies(requestHeaders);
+
 vi.mock("next/headers", () => ({
-  headers: async () => new Headers({ cookie: "session_token=old", "user-agent": "test" }),
-  cookies: async () => ({ toString: () => "session_token=new" }),
+  headers: async () => requestHeaders,
+  cookies: async () => jar,
 }));
 // The real functions throw special errors that Next turns into a redirect, 401 or 403.
 vi.mock("next/navigation", () => ({
@@ -87,18 +102,59 @@ describe("requireAdmin", () => {
 });
 
 describe("authHeaders", () => {
-  it("carries the cookies as they are now, not as the request sent them", async () => {
-    const requestHeaders = await authHeaders();
+  beforeEach(() => {
+    jar = new RequestCookies(requestHeaders);
+  });
 
-    expect(requestHeaders.get("cookie")).toBe("session_token=new");
-    expect(requestHeaders.get("user-agent")).toBe("test");
+  it("passes the request's cookies through when rendering a page", async () => {
+    const authRequest = await authHeaders();
+
+    expect(authRequest.get("cookie")).toBe(`${sessionCookie}=old.sig%2B%3D; theme=dark; stale=1`);
+    expect(authRequest.get("user-agent")).toBe("test");
+  });
+
+  // What Better Auth does when changing the password: a new session cookie with attributes.
+  function actionJarAfterPasswordChange() {
+    const actionJar = MutableRequestCookiesAdapter.wrap(new RequestCookies(requestHeaders));
+    actionJar.set(sessionCookie, "new.sig+=", {
+      path: "/",
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 2_592_000,
+    });
+    actionJar.delete("stale");
+    return actionJar;
+  }
+
+  it("in a server action, reflects cookies set or deleted so far", async () => {
+    jar = actionJarAfterPasswordChange();
+
+    const authRequest = await authHeaders();
+
+    expect(authRequest.get("cookie")).toBe(`${sessionCookie}=new.sig%2B%3D; theme=dark`);
+  });
+
+  it("in the re-render after an action, leaves out cookies the action deleted", async () => {
+    // Next hands the re-render a request jar made from the action's cookies, where a deleted
+    // cookie is still an entry with an empty value.
+    jar = responseCookiesToRequestCookies(actionJarAfterPasswordChange());
+
+    const authRequest = await authHeaders();
+
+    expect(authRequest.get("cookie")).toBe(`${sessionCookie}=new.sig%2B%3D; theme=dark`);
   });
 
   it("is what requireUser reads the session from", async () => {
     getSession.mockReset().mockResolvedValue(sessionFor({ role: "user" }));
+    const actionJar = MutableRequestCookiesAdapter.wrap(new RequestCookies(requestHeaders));
+    actionJar.set(sessionCookie, "new.sig+=", { path: "/", httpOnly: true });
+    jar = actionJar;
 
     await requireUser();
 
-    expect(getSession.mock.calls[0]![0].headers.get("cookie")).toBe("session_token=new");
+    expect(getSession.mock.calls[0]![0].headers.get("cookie")).toContain(
+      `${sessionCookie}=new.sig%2B%3D`,
+    );
   });
 });
