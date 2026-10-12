@@ -144,6 +144,29 @@ describe("account", () => {
       ).resolves.toEqual({ ok: false, reason: "limited" });
     });
 
+    it("starts the count again after the password is changed", async () => {
+      const laptop = await signIn(user.email, firefoxOnWindows);
+      const wrong = { currentPassword: "not the right password", newPassword: password };
+      for (let i = 0; i < 4; i++) {
+        await expect(modules.account.changePassword(laptop, wrong)).rejects.toThrow();
+      }
+      const { headers } = await modules.account.changePassword(laptop, {
+        currentPassword: password,
+        newPassword,
+      });
+      const cookie = headers
+        .getSetCookie()
+        .map((setCookie) => setCookie.split(";")[0])
+        .join("; ");
+      const stillSignedIn = new Headers({ cookie, "user-agent": firefoxOnWindows });
+
+      for (let i = 0; i < 5; i++) {
+        await expect(modules.account.changePassword(stillSignedIn, wrong)).rejects.toThrow(
+          "The current password is incorrect.",
+        );
+      }
+    });
+
     it.each([
       ["shorter than 12 characters", "a".repeat(11)],
       ["longer than 128 characters", "a".repeat(129)],

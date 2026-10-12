@@ -96,13 +96,13 @@ describe("signInWithPassword", () => {
   it("starts the count again after a successful sign-in", async () => {
     const email = await createUser();
     for (let i = 0; i < 4; i++) await signIn(fromIp(newIp()), email, wrongPassword);
-    await signIn(fromIp(newIp()), email, password);
+    expect(await signIn(fromIp(newIp()), email, password)).toEqual({ ok: true });
 
-    for (let i = 0; i < 5; i++) await signIn(fromIp(newIp()), email, wrongPassword);
-
-    expect(await signIn(fromIp(newIp()), email, password)).toEqual({
-      ok: false,
-      reason: "limited",
-    });
+    for (let i = 0; i < 5; i++) {
+      expect(await signIn(fromIp(newIp()), email, wrongPassword)).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { beginSignInAttempt, signInSucceeded } from "@troba/core";
+import { beginSignInAttempt, signInLimit, signInSucceeded } from "@troba/core";
 import { APIError } from "better-auth/api";
 import { z } from "zod";
 import { auth, passwordLength } from "./auth";
@@ -82,7 +82,9 @@ export async function changePassword(
     ipAddress: clientIp(requestHeaders),
   });
   if (!attempt)
-    throw new AccountInputError("Too many wrong passwords. Wait 15 minutes and try again.");
+    throw new AccountInputError(
+      `Too many wrong passwords. Wait ${signInLimit.windowMinutes} minutes and try again.`,
+    );
   try {
     const { headers } = await auth().api.changePassword({
       body: { currentPassword: input.currentPassword, newPassword, revokeOtherSessions: true },
