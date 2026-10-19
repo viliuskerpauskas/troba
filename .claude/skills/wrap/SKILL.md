@@ -30,7 +30,7 @@ git log --oneline origin/main..HEAD
 Read `.reviews/<branch>.md` (`/` in the branch name becomes `-`):
 
 - **Its `Reviewed commit:` equals HEAD**: the review already covers this code. Go on to step 3 and say so in the report.
-- **HEAD has moved since**: review `git diff <reviewed sha>..HEAD`: a fix round if the new commits are fixes, otherwise a `Review:` line, as the [/code-review section](../../../docs/agents/skill-overrides.md#code-review) says.
+- **HEAD has moved since**: review what changed since the reviewed sha: a fix round if the new commits are fixes, otherwise a `Review:` line (a merge of `main` is reviewed by its own changes only), as the [/code-review section](../../../docs/agents/skill-overrides.md#code-review) says.
 - **No file**: run `/mattpocock-skills:code-review main` with the inputs that section lists, and write the file.
 
 Fix Critical and Important findings in fix rounds, with the two-round limit in that section. If the limit is reached with findings left, stop here: list them in the file and in chat and ask the owner.
@@ -44,9 +44,10 @@ Run Verify as [AGENTS.md](../../../AGENTS.md) defines it, from the feature workt
 In each ticket issue (and a standalone task's own issue), tick each acceptance and verification checkbox that is done and was checked, following the issue-checkbox rule in [AGENTS.md](../../../AGENTS.md):
 
 ```bash
-gh issue view <M> --json body --jq .body > body.md
-# edit the boxes in body.md
-gh issue edit <M> --body-file body.md
+mkdir -p .scratch
+gh issue view <M> --json body --jq .body > .scratch/body.md
+# edit the boxes in .scratch/body.md (gitignored)
+gh issue edit <M> --body-file .scratch/body.md
 ```
 
 ## Step 5: append "What actually happened"
@@ -64,13 +65,13 @@ The spec issue is the feature's one artifact: the plan above, the outcome below.
 - **What is left**: follow-ups, each with its new issue number.
 ```
 
-Append with the same three commands as step 4 (`gh issue view <N> --json body --jq .body > body.md`, add the section at the end, `gh issue edit <N> --body-file body.md`), so the plan is carried over byte for byte.
+Append with the same three commands as step 4 (`gh issue view <N> --json body --jq .body > .scratch/body.md`, add the section at the end, `gh issue edit <N> --body-file .scratch/body.md`), so the plan is carried over byte for byte.
 
 Feed it from the ticket sessions' reports, the review file and the git log. Rejected alternatives are the part a future session can't rebuild from the diff, so look for them. The issue is public: fictional data only.
 
 ## Step 6: push and open the PR
 
-1. If the feature completes a checkpoint item in `tasks/plan.md`, tick it now (a `docs:` commit) and review that commit as a `Pass:`.
+1. If the feature completes a checkpoint item in `tasks/plan.md`, tick it now (a `docs:` commit) and record that commit as a `Review:` line.
 2. Check the review file names the current HEAD.
 3. `git push -u origin <branch>`.
 4. Write the PR body with the `/pr` template, plus the additions in [skill-overrides.md](../../../docs/agents/skill-overrides.md#pr): `Closes #<N>` and one `Closes #<M>` per ticket, **Review**, **Verification**, **Owner / after merge**. End it with the attribution line the session's instructions give for PRs, if any.

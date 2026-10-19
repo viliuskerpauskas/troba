@@ -47,16 +47,18 @@ pnpm db:up
 docker compose exec -T postgres createdb -U troba troba_t<K>
 ```
 
-In the worktree, write its own `.env` (gitignored; it wins over `.env.example`):
+In the worktree, write its own `.env` (gitignored; it wins over `.env.example`). Start from a copy of the main checkout's `.env` when it has one, then set:
 
 ```
-DATABASE_URL=postgres://troba:troba@localhost:55432/troba_t<K>
+DATABASE_URL=postgres://troba:troba@localhost:<db port>/troba_t<K>
 BETTER_AUTH_URL=http://localhost:<port>
 ```
 
-and run `pnpm install --frozen-lockfile` and `pnpm db:migrate` there. `<port>` is `3200 + 10 × (<K> mod 100)`, e.g. 3720 for T72: unique per issue, and clear of 3000 (the main checkout's `pnpm dev`) and 3100 (E2E). Start the dev server with `pnpm db:migrate && pnpm --filter @troba/web dev --port <port>`. `compose.yaml` fixes the project name, so `pnpm db:up` in any worktree reaches the same container.
+and run `pnpm install --frozen-lockfile` and `pnpm db:migrate` there. `<port>` is `3200 + 10 × (<K> mod 100)`, e.g. 3920 for T72: distinct for any issues less than 100 apart, and clear of 3000 (the main checkout's `pnpm dev`) and 3100 (E2E). Start the dev server with `pnpm db:migrate && pnpm --filter @troba/web dev --port <port>`.
 
-If `pnpm db:up` fails with "access permissions" on Windows, port 55432 is inside a range Windows reserved at boot (`netsh int ipv4 show excludedportrange protocol=tcp`). Pick a free port and set it in that checkout's `.env` as both `POSTGRES_PORT` and the port in `DATABASE_URL`.
+**One container, one database port.** `compose.yaml` fixes the project name, so `pnpm db:up` in any checkout manages the same container, using that checkout's `POSTGRES_PORT`. `<db port>` is therefore the same everywhere: 55432 by default, or the main checkout's `POSTGRES_PORT`, which the copied `.env` carries. A checkout with a different `POSTGRES_PORT` would recreate the shared container on its own port and cut off every other worktree.
+
+If `pnpm db:up` fails with "access permissions" on Windows, port 55432 is inside a range Windows reserved at boot (`netsh int ipv4 show excludedportrange protocol=tcp`). Pick a free port and set it as `POSTGRES_PORT` and in `DATABASE_URL` in the main checkout's `.env` and in every worktree's `.env` at once.
 
 **E2E runs in one worktree at a time.** `apps/web/playwright.config.ts` serves the built app on the fixed port 3100, so `pnpm test:e2e` runs only in the feature worktree, at `/wrap`.
 
@@ -103,10 +105,12 @@ Its steps, translated:
 3. **"Create the integration branch"**: create the feature branch and its [worktree](#worktrees). If stage 1 left `GLOSSARY.md` or ADR changes in the main checkout, copy exactly those files into the feature worktree, commit them there as the feature's first commit (`docs: …`), then restore them in the main checkout with `git restore -- <files>` (new files: delete them). Leave any other change in the main checkout alone: it is the owner's. The draft PR is **not** opened here; `/wrap` opens the PR.
 4. **"Implementer subagents, each in its own worktree"**: for each frontier ticket, create its [ticket worktree](#worktrees) by command, then start the implementer as a **fresh session**, so the owner can watch and steer it. Call `start_session` with:
    - `initiation: "user_asked"` (invoking `/implement-spec` is the owner asking for these sessions), `context: "fresh"`, `use_worktree: false`, `cwd` = the ticket worktree's absolute path, `wake_when_done: true`, `title: "T<M> · <ticket title>"`;
-   - `prompt` starting with the command, then pointers rather than content: `/implement #<M>` on its first line; then the spec number, the worktree's port and database, the research folder, and *"follow the /implement section of docs/agents/skill-overrides.md"*;
+   - `prompt` starting with the command, then pointers rather than content: `/implement #<M>` on its first line; then the spec number, the feature-branch sha the worktree was cut from, the worktree's port and database, the research folder, and *"follow the /implement section of docs/agents/skill-overrides.md"*;
    - `background` (80+ characters): the feature, that this session owns one ticket on its own branch, and that the orchestrator merges its work.
 
    Where sessions aren't available, use a background subagent with the same brief. A subagent can't invoke `/implement`, so its brief says to follow the upstream `implement` skill's steps inline, as amended in [/implement](#implement).
+
+   Two parts of this are unconfirmed until the first real feature: that `start_session` accepts a `cwd` inside this repo, and that a fresh session's prompt starting with `/implement` runs the command. Check both on the first ticket and record the outcome here. If `cwd` is refused, start the session with `use_worktree: true` and `source_branch: feat/T<N>-<slug>` instead, and let it create its ticket branch there.
 5. **"Merge its work with a merger subagent"**: when an implementer reports done, a merger subagent merges the ticket branch into the feature branch in the feature worktree (`git merge --no-ff feat/T<N>-T<M>-<slug>`). It resolves a conflict there, then runs `pnpm typecheck`, `pnpm test` and the integration tests the ticket touched. Then [remove](#worktrees) the ticket worktree.
 6. **"Kick off more implementers"**: as written. The frontier advances in waves; when the owner says one ticket is done, merge it and start what it unblocks without waiting for the wave.
 7. **"Call code-review on the integration branch, fix all issues"**: **skip**. The review runs at `/wrap`, or earlier in a fresh session in the feature worktree; see [/code-review](#code-review).
@@ -120,7 +124,7 @@ Its steps, translated:
 When the brief names one ticket and this file, `/implement` runs in its ticket worktree as written, with these changes:
 
 - **Scope is the one ticket.** The spec is context; other tickets are other sessions' work.
-- **First**, confirm the worktree's branch is based on the feature branch (`git merge-base --is-ancestor feat/T<N>-<slug> HEAD`); if not, stop and tell the orchestrator.
+- **First**, confirm the worktree's branch was cut from the feature branch: the brief names the feature-branch sha the worktree was created from, and `git merge-base --is-ancestor <that sha> HEAD` must succeed. If not, stop and tell the orchestrator rather than resetting (upstream resets): a reset would discard whatever is on the branch.
 - **Done means:** the ticket's acceptance criteria are met, `pnpm typecheck` passes, and `pnpm test` and `pnpm test:integration` pass against this worktree's database, after merging the feature branch's current tip into the ticket branch (upstream `implement-spec` gives implementers this duty, so the merger meets fewer conflicts).
 - **"Use /code-review to review the work"**: **skip**. The feature review covers every ticket at once, where a clash between two tickets is visible.
 - **"Commit your work to the current branch"**: as written, on the ticket branch. Conventional Commits with a `Refs #<M>` footer and no AI attribution trailers.
@@ -165,7 +169,7 @@ Reviewed commit: <full HEAD sha>
 - A fix round re-runs Verify (as [AGENTS.md](../../AGENTS.md) defines it), then reviews only `git diff <reviewed sha>..HEAD` on both axes, plus the personal-information check of that diff and its commit messages. A fix to auth, `user_id` filtering, uploads or money gets the whole security section of CODING_STANDARDS.md, and a fix to queries the whole performance section.
 - After each round, move `Reviewed commit:` to the HEAD it reviewed and add a line: `Round N: <old sha>..<new sha>: what was checked, what was found`. The sha only moves to a commit whose diff was reviewed.
 - Fixes for Suggestions and Nits alone are recorded as `Pass: <old sha>..<new sha>: …` and don't count towards the limit, unless they change behaviour beyond the finding or turn up a Critical or Important finding.
-- New work after an early review (more tickets merged, `main` merged in) is not a fix round: review that range the same way and record it as `Review: <old sha>..<new sha>: …`.
+- New work after an early review is not a fix round. Review it and record it as `Review: <old sha>..<new sha>: …`: for merged tickets, review `git diff <old sha>..HEAD`; for a merge of `main`, only what the merge itself changed (`git show --remerge-diff <merge sha>`), since `main`'s own commits were reviewed in their PRs. A bookkeeping commit (a `tasks/plan.md` checkpoint tick) is recorded the same way.
 - The review is done when a round finds no Critical or Important finding, new or unresolved.
 - If the **second** fix round still finds one, stop: fixes that keep producing findings usually point at a design problem. List them in the review file and in chat, don't push, and ask the owner. If the owner accepts them, record that in the review file and carry on to the PR.
 

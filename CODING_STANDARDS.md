@@ -1,6 +1,6 @@
 # Coding standards
 
-The documented standards `/code-review` checks every diff against (the Standards axis), alongside the rules in [AGENTS.md](AGENTS.md). Formatting and lint rules are enforced by `pnpm lint` and aren't repeated here.
+The documented standards Matt's code-review (`/mattpocock-skills:code-review`) checks every diff against (the Standards axis), alongside the rules in [AGENTS.md](AGENTS.md). Formatting and lint rules are enforced by `pnpm lint` and aren't repeated here.
 
 **How to apply this file.** Read the whole diff, test files included, and apply every section the diff touches, in full. A breach of [Money](#money), [Ownership](#ownership), [Security](#security) or [Personal information](#personal-information) is **Critical**; a breach of the other sections is **Important** unless the finding says why it is smaller. Each finding names the rule it breaks, a `file:line` and a fix.
 

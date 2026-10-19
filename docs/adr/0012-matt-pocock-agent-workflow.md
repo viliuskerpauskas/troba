@@ -45,6 +45,8 @@ Additions and departures from the approved proposal, made while building it:
 - **The review file also has `## Checks`** (audit and headers) **and a `Spec:` line**, which is how the gate finds the issue.
 - **`docs/agents/triage-labels.md`** maps the skills' label roles, as upstream setup would.
 - **Compose gets a fixed project name** (`name: troba`), so every worktree reaches the one Postgres container.
+- **A ticket session whose branch wasn't cut from the feature branch stops and reports**, where upstream `implement-spec` resets it onto the integration branch: a reset would discard work on the branch.
+- **The PR gate blocks any command that mentions opening a PR**, wherever the mention sits, and any PR opened for another folder or branch. A false block costs a reworded command; a missed one, an unreviewed PR.
 
 ### Consequences
 
