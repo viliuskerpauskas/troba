@@ -15,5 +15,6 @@ Decisions in [MADR 4](https://adr.github.io/madr/) format. Copy [0000-template.m
 | [0009](0009-release-flow.md) | Release flow: Conventional Commits, release-please, one image per commit | accepted |
 | [0010](0010-vitest-and-playwright.md) | Vitest against real Postgres, and Playwright end to end | accepted |
 | [0011](0011-pnpm-workspaces-monorepo.md) | pnpm workspaces monorepo with source-only packages | accepted |
+| [0012](0012-matt-pocock-agent-workflow.md) | Agent workflow on Matt Pocock's engineering skills | accepted |
 
 Background and rejected alternatives: [docs/ideas/stack-options.md](../ideas/stack-options.md).

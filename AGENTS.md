@@ -8,6 +8,8 @@ Read before working:
 - Decisions: [docs/adr/](docs/adr/README.md) (MADR format, `NNNN-kebab-title.md`, copy [the template](docs/adr/0000-template.md))
 - Specs: `SPEC.md` (capability map) and `SPEC-<module>.md`
 - Plan: `tasks/plan.md`
+- Coding standards, the bar every review checks: [CODING_STANDARDS.md](CODING_STANDARDS.md)
+- How the engineering skills run here: [docs/agents/](docs/agents/skill-overrides.md)
 
 ## Stack
 
@@ -62,51 +64,50 @@ Env files live at the repo root. Real env vars win over `.env`; outside producti
 
 ## Workflow
 
-Development follows [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills): define, specify, plan, build, review, ship.
+Development runs on [Matt Pocock's engineering skills](https://github.com/mattpocock/skills), installed unmodified and enabled for this project in `.claude/settings.json` ([ADR-0012](docs/adr/0012-matt-pocock-agent-workflow.md)). They are written for a GitHub repo with PRs; [docs/agents/skill-overrides.md](docs/agents/skill-overrides.md) says how each one runs here, and wins where it differs from a skill. **Before running `/implement-spec`, `/implement`, `/code-review` or `/wrap`, read its section there.**
 
-- **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. One issue per task, with acceptance criteria and verification steps in the body and dependencies as native "blocked by" links. `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
-- **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue) and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
-- **Build in thin vertical slices**, one PR each, test-first for logic.
-- **Slice loop:** build → verify → review → PR → merge. Verify means `pnpm lint`, `typecheck`, `test`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes.
-- **Review:** as soon as Verify passes, without waiting to be asked, review the branch's local commits in these steps:
-  1. Run `/agent-skills:review`, the five-axis review from the `code-review-and-quality` skill, and follow it fully: read the whole diff file by file (never a truncated one) and write its structured output, each finding with a severity, `file:line` and a fix.
-  2. Load `security-and-hardening` and `performance-optimization` with the Skill tool as well, and work through their checklists against the diff. The review command only names these skills; it doesn't load them, so this step is easy to skip by accident. The checklists are separate files the skills link (`references/security-checklist.md` and `references/performance-checklist.md` in the agent-skills plugin); read them. For security that includes `pnpm audit` when dependencies change and checking response headers when pages change.
-  3. Check the diff and the commit messages for personal information.
-  4. Get a fresh-context review: spawn the `agent-skills:code-reviewer` subagent with the issue, the spec section and the branch name, none of the session's working context, and ask for the same structured output. It reviews alongside steps 1–3, never instead of them. Triage its findings like your own.
+One feature runs through six stages:
 
-  Write the review to `.reviews/<branch>.md` (gitignored; `/` in the branch name becomes `-`), with one section per step: `## code-review-and-quality`, `## security-and-hardening`, `## performance-optimization`, `## Personal information`, `## Fresh-context review`, and a `Reviewed commit: <full HEAD sha>` line. Findings that belong to another task become issues.
+| Stage | Command | Where | Leaves behind |
+|---|---|---|---|
+| 1. Define | `/grill-with-docs` | main checkout | decisions in the conversation; `GLOSSARY.md` and ADR changes |
+| 2. Spec | `/to-spec` | main checkout | a spec issue `T<N> · spec(<module>): …` |
+| 3. Tickets | `/to-tickets #<N>` | main checkout | ticket sub-issues with "blocked by" edges, listed in `tasks/plan.md` |
+| 4. Build | `/implement-spec #<N>` | main checkout, orchestrating one fresh session per ticket in its own worktree | `feat/T<N>-<slug>` with every ticket merged into it |
+| 5. Review | `/code-review main` (optional here; `/wrap` runs it otherwise) | feature worktree, fresh session | `.reviews/<branch>.md`, fixes on the feature branch |
+| 6. Close out | `/wrap` | feature worktree | Verify passed, "What actually happened" on the spec issue, the PR |
 
-  Fix Critical and Important findings in fix rounds, so the review can't loop (the review skill's Required counts as Important, Optional as Suggestion):
-  - A fix round re-runs Verify, then reviews only what changed since the sha on the `Reviewed commit:` line (`git diff <sha>..HEAD`; after a rebase, `git range-diff`): the five-axis review, the personal-information check of that diff and its commit messages, and the security and performance checklist items the fix touches. A fix to auth, `user_id` filtering, uploads or money gets the full security checklist, and a fix to queries or data fetching the full performance checklist. Re-run the fresh-context review when a fix changes the design, a schema or a public interface.
-  - After each round, replace the `Reviewed commit:` sha with the HEAD it reviewed and add a line to the review file: `Round N: <old sha>..<new sha>: what was checked, what was found`. The sha only ever moves to a commit whose diff was reviewed.
-  - Fixes for Suggestions and Nits don't count as a fix round, but they're still verified and reviewed: fold them into the current round, or give their diff the same Verify and review and record it as `Pass: <old sha>..<new sha>: …`, which doesn't count towards the limit below. A fix that changes behaviour beyond its finding, or a pass that finds a Critical or Important issue, counts as a fix round.
-  - The review is done when a fix round finds no Critical or Important finding, new or unresolved.
-  - If the second fix round still finds a Critical or Important finding, new or unresolved, don't start a third: fixes that keep producing findings usually point at a design problem. Leave those findings unfixed, don't push or open the PR, list them in the review file and in chat, and ask the owner. If the owner accepts them, record that in the review file and open the PR; otherwise follow their direction.
-  - Fixes pushed to an open PR for review or CI findings go through fix rounds too, although the hook only checks when the PR is opened.
+A **standalone task** (an issue with no spec parent, including every issue from before this workflow) skips stages 2–4: `/implement #<M>` in its own worktree, then `/wrap`.
 
-  Once no Critical or Important findings are left (or the owner accepted the rest, as above), push and open the PR without asking. A PreToolUse hook ([.claude/hooks/review-gate.mjs](.claude/hooks/review-gate.mjs)) refuses `gh pr create` until that file has every section and names the current HEAD. Post the file as the PR's first comment (`gh pr comment --body-file`), and give the PR body a **Review** section summarising what each step found, even if that's "nothing", so the owner can see the whole review ran. Merging and release tags always need the owner's go-ahead.
-- **Start a task only when every issue it's blocked by is closed** (normally by its merged PR). Branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
-- **One task per session.** Sessions that run at the same time each work in their own worktree, never two on one checkout or branch.
-- **An open PR only takes fixes for its review and CI findings.** Anything else found on the way becomes a new issue, or a separate small PR for docs and workflow changes.
-- **Issue checkboxes:** just before opening the PR, tick each acceptance and verification item in the issue that is done and checked, and say in the PR body how each was verified. Items that need an owner setting or only happen after merge stay unticked and are listed in the PR under "Owner / after merge"; whoever does them ticks them. An item that was dropped or changed is struck through or edited with a reason, never ticked.
+- **Tasks are tracked in GitHub Issues** (Projects board), not `tasks/todo.md`. A spec is a parent issue; its tickets are sub-issues with acceptance criteria, verification steps and native "blocked by" links. [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md) is the authority on their shape. `tasks/plan.md` keeps the design, risks and an ordered list of issue links.
+- **References:** issues and PRs share one number sequence, so say which one you mean. A task is `T<issue number>` (issue #3 is T3), and issue titles start with it (`T3 · feat: …`). Write "PR #31" for a PR. Use a bare `#N` only where GitHub needs one: `Closes #3` in the PR body (the issue), `Refs #3` in a commit footer, and the `(#31)` that squash merges add to the commit title (the PR). PR titles stay plain Conventional Commits, without the T-id.
+- **Every ticket is a thin vertical slice, green on its own,** built test-first with `/tdd`. A feature is one PR: its tickets merge into the feature branch, and the PR closes the spec and every ticket.
+- **Verify** means `pnpm lint`, `typecheck`, `test`, `test:integration`, `build` and `test:e2e` pass, plus a manual check in the running app for UI changes. A ticket session runs typecheck, unit and integration tests; the full Verify runs once on the feature branch, at `/wrap`.
+- **Review** is Matt's `/code-review` on two axes, Standards and Spec, with [CODING_STANDARDS.md](CODING_STANDARDS.md) as the documented standards (it holds the security and performance bar), plus `pnpm audit`, response headers and a personal-information check. The review goes in `.reviews/<branch>.md`; Critical and Important findings are fixed in at most two fix rounds before the owner is asked. The procedure is in [skill-overrides.md](docs/agents/skill-overrides.md#code-review). A PreToolUse hook ([.claude/hooks/review-gate.mjs](.claude/hooks/review-gate.mjs)) refuses `gh pr create` until the review file is complete and names HEAD, and the spec issue has its "What actually happened" section.
+- **Commit and push permissions:** `/implement-spec` and `/implement` may commit on the feature's ticket and feature branches. `/wrap` pushes the feature branch and opens the PR without asking. Merging and release tags always need the owner's go-ahead.
+- **Start a feature or task only when every issue it's blocked by is closed** (normally by its merged PR). Cut the feature branch from a freshly pulled `main`; don't stack a PR on another unmerged branch.
+- **Worktrees:** the main checkout stays on `main`. Every feature, ticket and standalone task works in its own worktree under `.claude/worktrees/`, with its own database and dev port, as [skill-overrides.md](docs/agents/skill-overrides.md#worktrees) sets up. Never two sessions on one checkout or branch.
+- **An open PR only takes fixes for its review and CI findings,** and those go through fix rounds too. Anything else found on the way becomes a new issue, or a separate small PR for docs and workflow changes.
+- **Issue checkboxes:** `/wrap` ticks each acceptance and verification item that is done and checked, and the PR body says how each was verified. Items that need an owner setting or only happen after merge stay unticked and are listed in the PR under "Owner / after merge"; whoever does them ticks them. An item that was dropped or changed is struck through or edited with a reason, never ticked.
 - **Checkpoints:** the PR that completes a checkpoint item in `tasks/plan.md` ticks it in the same PR.
-- **After the owner merges:** switch to `main`, pull, remove the task's worktree, delete the merged branch locally with `git branch -D` (squash merges aren't detected by `-d`) and on the remote if it's still there, then name the next unblocked issue.
-- **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…). Release notes are generated from them.
+- **After the owner merges:** in the main checkout, switch to `main` and pull; remove the feature worktree and its database; delete the feature and ticket branches locally with `git branch -D` (squash merges aren't detected by `-d`) and on the remote if they're still there; then name the next unblocked spec or task.
+- **Commits follow Conventional Commits v1.0.0** (`feat:`, `fix:`, `docs:`, `chore:`…), with no AI attribution trailers. Release notes are generated from the squashed PR titles.
 - **Branches:** `main` is always deployable. Use short-lived `feat/…`, `fix/…`, `docs/…` and `chore/…` branches merged by PR, with CI green.
-- **Environments:** PR checks (the `ci` job) run lint, typecheck, unit and integration tests, the migration drift check, build and the Playwright smoke test, and must pass to merge. Merging to `main` auto-deploys to staging. A `vX.Y.Z` tag deploys to production after approval.
-- **Record significant decisions** as an ADR in `docs/adr/`.
+- **Environments:** PR checks (the `ci` job) run lint, typecheck, unit and integration tests, the migration drift check, build and the Playwright smoke test, and must pass to merge. Merging to `main` auto-deploys to staging. Merging release-please's release PR tags `vX.Y.Z`, which deploys to production after approval.
+- **Record significant decisions** as an ADR in `docs/adr/` ([docs/agents/domain.md](docs/agents/domain.md)).
+- **Don't run `/setup-matt-pocock-skills`.** `docs/agents/` is its output, written by hand for troba; the skill would replace it with generic defaults.
 
 ### Guide the owner through it
 
-The owner follows this workflow for every feature and can lose track of where they are. At the start of a session, after each step finishes, and whenever they seem unsure, say in a line or two where the work stands and what comes next, naming the command to run. Work out where things stand from the current branch, `git status`, `gh pr status`, the PR's CI checks and the open issues; don't guess. In Claude Code, a SessionStart hook ([.claude/hooks/session-status.mjs](.claude/hooks/session-status.mjs)) already puts the branch, PR, CI state and unblocked issues into context.
+The owner follows this workflow for every feature and can lose track of where they are. At the start of a session, after each stage finishes, and whenever they seem unsure, say in a line or two where the work stands and what comes next, naming the command to run. Work out where things stand from the current branch and worktree, `git status`, `gh pr status`, the PR's CI checks and the open issues; don't guess. In Claude Code, a SessionStart hook ([.claude/hooks/session-status.mjs](.claude/hooks/session-status.mjs)) already puts the branch, PR, CI state and the unblocked specs and tasks into context.
 
-| Phase | Done when | Next | Who starts it |
+| Stage | Done when | Next | Who starts it |
 |---|---|---|---|
-| Spec | `SPEC-<module>.md` is agreed | `/agent-skills:plan` | owner |
-| Plan | issues exist with acceptance criteria and "blocked by" links, `tasks/plan.md` lists them | `/agent-skills:build` on the next unblocked issue | owner |
-| Build | the task's tests pass and the work is committed on a `feat/…` or `fix/…` branch | Verify | agent |
-| Verify | the checks in the slice loop pass | Review | agent, automatically |
-| Review | all four review steps ran, `.reviews/<branch>.md` names the HEAD commit, and no Critical or Important findings remain, or the owner accepted them | push and open the PR | agent, automatically |
+| Define | the owner's questions are answered and the design is settled | `/to-spec` | owner |
+| Spec | the spec issue exists and the owner agrees with it | `/to-tickets #<N>` | owner |
+| Tickets | the ticket sub-issues exist with "blocked by" edges and `tasks/plan.md` lists them | `/implement-spec #<N>` | owner |
+| Build | every ticket is merged into `feat/T<N>-<slug>` | `/wrap` in the feature worktree (or `/code-review main` first, in a fresh session) | owner |
+| Review | `.reviews/<branch>.md` names HEAD and no Critical or Important findings remain, or the owner accepted them | Verify and the PR, inside `/wrap` | agent, inside `/wrap` |
 | PR | CI is green | merge | owner |
-| Merge | `main` deploys to staging | next issue, or Ship when a release is due | owner |
-| Ship | `/agent-skills:ship` says go | tag `vX.Y.Z` and approve the production deploy | owner |
+| Merge | `main` deploys to staging | clean-up, then the next spec or task | owner |
+| Ship | the release-please PR lists what's due | merge it and approve the production deploy | owner |

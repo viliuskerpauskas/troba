@@ -70,20 +70,28 @@ function unblockedIssues() {
     "-F",
     "name={repo}",
     "-f",
-    "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:ASC}){nodes{title authorAssociation labels(first:10){nodes{name}} issueDependenciesSummary{blockedBy}}}}}",
+    "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:ASC}){nodes{title authorAssociation parent{number} labels(first:10){nodes{name}} issueDependenciesSummary{blockedBy}}}}}",
   ]);
   if (!r.ok) return "Issues: unknown (gh lookup failed).";
   const nodes = JSON.parse(r.out).data?.repository?.issues?.nodes;
   if (!nodes) return "Issues: unknown (unexpected GitHub response).";
+  // A ticket (an issue with a parent spec) is worked through its spec's /implement-spec, so only
+  // specs and standalone tasks are offered as the next thing to start.
   const ready = nodes
     .filter(
       (i) =>
         TRUSTED.has(i.authorAssociation) &&
+        !i.parent &&
         i.issueDependenciesSummary.blockedBy === 0 &&
         !i.labels.nodes.some((l) => l.name === "blocked-external"),
     )
-    .map((i) => `  - ${i.title.slice(0, 120)}`);
-  return ready.length ? `Unblocked issues:\n${ready.join("\n")}` : "No unblocked issues.";
+    .map((i) => {
+      const kind = i.labels.nodes.some((l) => l.name === "spec") ? "spec" : "task";
+      return `  - [${kind}] ${i.title.slice(0, 120)}`;
+    });
+  return ready.length
+    ? `Unblocked specs (/implement-spec #N) and standalone tasks (/implement #N):\n${ready.join("\n")}`
+    : "No unblocked specs or tasks.";
 }
 
 const lines = [];
