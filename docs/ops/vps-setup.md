@@ -123,7 +123,7 @@ Copy it again whenever `deploy/` changes on `main` (until T8 does it as part of 
 ### The edge
 
 ```bash
-docker network create edge
+docker network create --ipv6 edge
 install -d -m 700 /srv/troba/edge
 (umask 077; cat > /srv/troba/edge/.env <<'EOF'
 DOMAIN=<domain>
@@ -135,6 +135,8 @@ docker compose -p edge -f /srv/troba/deploy/edge/compose.yaml --env-file /srv/tr
 ```
 
 The log shows `certificate obtained successfully` for both names once DNS resolves. Until an environment runs, its name answers 502.
+
+The network needs `--ipv6` when the VPS has IPv6. Without it, Docker relays IPv6 connections through a proxy that replaces the client's address with the network gateway's (`172.x.0.1`). Caddy's `X-Forwarded-For`, and so sign-in rate limiting, would then lump every IPv6 visitor into one address. To check: `curl -6 https://staging.<domain>/` from the VPS, then the last log line's `remote_ip` is the VPS's own IPv6 address. An existing network can't be switched: stop the edge, `docker network rm edge`, create it again with `--ipv6` before any environment is attached, and start the edge again.
 
 ### An environment
 

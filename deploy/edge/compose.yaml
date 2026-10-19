@@ -25,7 +25,7 @@ volumes:
   caddy-config:
 
 networks:
-  # Shared with every troba environment. Created once by hand (`docker network create edge`), so
+  # Shared with every troba environment. Created once by hand (`docker network create --ipv6 edge`), so
   # the edge and the environments can start in either order.
   edge:
     external: true
