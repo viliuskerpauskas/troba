@@ -110,7 +110,13 @@ Its steps, translated:
 
    Where sessions aren't available, use a background subagent with the same brief. A subagent can't invoke `/implement`, so its brief says to follow the upstream `implement` skill's steps inline, as amended in [/implement](#implement).
 
-   Two parts of this are unconfirmed until the first real feature: that `start_session` accepts a `cwd` inside this repo, and that a fresh session's prompt starting with `/implement` runs the command. Check both on the first ticket and record the outcome here. If `cwd` is refused, start the session with `use_worktree: true` and `source_branch: feat/T<N>-<slug>` instead, and let it create its ticket branch there.
+   Two parts of this are unconfirmed until the first real feature: that `start_session` accepts a `cwd` inside this repo, and that a fresh session's prompt starting with `/implement` runs the command. Check both on the first ticket and record the outcome here.
+
+   **If `cwd` is refused**, the app makes the session's worktree instead, so the ticket gets the same setup by another route:
+   1. Remove the ticket worktree you created and delete its branch (`git worktree remove …`, `git branch -D feat/T<N>-T<M>-<slug>`; it has no commits yet). Keep its `troba_t<M>` database.
+   2. Start the session with `use_worktree: true` and `source_branch: feat/T<N>-<slug>` in place of `cwd` and `use_worktree: false`, everything else as above.
+   3. Its brief adds, before `/implement` runs anything: switch to the ticket branch with `git switch -c feat/T<N>-T<M>-<slug>`; write the worktree's `.env` as [Worktrees](#worktrees) says, starting from a copy of the main checkout's `.env` (the brief gives its absolute path), with the database `troba_t<M>` and the ticket's port; then `pnpm install --frozen-lockfile` and `pnpm db:migrate`. No `pnpm` command runs before that `.env` exists, or it would migrate the main checkout's database.
+   4. Its report adds its worktree path, so step 9 can remove that worktree and drop `troba_t<M>`. The merger merges `feat/T<N>-T<M>-<slug>` as usual: the branch lives in the shared repository.
 5. **"Merge its work with a merger subagent"**: when an implementer reports done, a merger subagent merges the ticket branch into the feature branch in the feature worktree (`git merge --no-ff feat/T<N>-T<M>-<slug>`). It resolves a conflict there, then runs `pnpm typecheck`, `pnpm test` and the integration tests the ticket touched. Then [remove](#worktrees) the ticket worktree.
 6. **"Kick off more implementers"**: as written. The frontier advances in waves; when the owner says one ticket is done, merge it and start what it unblocks without waiting for the wave.
 7. **"Call code-review on the integration branch, fix all issues"**: **skip**. The review runs at `/wrap`, or earlier in a fresh session in the feature worktree; see [/code-review](#code-review).

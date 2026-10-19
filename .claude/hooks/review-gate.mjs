@@ -24,8 +24,10 @@ function main() {
   // `gh pr new` is an alias of `gh pr create`. Any mention counts, wherever it sits (a subshell,
   // an env prefix, `bash -c`): a false block costs a reworded command, a missed one an
   // unreviewed PR. So a commit message that names the command goes in a file (`git commit -F`).
-  // A bare help call is the one form that opens nothing.
-  if (!/\bgh(\.exe)?\s+pr\s+(create|new)\b/.test(command)) return;
+  // gh takes flags between `pr` and the subcommand (`gh pr -R o/r create`), and a full path may
+  // be quoted (`& "C:\…\gh.exe" pr create`), so anything up to the next ; & | or line break may
+  // sit between them. A bare help call is the one form that opens nothing.
+  if (!/\bgh(\.exe)?["']?\s+pr\b[^\n;&|]*?\b(create|new)\b/.test(command)) return;
   if (/^\s*gh(\.exe)?\s+pr\s+(create|new)\s+(--help|-h)\s*$/.test(command)) return;
 
   // The gate reads the branch and review file of the session's folder, so it can only vouch
