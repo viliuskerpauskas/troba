@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Specs and tickets for troba live in GitHub Issues on `viliuskerpauskas/troba`, on the [troba project board](https://github.com/users/viliuskerpauskas/projects/3). Use the `gh` CLI for every operation. The engineering skills (`/to-spec`, `/to-tickets`, `/implement-spec`, `/implement`, `/code-review`) read this file to find out where work lives; it is hand-written, so don't run `/setup-matt-pocock-skills` over it.
+Specs and tickets for troba live in this repo's GitHub Issues, on the troba project board (project 3 of the repo owner). Use the `gh` CLI for every operation. The engineering skills (`/to-spec`, `/to-tickets`, `/implement-spec`, `/implement`, `/mattpocock-skills:code-review`) read this file to find out where work lives; it is written by hand (see [skill-overrides.md](skill-overrides.md#setup-and-the-other-skills)).
 
 ## The repo is public, so issues are public
 
@@ -50,7 +50,7 @@ The end-to-end behaviour this ticket makes work, from the user's perspective.
 None (can start immediately) — or omit this section when the edges are set natively.
 ```
 
-Every ticket is a vertical slice that is green on its own: typecheck and tests pass with only its blockers merged. That is what lets `/implement-spec` run the frontier in parallel worktrees.
+Every ticket is green on its own, as [AGENTS.md](../../AGENTS.md) defines it; that is what lets `/implement-spec` run the frontier in parallel worktrees.
 
 Then link it, with `gh` 2.87 (no `--parent` flag yet):
 
@@ -62,7 +62,7 @@ blocker=$(gh api repos/{owner}/{repo}/issues/<B> --jq .id)
 gh api --method POST repos/{owner}/{repo}/issues/<M>/dependencies/blocked_by -F issue_id=$blocker
 ```
 
-Add each new issue to the project board (`gh project item-add 3 --owner viliuskerpauskas --url <issue url>`) and add the spec, with its tickets beneath it, to the index in [tasks/plan.md](../../tasks/plan.md).
+Add each new issue to the project board (`gh project item-add 3 --owner "@me" --url <issue url>`) and add the spec, with its tickets beneath it, to the index in [tasks/plan.md](../../tasks/plan.md).
 
 ## When a skill says "fetch the ticket"
 
@@ -72,7 +72,7 @@ Add each new issue to the project board (`gh project item-add 3 --owner viliuske
 
 ## When a skill resolves an issue from a commit
 
-`/code-review` reads `Closes #<n>` and `Refs #<n>` in commit messages. Ticket commits carry `Refs #<M>` in the footer. GitHub closes issues from the **PR body**, so `Closes #<N>` and one `Closes #<M>` per ticket go there, written by `/wrap`.
+Matt's code-review reads `Closes #<n>` and `Refs #<n>` in commit messages. Ticket commits carry `Refs #<M>` in the footer. GitHub closes issues from the **PR body**, so `Closes #<N>` and one `Closes #<M>` per ticket go there, written by `/wrap`.
 
 ## Closing work
 

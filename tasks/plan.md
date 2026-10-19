@@ -6,7 +6,7 @@ Specs: [SPEC.md](../SPEC.md), [SPEC-platform.md](../SPEC-platform.md), [SPEC-ide
 
 ## Overview
 
-v1 is a deployable Next.js + Postgres app where invited users import bank CSVs through their own import profiles, categorize spending with rules, attach receipts and see monthly spending by category. It's built in thin vertical slices, one PR each, test-first for logic.
+v1 is a deployable Next.js + Postgres app where invited users import bank CSVs through their own import profiles, categorize spending with rules, attach receipts and see monthly spending by category. It was planned as thin vertical slices, one PR each, test-first for logic; after ADR-0012 a new feature is one PR made of several ticket slices.
 
 ## Architecture Decisions
 

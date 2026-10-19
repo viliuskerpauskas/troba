@@ -42,7 +42,7 @@ The documented standards `/code-review` checks every diff against (the Standards
 
 **Responses and headers**
 - Responses and logs never carry password hashes, tokens, reset links, session ids or another user's data. Errors shown to users are generic; details go to the server log.
-- Changed pages keep the headers set in `apps/web/next.config.ts` (currently `frame-ancestors 'none'`); once T43 lands, the script CSP and HSTS too. A review of changed pages checks them on the running app with `curl -sI`.
+- Changed pages keep every security header set in `apps/web/next.config.ts`. A review of changed pages checks them on the running app with `curl -sI`.
 
 **Secrets and dependencies**
 - No secrets in the diff; `.env.example` holds only local-development placeholders.
