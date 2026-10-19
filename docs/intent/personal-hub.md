@@ -25,6 +25,8 @@ Status: confirmed 2026-10-10 (interview-me)
 
 ## Workflow (addyosmani/agent-skills)
 
+Superseded for new work by [ADR-0012](../adr/0012-matt-pocock-agent-workflow.md) (Matt Pocock's engineering skills). Kept as the record of how v1 was defined and planned.
+
 Each phase, the skill that drives it, and the artifact it leaves in the repo:
 
 | Phase | Skill(s) | Artifact |

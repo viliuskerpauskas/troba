@@ -1,5 +1,5 @@
 // SessionStart hook: puts the workflow state (branch, PR, CI, next issues) into
-// the session's context so the agent can say where the owner is in the slice loop.
+// the session's context so the agent can say which stage of the flow the owner is at.
 // Every lookup fails soft and says so: a failed check is reported as unknown, never
 // as "nothing there", and the hook always prints whatever it collected.
 import { spawnSync } from "node:child_process";
@@ -70,20 +70,33 @@ function unblockedIssues() {
     "-F",
     "name={repo}",
     "-f",
-    "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:ASC}){nodes{title authorAssociation labels(first:10){nodes{name}} issueDependenciesSummary{blockedBy}}}}}",
+    "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,orderBy:{field:CREATED_AT,direction:ASC}){nodes{title authorAssociation parent{number} subIssuesSummary{total} labels(first:10){nodes{name}} issueDependenciesSummary{blockedBy}}}}}",
   ]);
   if (!r.ok) return "Issues: unknown (gh lookup failed).";
   const nodes = JSON.parse(r.out).data?.repository?.issues?.nodes;
   if (!nodes) return "Issues: unknown (unexpected GitHub response).";
+  // A ticket (an issue with a parent spec) is worked through its spec's /implement-spec, so only
+  // specs and standalone tasks are offered as the next thing to start.
   const ready = nodes
     .filter(
       (i) =>
         TRUSTED.has(i.authorAssociation) &&
+        !i.parent &&
         i.issueDependenciesSummary.blockedBy === 0 &&
         !i.labels.nodes.some((l) => l.name === "blocked-external"),
     )
-    .map((i) => `  - ${i.title.slice(0, 120)}`);
-  return ready.length ? `Unblocked issues:\n${ready.join("\n")}` : "No unblocked issues.";
+    .map((i) => {
+      const spec = i.labels.nodes.some((l) => l.name === "spec");
+      const next = !spec
+        ? "/implement"
+        : i.subIssuesSummary.total
+          ? "/implement-spec"
+          : "/to-tickets";
+      return `  - [${next}] ${i.title.slice(0, 120)}`;
+    });
+  return ready.length
+    ? `Unblocked specs and standalone tasks, with the command that comes next:\n${ready.join("\n")}`
+    : "No unblocked specs or tasks.";
 }
 
 const lines = [];
