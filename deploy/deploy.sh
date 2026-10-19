@@ -45,24 +45,40 @@ compose "$sha" up -d --wait postgres
 # rollback runs against (ADR-0008).
 compose "$sha" run --rm migrate
 
+# Puts web back on the previous sha and exits 1. Runs to the end even if a command in it fails.
+rollback() {
+  set +e
+  # A second Ctrl+C stops the rollback itself.
+  trap - INT TERM HUP
+  trap '' PIPE
+  compose "$sha" logs --tail 50 web >&2
+  if [[ -z $previous ]]; then
+    echo "no previous sha to roll back to; $env is left on $sha" >&2
+    exit 1
+  fi
+  echo "rolling $env back to $previous" >&2
+  compose "$previous" up -d web
+  if "$here/wait-healthy.sh" "$env" "$previous"; then
+    echo "rolled $env back to $previous" >&2
+  else
+    echo "rollback to $previous is not healthy either; $env needs attention" >&2
+  fi
+  exit 1
+}
+
+# From here on web may be on the new image, so every way out except success rolls back: a failed
+# health check, Ctrl+C, or the SSH session going away (a dropped connection, a cancelled CI job).
+# In the last case nobody can read the output any more, so it goes to a log on the VPS.
+trap 'echo "interrupted" >&2; rollback' INT
+trap 'exec >>"$dir/deploy.log" 2>&1; echo "$(date -Is) deploy of $sha lost its session"; rollback' TERM HUP PIPE
+
 compose "$sha" up -d --remove-orphans web
 if "$here/wait-healthy.sh" "$env" "$sha"; then
+  trap - INT TERM HUP PIPE
   echo "$sha" > "$state"
   echo "deployed $sha to $env"
   exit 0
 fi
 
 echo "$sha failed its health check on $env" >&2
-compose "$sha" logs --tail 50 web >&2 || true
-if [[ -z $previous ]]; then
-  echo "no previous sha to roll back to; $env is left on the failed image" >&2
-  exit 1
-fi
-echo "rolling $env back to $previous" >&2
-compose "$previous" up -d web
-if "$here/wait-healthy.sh" "$env" "$previous"; then
-  echo "rolled $env back to $previous" >&2
-else
-  echo "rollback to $previous is not healthy either; $env needs attention" >&2
-fi
-exit 1
+rollback

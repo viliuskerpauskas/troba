@@ -171,8 +171,10 @@ For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to pr
 2. starts Postgres and waits for it to be healthy;
 3. runs migrations with the new image (`docker compose run --rm migrate`);
 4. starts the new web container;
-5. waits up to 2 minutes, with [wait-healthy.sh](../../deploy/wait-healthy.sh), for `/api/health` inside the container to answer `"status":"ok"` with `"version":"<sha>"`;
+5. waits up to 2 minutes, with [wait-healthy.sh](../../deploy/wait-healthy.sh), for `/api/health` inside the container to answer `"status":"ok"` with `"version":"<sha>"`, printing what it sees every 10 seconds;
 6. on success, writes `<sha>` to `/srv/troba/<env>/deployed-sha`; on failure, prints the web log, starts the sha from `deployed-sha` again, waits for it to be healthy, and exits 1.
+
+Once the new web container has started, being interrupted also rolls back: Ctrl+C does it in the terminal (a second Ctrl+C stops the rollback), and a lost SSH session or a cancelled CI job does it with the output going to `/srv/troba/<env>/deploy.log`.
 
 If steps 1–3 fail, web was never touched and the script exits non-zero without a rollback. A rollback only swaps the web image, so migrations must keep working with the previous release ([ADR-0008](../adr/0008-vps-docker-compose-caddy.md)). The very first deploy has nothing to roll back to.
 
@@ -226,7 +228,7 @@ curl -s https://staging.<domain>/api/health   # version is still $good
 docker rmi "$image:$broken"
 ```
 
-Expected: after about 2 minutes, `failed its health check`, `rolled staging back to <good>`, exit 1.
+Expected: a progress line every 10 seconds (`web keeps exiting and restarting`), then after 2 minutes `failed its health check`, `rolled staging back to <good>`, exit 1. Let it run: Ctrl+C would also roll back, but then it tests the interruption path instead of the health check.
 
 **Only 22, 80 and 443 are open.** From another machine, not the VPS:
 
@@ -241,7 +243,7 @@ Expected: `22/tcp`, `80/tcp` and `443/tcp` open, everything else closed or filte
 
 | Date | Check | Result |
 |---|---|---|
-| 2026-10-20 | deploy, rollback and Caddy routing, rehearsed on a local Docker host with a local registry and test images (no VPS yet) | first deploy, a second deploy, and a broken image rolled back to the previous sha after the 2-minute timeout; Caddy served staging over HTTPS, redirected HTTP, answered 502 for the absent prod; no container port published except Caddy's |
+| 2026-10-20 | deploy, rollback and Caddy routing, rehearsed on a local Docker host with a local registry and test images (no VPS yet) | first deploy, a second deploy, and a broken image rolled back to the previous sha after the 2-minute timeout, after Ctrl+C and after a SIGHUP (output in `deploy.log`); Caddy served staging over HTTPS, redirected HTTP, answered 502 for the absent prod; no container port published except Caddy's |
 | | known sha on staging (VPS) | not run yet |
 | | broken image rolled back (VPS) | not run yet |
 | | `nmap` from outside | not run yet |

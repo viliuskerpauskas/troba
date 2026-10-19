@@ -26,7 +26,9 @@ fetch("http://127.0.0.1:3000/api/health")
 '
 
 deadline=$((SECONDS + timeout))
+next_report=$((SECONDS + 10))
 last=""
+echo "waiting up to ${timeout}s for troba-$env to report $sha"
 while ((SECONDS < deadline)); do
   # The web container of this Compose project, found by its labels; empty while it's being replaced.
   container=$(docker ps -q \
@@ -34,9 +36,16 @@ while ((SECONDS < deadline)); do
     --filter "label=com.docker.compose.service=web" | head -n 1)
   if [[ -z $container ]]; then
     last="no running web container"
+  elif [[ $(docker inspect -f '{{.State.Restarting}}' "$container" 2>/dev/null) == true ]]; then
+    last="web keeps exiting and restarting (see: docker logs $container)"
   elif last=$(docker exec "$container" node -e "$check" "$sha" 2>&1); then
     echo "troba-$env is healthy on $sha"
     exit 0
+  fi
+  # A line every 10 seconds, so a slow start doesn't look like a hang.
+  if ((SECONDS >= next_report)); then
+    echo "  ${SECONDS}s: $last"
+    next_report=$((SECONDS + 10))
   fi
   sleep 2
 done
