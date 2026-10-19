@@ -1,0 +1,18 @@
+# DOMAIN and ACME_EMAIL come from /srv/troba/edge/.env through compose.yaml. Caddy gets and renews
+# the certificates and redirects HTTP to HTTPS on its own.
+{
+	email {$ACME_EMAIL}
+}
+
+# Upstreams are the web containers' aliases on the edge network (deploy/app/compose.yaml). An
+# environment that isn't running answers 502. Caddy replaces any client-sent X-Forwarded-For with
+# the address it saw, which is what apps/web/src/server/client-ip.ts relies on.
+staging.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy staging-web:3000
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy prod-web:3000
+}
