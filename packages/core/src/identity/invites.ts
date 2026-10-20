@@ -1,6 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
 import { schema, type Db } from "@troba/db";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { hashToken, newToken } from "./tokens";
 
 // Invites (SPEC-identity I2): single-use links an admin sends to a friend. The token only exists
 // in the link; the database keeps its SHA-256 hash, so a database leak can't be used to sign up.
@@ -24,10 +24,6 @@ export type InviteSummary = {
 export type RedeemResult =
   { ok: true; userId: string; email: string } | { ok: false; reason: "invalid" | "email-taken" };
 
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -41,7 +37,7 @@ export async function createInvite(
   input: { createdBy: string; email?: string | null; now?: Date },
 ): Promise<{ id: string; token: string }> {
   const now = input.now ?? new Date();
-  const token = randomBytes(32).toString("base64url");
+  const token = newToken();
   const [invite] = await db
     .insert(invites)
     .values({

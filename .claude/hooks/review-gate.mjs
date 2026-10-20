@@ -1,121 +1,101 @@
-// PreToolUse hook on Bash and PowerShell: refuses `gh pr create`, and `git push` on a branch
-// with an open PR, until the branch's review file shows the whole review ran on the commit
-// being proposed (AGENTS.md, Workflow → Review). Exit code 2 blocks the command and shows
-// the reason to the agent. Which commands count is in gated-command.mjs, and what the file
-// must contain in review-evidence.mjs.
+// PreToolUse hook on Bash and PowerShell: refuses `gh pr create` until the branch's review file shows the
+// whole review ran on the commit being proposed, and the spec issue carries its record of what
+// happened (docs/agents/skill-overrides.md, sections /code-review and /wrap). Exit code 2 blocks the
+// command and shows the reason to the agent; every failure inside the hook blocks too, because
+// any other exit code lets the command run.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { gatedCommands } from "./gated-command.mjs";
-import { checkReview } from "./review-evidence.mjs";
 
-// A hook that runs past its timeout in .claude/settings.json (15 s) lets the command through,
-// so every git and gh call shares a budget that ends well before it, and running out refuses.
-const deadline = Date.now() + 12000;
+// One heading per part of the review, so a skipped part is visible.
+const SECTIONS = ["Standards", "Spec", "Checks", "Personal information"];
 
 function block(reason) {
-  process.stderr.write(`Review gate: ${reason}\nSee AGENTS.md, Workflow → Review.\n`);
+  process.stderr.write(
+    `Review gate: ${reason}\nSee the /code-review and /wrap sections of docs/agents/skill-overrides.md.\n`,
+  );
   process.exit(2);
 }
 
-function run(cmd, args, { cwd, input, timeout = 5000 } = {}) {
-  const left = Math.min(timeout, deadline - Date.now());
-  const label = `\`${cmd} ${args.join(" ")}\``;
-  if (left <= 0) block(`ran out of time before ${label}, so the review can't be checked.`);
-  const r = spawnSync(cmd, args, { cwd, input, encoding: "utf8", timeout: left });
-  if (r.error?.code === "ETIMEDOUT") block(`${label} timed out, so the review can't be checked.`);
-  return r;
-}
+function main() {
+  const input = JSON.parse(readFileSync(0, "utf8"));
+  const command = input.tool_input?.command ?? "";
+  // `gh pr new` is an alias of `gh pr create`. Any mention counts, wherever it sits (a subshell,
+  // an env prefix, `bash -c`): a false block costs a reworded command, a missed one an
+  // unreviewed PR. So a commit message that names the command goes in a file (`git commit -F`).
+  // gh takes flags between `pr` and the subcommand (`gh pr -R o/r create`), and a full path may
+  // be quoted (`& "C:\…\gh.exe" pr create`), so anything up to the next ; & | or line break may
+  // sit between them. A bare help call is the one form that opens nothing.
+  if (!/\bgh(\.exe)?["']?\s+pr\b[^\n;&|]*?\b(create|new)\b/.test(command)) return;
+  if (/^\s*gh(\.exe)?\s+pr\s+(create|new)\s+(--help|-h)\s*$/.test(command)) return;
 
-function git(args, cwd) {
-  const r = run("git", args, { cwd });
-  if (r.status !== 0) {
+  // The gate reads the branch and review file of the session's folder, so it can only vouch
+  // for a PR opened from that folder, for its own branch.
+  const elsewhere =
+    /(^|[\s;&|({`])(cd|pushd|popd|chdir|sl|Set-Location|Push-Location)(\s|$)|\bGH_(REPO|HOST)=|--repo\b|--head\b|\s-[RH](\s|\S)/;
+  if (elsewhere.test(command)) {
     block(
-      `\`git ${args.join(" ")}\` failed in ${cwd}, so the review can't be checked. ` +
-        "Shell variables and ~ in a directory aren't expanded here; use a literal path.",
+      "open the PR from the feature worktree itself, for its current branch (no cd, GH_REPO, --repo or --head).",
     );
   }
-  return r.stdout.trim();
-}
 
-// Git Bash writes C:\dev as /c/dev, which Node on Windows would read as C:\c\dev.
-function nativePath(dir) {
-  return process.platform === "win32" ? dir.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:") : dir;
-}
+  function run(cmd, args, what) {
+    const r = spawnSync(cmd, args, { cwd: input.cwd, encoding: "utf8", timeout: 5000 });
+    if (r.status !== 0) block(`\`${cmd} ${args.join(" ")}\` failed, so ${what} can't be checked.`);
+    return r.stdout.trim();
+  }
+  const git = (args) => run("git", args, "the review");
 
-function check(kind, cwd) {
-  const root = git(["rev-parse", "--show-toplevel"], cwd);
-  const branch = git(["branch", "--show-current"], cwd);
+  const root = git(["rev-parse", "--show-toplevel"]);
+  const branch = git(["branch", "--show-current"]);
+  const head = git(["rev-parse", "HEAD"]);
   const file = `.reviews/${branch.replaceAll("/", "-")}.md`;
 
-  let review = null;
+  let review;
   try {
     review = readFileSync(path.join(root, file), "utf8");
   } catch {
-    // Handled below: opening a PR needs the file, a push without one isn't gated.
-  }
-
-  if (kind === "push") {
-    // `main`, a detached HEAD and branches without a review file push freely; so does a branch
-    // whose PR isn't open yet, since `gh pr create` checks the review before the PR exists.
-    if (!branch || branch === "main" || review === null) return;
-    const args = ["pr", "list", "--head", branch, "--state", "open", "--json", "number"];
-    const r = run("gh", [...args, "--jq", "length"], { cwd, timeout: 10000 });
-    if (r.status !== 0) {
-      block(`\`gh pr list\` failed, so it can't tell whether ${branch} has an open PR.`);
-    }
-    if (r.stdout.trim() === "0") return;
-  }
-
-  if (review === null) {
-    block(`no review file at ${file}. Run the review steps and write the review there.`);
-  }
-
-  // One lookup for every sha in the file.
-  const shas = [...new Set(review.match(/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/g))];
-  const lookup = run("git", ["cat-file", "--batch-check"], { cwd, input: `${shas.join("\n")}\n` });
-  if (lookup.status !== 0)
-    block("`git cat-file --batch-check` failed, so the review can't be checked.");
-  const commits = new Set(
-    lookup.stdout
-      .split("\n")
-      .filter((line) => line.split(" ")[1] === "commit")
-      .map((line) => line.split(" ")[0]),
-  );
-  const problems = checkReview({
-    review,
-    head: git(["rev-parse", "HEAD"], cwd),
-    // -z keeps paths with non-ASCII characters unquoted.
-    changedFiles: git(["diff", "--name-only", "-z", "main...HEAD"], cwd)
-      .split("\0")
-      .filter(Boolean),
-    isCommit: (sha) => commits.has(sha),
-  });
-  if (problems.length) {
     block(
-      `${file} isn't ready${kind === "push" ? ` for a push to ${branch}'s open PR` : ""}:\n` +
-        problems.map((problem) => `- ${problem}`).join("\n") +
-        "\nReview what's missing (for new commits, a fix round or pass), then update the file.",
+      `no review file at ${file}. Run the review as skill-overrides.md says and write it there.`,
+    );
+  }
+
+  const missing = SECTIONS.filter((name) => !new RegExp(`^## ${name}\\s*$`, "m").test(review));
+  if (missing.length) block(`${file} is missing: ${missing.map((n) => `## ${n}`).join(", ")}.`);
+  if (!review.includes(`Reviewed commit: ${head}`)) {
+    block(
+      `${file} doesn't say "Reviewed commit: ${head}". Review the commits since the last ` +
+        "review, then update that line.",
+    );
+  }
+
+  // `Spec: #<n>` names the spec issue (or the standalone task's own issue), whose body /wrap
+  // appends to. `Spec: none - <why>` is the recorded exception for work with no issue.
+  const spec = review.match(/^Spec:\s*(?:#(\d+)|none\s+[-–—]\s+\S.*?)\s*$/m);
+  if (!spec) {
+    block(`${file} has no "Spec: #<issue>" line (or "Spec: none - <why>" for work with no issue).`);
+  }
+  // A branch named after an issue always has that issue as its spec.
+  const key = branch.match(/\/T(\d+)-/)?.[1];
+  if (key && key !== spec[1]) {
+    block(`${file} must say "Spec: #${key}": the branch ${branch} belongs to T${key}.`);
+  }
+  if (!spec[1]) return;
+  const body = run(
+    "gh",
+    ["issue", "view", spec[1], "--json", "body", "--jq", ".body"],
+    `issue #${spec[1]}`,
+  );
+  if (!/^## What actually happened\b/m.test(body)) {
+    block(
+      `issue #${spec[1]} has no "## What actually happened" section yet. /wrap step 5 adds it.`,
     );
   }
 }
 
-// An uncaught error would exit 1, which lets the command through, so it refuses instead.
 try {
-  const input = JSON.parse(readFileSync(0, "utf8"));
-  const shell = input.tool_name === "PowerShell" ? "powershell" : "bash";
-  const base = input.cwd ?? process.cwd();
-  for (const { kind, cwd } of gatedCommands(input.tool_input?.command ?? "", shell)) {
-    if (kind === "unclear") {
-      block(
-        "this command has an unclosed quote, or quotes nested inside a `$(…)` in double " +
-          "quotes, and mentions `git push` or `gh pr create`, so it can't tell what runs. " +
-          "Close the quote, use single quotes inside the `$(…)`, or split the command up.",
-      );
-    }
-    check(kind, cwd ? path.resolve(base, nativePath(cwd)) : base);
-  }
+  main();
 } catch (error) {
-  block(`couldn't check the review: ${error.message}`);
+  block(`the gate itself failed (${error.message}), so nothing was checked.`);
 }

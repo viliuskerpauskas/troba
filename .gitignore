@@ -19,5 +19,8 @@ uploads/
 # Claude Code agent worktrees
 .claude/worktrees/
 
+# Research notes shared by a feature's ticket sessions (docs/agents/skill-overrides.md)
+.scratch/
+
 # Local review write-ups, checked by .claude/hooks/review-gate.mjs; posted to the PR
 .reviews/

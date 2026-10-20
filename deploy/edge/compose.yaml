@@ -1,0 +1,31 @@
+# The edge: Caddy with automatic HTTPS, the only container that publishes ports. It routes
+# staging.<domain> and <domain> to the troba-staging and troba-prod web containers over the shared
+# edge network. Its env file (DOMAIN, ACME_EMAIL) is /srv/troba/edge/.env:
+#   docker compose -p edge -f /srv/troba/deploy/edge/compose.yaml --env-file /srv/troba/edge/.env up -d
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set in the env file}
+      ACME_EMAIL: ${ACME_EMAIL:?set in the env file}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys; losing them means re-issuing every certificate.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # Shared with every troba environment. Created once by hand (`docker network create --ipv6 edge`), so
+  # the edge and the environments can start in either order.
+  edge:
+    external: true

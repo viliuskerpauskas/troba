@@ -2,11 +2,11 @@
 
 Specs: [SPEC.md](../SPEC.md), [SPEC-platform.md](../SPEC-platform.md), [SPEC-identity.md](../SPEC-identity.md), [SPEC-money.md](../SPEC-money.md).
 
-**Tasks are tracked in GitHub Issues** (one per task, acceptance criteria and verification in the body, dependencies as native "blocked by" links). This file keeps the design, risks and the ordered index below.
+**Tasks are tracked in GitHub Issues** (one per task, acceptance criteria and verification in the body, dependencies as native "blocked by" links). This file keeps the design, risks and the ordered index below. The v1 issues below predate [ADR-0012](../docs/adr/0012-matt-pocock-agent-workflow.md) and run as standalone tasks; new features get a spec issue with ticket sub-issues, listed under [Features](#features).
 
 ## Overview
 
-v1 is a deployable Next.js + Postgres app where invited users import bank CSVs through their own import profiles, categorize spending with rules, attach receipts and see monthly spending by category. It's built in thin vertical slices, one PR each, test-first for logic.
+v1 is a deployable Next.js + Postgres app where invited users import bank CSVs through their own import profiles, categorize spending with rules, attach receipts and see monthly spending by category. It was planned as thin vertical slices, one PR each, test-first for logic; after ADR-0012 a new feature is one PR made of several ticket slices.
 
 ## Architecture Decisions
 
@@ -91,6 +91,12 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 ### Checkpoint D: shipped
 - [ ] All platform success criteria, including rollback and `nmap` check
 - [ ] Before real data in prod: backups and TOTP 2FA (post-v1 gates from the specs)
+
+### Features
+
+One entry per spec issue, with its tickets beneath it in dependency order (added by `/to-tickets`; see [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md)).
+
+_None yet._
 
 ## Risks and Mitigations
 

@@ -17,7 +17,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           {user?.role === "admin" && (
             <>
               {" "}
-              <Link href="/admin/invites">Invites</Link>
+              <Link href="/admin/users">Users</Link> <Link href="/admin/invites">Invites</Link>
             </>
           )}
         </nav>

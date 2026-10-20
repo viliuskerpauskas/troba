@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { createdAt, id, timestamptz, updatedAt } from "./columns";
 
 // Better Auth tables (identity). Generated with Better Auth's Drizzle schema generator for our
 // options (plural names, uuid ids, admin plugin), then adjusted: timestamps carry a time zone
@@ -7,18 +8,6 @@ import { boolean, check, index, pgTable, text, timestamp, uuid } from "drizzle-o
 
 export const roles = ["admin", "user"] as const;
 export type Role = (typeof roles)[number];
-
-const id = () =>
-  uuid("id")
-    .default(sql`gen_random_uuid()`)
-    .primaryKey();
-const timestamptz = (name: string) => timestamp(name, { withTimezone: true });
-const createdAt = () => timestamptz("created_at").defaultNow().notNull();
-const updatedAt = () =>
-  timestamptz("updated_at")
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull();
 
 export const users = pgTable(
   "users",
@@ -35,6 +24,9 @@ export const users = pgTable(
     banned: boolean("banned").default(false),
     banReason: text("ban_reason"),
     banExpires: timestamptz("ban_expires"),
+    // When a session was last created or refreshed (server/auth.ts), for the admin users list.
+    // Kept on the user because sessions are deleted on sign-out and when a user is disabled.
+    lastActiveAt: timestamptz("last_active_at"),
   },
   (table) => [check("users_role_check", sql`${table.role} in ('admin', 'user')`)],
 );
@@ -111,6 +103,23 @@ export const invites = pgTable("invites", {
   revokedAt: timestamptz("revoked_at"),
 });
 
+// Password reset links (SPEC-identity I5): an admin creates one for a user and sends it
+// themselves. Single-use, short-lived, and only a SHA-256 hash of the token is stored.
+export const passwordResets = pgTable(
+  "password_resets",
+  {
+    id: id(),
+    tokenHash: text("token_hash").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    expiresAt: timestamptz("expires_at").notNull(),
+    usedAt: timestamptz("used_at"),
+  },
+  (table) => [index("password_resets_user_id_idx").on(table.userId)],
+);
+
 // Sign-in attempts (SPEC-identity I3), for rate limiting by email and IP. A row is written before
 // the password is checked and deleted when the sign-in succeeds, so the rows left are failures
 // (or attempts still in progress). Rows older than the limit's window are deleted as new ones come.
@@ -120,7 +129,8 @@ export const signInAttempts = pgTable(
     id: id(),
     // Lowercased, like Better Auth stores it.
     email: text("email").notNull(),
-    // Null when the request carried no client address.
+    // What the limit counts the client by: its address, or an IPv6 address's /64 prefix. Null when
+    // the request carried no client address.
     ipAddress: text("ip_address"),
     createdAt: createdAt(),
   },

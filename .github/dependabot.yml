@@ -48,3 +48,21 @@ updates:
       # Node is pinned to the 24 LTS line; a node bump also needs .nvmrc updated in the same PR.
       - dependency-name: node
         update-types: [version-update:semver-major]
+
+  # Postgres (local dev and the VPS environments, kept on one version) and Caddy.
+  - package-ecosystem: docker-compose
+    directories: [/, /deploy/app, /deploy/edge]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      docker-compose:
+        update-types: [minor, patch]
+    ignore:
+      # A Postgres major can't open the old data directory; it needs a dump and restore by hand.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
