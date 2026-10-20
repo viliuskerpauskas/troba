@@ -3,8 +3,8 @@
 import {
   createTransaction,
   deleteTransaction,
-  directions,
   parseTypedCents,
+  transactionDirections,
   updateTransaction,
   type TransactionDetails,
 } from "@troba/core";
@@ -43,7 +43,7 @@ const Details = z.object({
   accountId: z.uuid(),
   bookedOn: z.iso.date(),
   amount: Amount,
-  direction: z.enum(directions),
+  direction: z.enum(transactionDirections),
   counterparty: OptionalText(200),
   description: OptionalText(500),
 });
@@ -58,8 +58,11 @@ const TransactionId = z.uuid();
 
 const detailsError =
   "Pick an account, enter a date and an amount above zero, such as 12.50, with at most two decimals.";
+const classificationError =
+  "Pick one of your categories, and keep the note under 1,000 characters.";
 const reasonErrors = {
   "not-found": "That transaction doesn't exist.",
+  "invalid-amount": detailsError,
   imported: "An imported transaction's date, amount and counterparty can't be changed.",
   "account-not-found": "Pick one of your accounts.",
   "category-not-found": "Pick one of your categories.",
@@ -85,7 +88,7 @@ export async function createTransactionAction(
   const details = Details.safeParse(values);
   if (!details.success) return { error: detailsError, values };
   const classification = Classification.safeParse(values);
-  if (!classification.success) return { error: reasonErrors["category-not-found"], values };
+  if (!classification.success) return { error: classificationError, values };
 
   const result = await createTransaction(db(), userId, {
     ...toDetails(details.data),
@@ -112,7 +115,7 @@ export async function updateTransactionAction(
     details = toDetails(parsed.data);
   }
   const classification = Classification.safeParse(values);
-  if (!classification.success) return { error: reasonErrors["category-not-found"], values };
+  if (!classification.success) return { error: classificationError, values };
 
   const result = await updateTransaction(db(), userId, {
     transactionId: transactionId.data,

@@ -6,8 +6,8 @@ import { and, desc, eq, isNull, type SQL } from "drizzle-orm";
 
 const { moneyAccounts, moneyCategories, moneyTransactions } = schema;
 
-export const directions = ["expense", "income"] as const;
-export type Direction = (typeof directions)[number];
+export const transactionDirections = ["expense", "income"] as const;
+export type Direction = (typeof transactionDirections)[number];
 
 export type Transaction = {
   id: string;
@@ -22,16 +22,16 @@ export type Transaction = {
   categoryId: string | null;
   categoryName: string | null;
   // Who set the category: rules never overwrite one set by hand.
-  categorySource: "manual" | "rule" | "transfer" | null;
+  categorySource: (typeof schema.categorySources)[number] | null;
   note: string | null;
-  source: "manual" | "csv_import";
+  source: (typeof schema.transactionSources)[number];
 };
 
 // What the bank would report: fixed on imported transactions.
 export type TransactionDetails = {
   accountId: string;
   bookedOn: string; // YYYY-MM-DD
-  // Unsigned; the direction gives the sign.
+  // Above zero; the direction gives the sign.
   amountCents: bigint;
   direction: Direction;
   counterparty?: string | null;
@@ -45,7 +45,7 @@ export type NewTransaction = TransactionDetails & {
 
 export type CreateTransactionResult =
   | { ok: true; transaction: Transaction }
-  | { ok: false; reason: "account-not-found" | "category-not-found" };
+  | { ok: false; reason: "invalid-amount" | "account-not-found" | "category-not-found" };
 
 // The newest first; the list page shows this many.
 export const transactionListLimit = 100;
@@ -88,8 +88,7 @@ function optionalText(text: string | null | undefined): string | null {
 }
 
 function signedCents(amountCents: bigint, direction: Direction): bigint {
-  const magnitude = amountCents < 0n ? -amountCents : amountCents;
-  return direction === "expense" ? -magnitude : magnitude;
+  return direction === "expense" ? -amountCents : amountCents;
 }
 
 // The currency of one of the user's accounts, or null. Archived accounts aren't offered for new
@@ -140,6 +139,7 @@ export async function createTransaction(
   userId: string,
   input: NewTransaction,
 ): Promise<CreateTransactionResult> {
+  if (input.amountCents <= 0n) return { ok: false, reason: "invalid-amount" };
   const currency = await accountCurrency(db, userId, input.accountId);
   if (!currency) return { ok: false, reason: "account-not-found" };
   const categoryId = input.categoryId ?? null;
@@ -176,7 +176,11 @@ export type TransactionUpdate = {
 
 export type UpdateTransactionResult =
   | { ok: true; transaction: Transaction }
-  | { ok: false; reason: "not-found" | "imported" | "account-not-found" | "category-not-found" };
+  | {
+      ok: false;
+      reason:
+        "not-found" | "imported" | "invalid-amount" | "account-not-found" | "category-not-found";
+    };
 
 export async function updateTransaction(
   db: Db,
@@ -200,6 +204,7 @@ export async function updateTransaction(
   if (input.details) {
     // Date, amount and counterparty stay as the bank reported them.
     if (current.source !== "manual") return { ok: false, reason: "imported" };
+    if (input.details.amountCents <= 0n) return { ok: false, reason: "invalid-amount" };
     const { accountId } = input.details;
     const currency = await accountCurrency(db, userId, accountId, {
       allowArchived: accountId === current.accountId,

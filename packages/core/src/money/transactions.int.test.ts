@@ -9,6 +9,7 @@ import {
   deleteTransaction,
   getTransaction,
   listTransactions,
+  transactionListLimit,
   updateTransaction,
   type NewTransaction,
 } from "./transactions";
@@ -71,6 +72,7 @@ describe("transactions", () => {
       description: "Weekly shop",
       categoryId: category("Food"),
       categoryName: "Food",
+      categorySource: "manual",
       note: "Split with a friend",
       source: "manual",
     };
@@ -96,8 +98,48 @@ describe("transactions", () => {
       description: null,
       categoryId: null,
       categoryName: null,
+      categorySource: null,
       note: null,
     });
+  });
+
+  it("lists the latest ${transactionListLimit} by default", async () => {
+    const { userId, cashId } = await createUser();
+    await db.insert(schema.moneyTransactions).values(
+      Array.from({ length: transactionListLimit + 1 }, (_, day) => ({
+        userId,
+        accountId: cashId,
+        bookedOn: `2025-${String(1 + Math.floor(day / 28)).padStart(2, "0")}-${String(1 + (day % 28)).padStart(2, "0")}`,
+        amountCents: -100n,
+        currency: "EUR",
+        source: "manual" as const,
+      })),
+    );
+
+    const listed = await listTransactions(db, userId);
+
+    expect(listed).toHaveLength(transactionListLimit);
+    expect(listed.at(-1)!.bookedOn).not.toBe("2025-01-01");
+  });
+
+  it.each([0n, -500n])("refuses an amount of %s", async (amountCents) => {
+    const { userId, cashId } = await createUser();
+    const details = { accountId: cashId, bookedOn: "2026-10-05", direction: "expense" } as const;
+    const created = await createOk(userId, { ...details, amountCents: 100n });
+
+    expect(await createTransaction(db, userId, { ...details, amountCents })).toEqual({
+      ok: false,
+      reason: "invalid-amount",
+    });
+    expect(
+      await updateTransaction(db, userId, {
+        transactionId: created.id,
+        details: { ...details, amountCents },
+        categoryId: null,
+        note: null,
+      }),
+    ).toEqual({ ok: false, reason: "invalid-amount" });
+    expect(await listTransactions(db, userId)).toEqual([created]);
   });
 
   it("lists the newest first, the latest added first within a day, up to the limit", async () => {
