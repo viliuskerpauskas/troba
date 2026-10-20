@@ -63,9 +63,15 @@ describe("sign-in limit", () => {
   });
 
   it("counts IPv6 addresses by their /64, whatever the email", async () => {
-    // Documentation addresses (RFC 3849), all in 2001:db8:0:1::/64.
-    for (let i = 1; i <= 5; i++)
-      await fail(1, { email: newEmail(), ipAddress: `2001:db8:0:1::${i}` });
+    // Documentation addresses (RFC 3849), all in 2001:db8:0:1::/64, however they're written.
+    for (const ipAddress of [
+      "2001:db8:0:1::1",
+      "2001:db8:0:1::2",
+      "2001:db8:0:1::3",
+      "2001:db8:0:1::4",
+      "2001:0DB8:0000:0001::5",
+    ])
+      await fail(1, { email: newEmail(), ipAddress });
 
     expect(
       await beginSignInAttempt(db, { email: newEmail(), ipAddress: "2001:db8::1:ffff:0:0:6" }),

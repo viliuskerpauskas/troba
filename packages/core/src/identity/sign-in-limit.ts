@@ -21,21 +21,23 @@ function normalizeEmail(email: string): string {
 // What the limit counts an address by. An IPv6 client usually controls a whole /64, so it could
 // otherwise rotate addresses to get past the limit: count the /64 prefix instead. An IPv4-mapped
 // address (::ffff:a.b.c.d) is the IPv4 client, so it counts as that address. Anything that isn't
-// an IPv6 address is counted as it is.
-function networkKey(ipAddress: string): string {
-  const address = ipAddress.split("%")[0]!;
-  if (!isIPv6(address)) return ipAddress;
-  const hextets = expandIPv6(address);
-  if (hextets.slice(0, 6).join(":") === "0:0:0:0:0:ffff") {
-    const [high, low] = hextets.slice(6).map((hextet) => parseInt(hextet, 16)) as [number, number];
+// an IPv6 address is counted as it is. Addresses come from Caddy, so they carry no zone id.
+function ipLimitKey(ipAddress: string): string {
+  if (!isIPv6(ipAddress)) return ipAddress;
+  const hextets = ipv6Hextets(ipAddress);
+  if (hextets.slice(0, 5).every((hextet) => hextet === 0) && hextets[5] === 0xffff) {
+    const [high, low] = hextets.slice(6) as [number, number];
     return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
   }
-  return `${hextets.slice(0, 4).join(":")}::/64`;
+  return `${hextets
+    .slice(0, 4)
+    .map((hextet) => hextet.toString(16))
+    .join(":")}::/64`;
 }
 
-// The 8 hextets of a valid IPv6 address, as lowercase hex without leading zeros.
-function expandIPv6(address: string): string[] {
-  let text = address.toLowerCase();
+// The 8 16-bit groups of a valid IPv6 address.
+function ipv6Hextets(address: string): number[] {
+  let text = address;
   const ipv4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
   if (ipv4) {
     const [a, b, c, d] = ipv4.slice(1).map(Number) as [number, number, number, number];
@@ -51,7 +53,7 @@ function expandIPv6(address: string): string[] {
           ...Array<string>(8 - parts(head).length - parts(tail).length).fill("0"),
           ...parts(tail),
         ];
-  return hextets.map((hextet) => parseInt(hextet, 16).toString(16));
+  return hextets.map((hextet) => parseInt(hextet, 16));
 }
 
 // Call before checking the password. Returns null when the email or IP address is over the limit:
@@ -68,28 +70,28 @@ export async function beginSignInAttempt(
   input: { email: string; ipAddress: string | null },
 ): Promise<SignInAttempt | null> {
   const email = normalizeEmail(input.email);
-  const ipAddress = input.ipAddress === null ? null : networkKey(input.ipAddress);
+  const ipKey = input.ipAddress === null ? null : ipLimitKey(input.ipAddress);
   await db.delete(signInAttempts).where(lt(signInAttempts.createdAt, windowStart));
   const [attempt] = await db
     .insert(signInAttempts)
-    .values({ email, ipAddress })
+    .values({ email, ipAddress: ipKey })
     .returning({ id: signInAttempts.id });
 
   const [counts] = await db
     .select({
       email: sql<number>`count(*) filter (where ${signInAttempts.email} = ${email})::int`,
-      ipAddress: sql<number>`count(*) filter (where ${signInAttempts.ipAddress} = ${ipAddress})::int`,
+      ipKey: sql<number>`count(*) filter (where ${signInAttempts.ipAddress} = ${ipKey})::int`,
     })
     .from(signInAttempts)
     .where(
       and(
         gt(signInAttempts.createdAt, windowStart),
-        ipAddress === null
+        ipKey === null
           ? eq(signInAttempts.email, email)
-          : or(eq(signInAttempts.email, email), eq(signInAttempts.ipAddress, ipAddress)),
+          : or(eq(signInAttempts.email, email), eq(signInAttempts.ipAddress, ipKey)),
       ),
     );
-  if (counts!.email > signInLimit.attempts || counts!.ipAddress > signInLimit.attempts) {
+  if (counts!.email > signInLimit.attempts || counts!.ipKey > signInLimit.attempts) {
     await db.delete(signInAttempts).where(eq(signInAttempts.id, attempt!.id));
     return null;
   }
