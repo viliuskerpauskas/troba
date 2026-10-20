@@ -2,7 +2,8 @@ name: Deliver
 
 # Every push to main builds ghcr.io/<owner>/troba-web:<sha> once. release-please keeps a release
 # PR open. Merging that PR creates a release, and the release commit's image gets the :<version>
-# tag without a rebuild (ADR-0009). Deploys are added later (T8, T9).
+# tag without a rebuild (ADR-0009). Each image built from main is deployed to staging; the
+# production deploy is added later (T9).
 
 on:
   push:
@@ -53,6 +54,39 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # deploy.sh on the VPS pulls the image, migrates, swaps web and waits for /api/health to report
+  # this sha, rolling back if it doesn't; its exit code fails this job. The SSH key's forced command
+  # (deploy/ci-deploy.sh) fixes the environment, so all this job sends is the sha.
+  deploy-staging:
+    needs: image
+    runs-on: ubuntu-latest
+    # A deploy that fails its health check and rolls back takes about 5 minutes.
+    timeout-minutes: 10
+    environment: staging
+    # One deploy at a time, never cancelled midway. A newer push waiting here replaces an older
+    # one that hasn't started, so staging ends on the newest sha.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    permissions: {}
+
+    steps:
+      - name: Deploy over SSH
+        # Environment secrets of "staging" (docs/ops/vps-setup.md). The host and its key stay out of
+        # the public repo and the logs.
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          (umask 077; printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key)
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Keepalives notice a dead connection; deploy.sh rolls back when its session goes away.
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "deploy@$SSH_HOST" "$GITHUB_SHA"
 
   release:
     runs-on: ubuntu-latest

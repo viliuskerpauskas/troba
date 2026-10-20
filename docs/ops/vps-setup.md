@@ -59,7 +59,7 @@ sshd -t && systemctl reload ssh
 
 **Before closing the root session**, open a second terminal and check `ssh deploy@<vps>` works and `sudo -v` accepts the password. Then `ssh root@<vps>` and a password login (`ssh -o PubkeyAuthentication=no deploy@<vps>`) must both be refused.
 
-Later, the GitHub deploy job (T8) gets its own key in `/home/deploy/.ssh/authorized_keys`; its private key is the only deploy secret GitHub holds.
+The GitHub deploy job gets its own key, limited to deploying, once troba runs: see [Deploys from GitHub](#deploys-from-github).
 
 ## 3. Firewall
 
@@ -184,6 +184,43 @@ Only one deploy per environment runs at a time (`/srv/troba/<env>/.deploy.lock`)
 
 Going back to an older release by hand is just `deploy.sh <env> <older sha>`, as long as the current database schema still works with it.
 
+### Deploys from GitHub
+
+Every push to `main` builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time; a waiting one is replaced by a newer push.
+
+The job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.sh](../../deploy/ci-deploy.sh), which fixes the environment and takes nothing from the client but the sha. GitHub holds the key, the host and its host key, and nothing else from the VPS. To set it up, once [deploy/](../../deploy/) on the VPS includes `ci-deploy.sh`:
+
+1. On your machine, make a key with no passphrase, outside the repo:
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C troba-ci-staging -f ~/troba-ci-staging
+   ```
+
+2. Still on your machine, add its public key to the deploy user's `authorized_keys`, forced to run only the staging deploy (`restrict` also turns off forwarding and the terminal):
+
+   ```bash
+   ssh deploy@<vps> 'cat >> ~/.ssh/authorized_keys' <<< "restrict,command=\"/srv/troba/deploy/ci-deploy.sh staging\" $(cat ~/troba-ci-staging.pub)"
+   ```
+
+3. Check it runs what the job will run, and nothing else. `IdentitiesOnly` keeps ssh from logging in with your own key instead:
+
+   ```bash
+   ssh -o IdentitiesOnly=yes -i ~/troba-ci-staging deploy@<vps> ls   # refused with deploy.sh's usage line
+   ssh -o IdentitiesOnly=yes -i ~/troba-ci-staging deploy@<vps> <sha>   # the sha in /srv/troba/staging/deployed-sha: redeploys it
+   ```
+
+4. In GitHub: Settings → Environments → New environment `staging`. Under **Deployment branches and tags**, choose **Selected branches and tags** and add `main`, so no other branch's workflow gets these secrets. Add three environment secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `SSH_PRIVATE_KEY` | the contents of `~/troba-ci-staging` (the private key) |
+   | `SSH_HOST` | `<vps>` |
+   | `SSH_KNOWN_HOSTS` | the VPS's host key as your machine already trusts it: `ssh-keygen -F <vps> \| grep -v '^#'` |
+
+5. Delete both key files from your machine (`rm ~/troba-ci-staging ~/troba-ci-staging.pub`). A new key is cheaper than keeping a copy safe; to replace it, repeat these steps and remove the old line from `authorized_keys`.
+
+The job sends only the sha, so it doesn't copy `deploy/`: a change there still needs the `scp` in [6. troba](#6-troba) before it takes effect.
+
 ### Everyday commands
 
 The compose command for an environment is long and needs the running sha. This function (put it in `~/.bashrc`) supplies both:
@@ -215,6 +252,14 @@ Run these once the VPS exists, and again after changing the firewall, Docker or 
 /srv/troba/deploy/deploy.sh staging <sha>
 curl -s https://staging.<domain>/api/health   # {"status":"ok","version":"<sha>","db":"ok"}
 ```
+
+**A merge deploys itself.** Merge a PR to `main`, then within 10 minutes and with no manual step, the Deliver run's `deploy-staging` job is green and staging reports the merge's sha:
+
+```bash
+curl -s https://staging.<domain>/api/health   # "version" is the merge commit's sha
+```
+
+The page footer of `https://staging.<domain>/` shows the same sha.
 
 **A broken image rolls back.** With a healthy deploy in place, build an image that exits on start, tagged with a sha that isn't real, and deploy it. Its migrations are the good image's, so only the health check fails.
 

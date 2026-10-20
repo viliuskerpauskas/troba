@@ -15,6 +15,13 @@ test("home page renders without console errors", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("page footer shows the running version", async ({ page }) => {
+  await page.goto("/");
+
+  // Read at request time: the image is built without GIT_SHA, so a prerendered footer would say "dev".
+  await expect(page.getByRole("contentinfo")).toHaveText(`Version ${process.env.GIT_SHA || "dev"}`);
+});
+
 test("health endpoint reports ok with a reachable database", async ({ request }) => {
   const response = await request.get("/api/health");
 
