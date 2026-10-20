@@ -87,6 +87,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.1)
+      zod:
+        specifier: 4.6.6
+        version: 4.6.6
 
   packages/db:
     dependencies:
