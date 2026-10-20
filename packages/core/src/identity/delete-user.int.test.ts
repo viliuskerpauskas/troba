@@ -7,6 +7,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { rowsOwnedBy } from "@troba/db/user-tables";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { ensureMoneyDefaults } from "../money/defaults";
 import { deleteUser } from "./delete-user";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -14,7 +15,7 @@ let db: Db;
 let uploadsDir: string;
 let userCount = 0;
 
-// A user with a password account, a session and a file, so there is something to delete everywhere.
+// A user with a row in every user-owned table and a file, so there is something to delete everywhere.
 async function createUser(role: "admin" | "user" = "user") {
   const n = ++userCount;
   const [user] = await db
@@ -30,9 +31,81 @@ async function createUser(role: "admin" | "user" = "user") {
     token: `token-${n}`,
     expiresAt: new Date(Date.now() + 60_000),
   });
+  await db.insert(schema.passwordResets).values({
+    userId,
+    tokenHash: `hash-${n}`,
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  await createMoneyRows(userId);
   await mkdir(path.join(uploadsDir, userId, "receipts"), { recursive: true });
   await writeFile(path.join(uploadsDir, userId, "receipts", "receipt.jpg"), "not really a jpeg");
   return userId;
+}
+
+async function createMoneyRows(userId: string) {
+  await ensureMoneyDefaults(db, userId);
+  const [account] = await db
+    .select({ id: schema.moneyAccounts.id })
+    .from(schema.moneyAccounts)
+    .where(eq(schema.moneyAccounts.userId, userId));
+  const [category] = await db
+    .select({ id: schema.moneyCategories.id })
+    .from(schema.moneyCategories)
+    .where(eq(schema.moneyCategories.userId, userId));
+  const [profile] = await db
+    .insert(schema.moneyImportProfiles)
+    .values({
+      userId,
+      name: "Example Bank",
+      headerFingerprint: "date|amount",
+      decimalSeparator: ".",
+      dateFormat: "yyyy-MM-dd",
+      columns: { bookingDate: "date", amount: "amount" },
+    })
+    .returning({ id: schema.moneyImportProfiles.id });
+  const [moneyImport] = await db
+    .insert(schema.moneyImports)
+    .values({
+      userId,
+      accountId: account!.id,
+      profileId: profile!.id,
+      filename: "statement.csv",
+      rowsParsed: 1,
+      rowsNew: 1,
+      rowsDuplicate: 0,
+      rowsFailed: 0,
+    })
+    .returning({ id: schema.moneyImports.id });
+  const [transaction] = await db
+    .insert(schema.moneyTransactions)
+    .values({
+      userId,
+      accountId: account!.id,
+      bookedOn: "2026-01-15",
+      amountCents: -1250n,
+      currency: "EUR",
+      counterparty: "GROCERY MART",
+      categoryId: category!.id,
+      source: "csv_import",
+      importId: moneyImport!.id,
+      dedupKey: "tx:1",
+    })
+    .returning({ id: schema.moneyTransactions.id });
+  await db.insert(schema.moneyRules).values({
+    userId,
+    field: "counterparty",
+    pattern: "GROCERY",
+    categoryId: category!.id,
+    position: 0,
+  });
+  await db.insert(schema.moneyAttachments).values({
+    userId,
+    transactionId: transaction!.id,
+    filename: "receipt.jpg",
+    mime: "image/jpeg",
+    sizeBytes: 17,
+    storagePath: `${userId}/${crypto.randomUUID()}`,
+  });
 }
 
 async function userExists(userId: string) {
@@ -58,7 +131,9 @@ describe("deleteUser", () => {
 
   it("removes the user, every row they own and their uploads folder", async () => {
     const userId = await createUser();
-    expect(totalRows(await rowsOwnedBy(db, userId))).toBeGreaterThan(0);
+    const before = await rowsOwnedBy(db, userId);
+    // Each user-owned table holds a row, so a table that doesn't cascade would fail below.
+    expect(Object.entries(before).filter(([, count]) => count === 0)).toEqual([]);
 
     expect(await deleteUser(db, { userId, uploadsDir })).toEqual({ ok: true });
 
