@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -19,10 +21,23 @@ export function env(): Env {
 }
 
 // Users' files, one folder per user: <UPLOADS_DIR>/<userId>/. A relative path is resolved against
-// the working directory. Kept out of env() so the admin CLI, which never touches files, doesn't
-// need it.
+// the repo root, as the env files are, so next dev, scripts and the worker share one folder.
+// Kept out of env() so the admin CLI, which never touches files, doesn't need it.
 export function uploadsDir(): string {
-  return z.string().min(1, { error: "UPLOADS_DIR is not set." }).parse(process.env.UPLOADS_DIR);
+  const dir = z
+    .string()
+    .min(1, { error: "UPLOADS_DIR is not set." })
+    .parse(process.env.UPLOADS_DIR);
+  return path.isAbsolute(dir) ? dir : path.resolve(repoRoot(), dir);
+}
+
+// The nearest folder above the working directory holding pnpm-workspace.yaml.
+function repoRoot(): string {
+  for (let dir = process.cwd(); ; dir = path.dirname(dir)) {
+    if (existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    if (path.dirname(dir) === dir) break;
+  }
+  throw new Error("UPLOADS_DIR is relative and no repo root was found; set an absolute path.");
 }
 
 // Kept out of env() so /api/health can report the version even when the rest of the env is broken.
