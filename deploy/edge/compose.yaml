@@ -4,7 +4,7 @@
 #   docker compose -p edge -f /srv/troba/deploy/edge/compose.yaml --env-file /srv/troba/edge/.env up -d
 services:
   caddy:
-    image: caddy:2.11.6-alpine
+    image: caddy:2.11.7-alpine
     restart: unless-stopped
     ports:
       - "80:80"
