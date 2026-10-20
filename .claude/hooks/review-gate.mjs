@@ -14,10 +14,20 @@ import { checkReview, shasIn, specIssue } from "./review-evidence.mjs";
 // A hook that runs past its timeout in .claude/settings.json (30 s) lets the command through,
 // so every git and gh call shares a budget that ends well before it, and running out refuses.
 const deadline = Date.now() + 25000;
+// review-gate.test.mjs points this at a stub script, since spawnSync can't find a stub `gh.cmd`
+// on Windows; nothing else sets it, and a command can't set the hook's own environment.
+const ghStub = process.env.REVIEW_GATE_GH_STUB;
+// Set while checking a command that only names `git push` or `gh pr create` somewhere.
+let mentioned = false;
 
 function block(reason) {
+  const hint = mentioned
+    ? "\nThe command names it where the gate can't tell whether it runs (a message, a heredoc, " +
+      "another program's argument), so it was checked as if it ran. If it doesn't run, put the " +
+      "text in a file (`git commit -F`, `--body-file`)."
+    : "";
   process.stderr.write(
-    `Review gate: ${reason}\nSee the /code-review and /wrap sections of docs/agents/skill-overrides.md.\n`,
+    `Review gate: ${reason}${hint}\nSee the /code-review and /wrap sections of docs/agents/skill-overrides.md.\n`,
   );
   process.exit(2);
 }
@@ -47,13 +57,19 @@ function nativePath(dir) {
   return process.platform === "win32" ? dir.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:") : dir;
 }
 
+function gh(args, cwd, what) {
+  const r = ghStub
+    ? run(process.execPath, [ghStub, ...args], { cwd, timeout: 10000 })
+    : run("gh", args, { cwd, timeout: 10000 });
+  if (r.status !== 0) block(`\`gh ${args.slice(0, 2).join(" ")}\` failed, so ${what}.`);
+  return r.stdout.trim();
+}
+
 function hasOpenPr(branch, cwd) {
   const args = ["pr", "list", "--head", branch, "--state", "open", "--json", "number"];
-  const r = run("gh", [...args, "--jq", "length"], { cwd, timeout: 10000 });
-  if (r.status !== 0) {
-    block(`\`gh pr list\` failed, so it can't tell whether ${branch} has an open PR.`);
-  }
-  return r.stdout.trim() !== "0";
+  return (
+    gh([...args, "--jq", "length"], cwd, `it can't tell whether ${branch} has an open PR`) !== "0"
+  );
 }
 
 function check({ kind, branches, all }, cwd) {
@@ -70,7 +86,9 @@ function check({ kind, branches, all }, cwd) {
 
   if (kind === "push") {
     if (all) {
-      block("`git push --all` or `--mirror` can reach any branch's open PR: push one at a time.");
+      block(
+        "`git push --all`, `--branches` or `--mirror` can reach any branch's open PR: push one at a time.",
+      );
     }
     // `main`, a detached HEAD and branches without a review file push freely; so does a branch
     // whose PR isn't open yet, since `gh pr create` checks the review before the PR exists. The
@@ -132,13 +150,12 @@ function check({ kind, branches, all }, cwd) {
   // The PR needs the spec issue's record too; once it's open, a push only needs the review.
   const issue = specIssue(review);
   if (kind !== "pr-create" || issue === null) return;
-  const r = run("gh", ["issue", "view", issue, "--json", "body", "--jq", ".body"], {
+  const body = gh(
+    ["issue", "view", issue, "--json", "body", "--jq", ".body"],
     cwd,
-    timeout: 10000,
-  });
-  if (r.status !== 0)
-    block(`\`gh issue view ${issue}\` failed, so issue #${issue} can't be checked.`);
-  if (!/^## What actually happened\b/m.test(r.stdout)) {
+    `issue #${issue} can't be checked`,
+  );
+  if (!/^## What actually happened\b/m.test(body)) {
     block(`issue #${issue} has no "## What actually happened" section yet. /wrap step 5 adds it.`);
   }
 }
@@ -150,18 +167,22 @@ try {
   const start = input.cwd ?? process.cwd();
   for (const found of gatedCommands(input.tool_input?.command ?? "", shell)) {
     const { kind, cwd } = found;
+    mentioned = Boolean(found.mentioned);
     if (kind === "unclear") {
       block(
-        "this command has an unclosed quote, quotes nested inside a `$(…)` in double quotes, " +
-          "or an encoded PowerShell command, and mentions `git push` or `gh pr create`, so it " +
-          "can't tell what runs. Close the quote, use single quotes inside the `$(…)`, or split " +
-          "the command up.",
+        "it can't tell what this command runs: it has an unclosed quote, quotes nested inside " +
+          "a `$(…)` in double quotes, an encoded PowerShell command, or a push whose target " +
+          "isn't a plain branch name (a variable or `$(…)`), and it mentions `git push` or " +
+          "`gh pr create`. Close the quote, use single quotes inside the `$(…)`, name the " +
+          "branch, or split the command up.",
       );
     }
     if (kind === "pr-elsewhere") {
       block(
         "open the PR from the feature worktree for its current branch, without -R, --repo, " +
-          "-H, --head, GH_REPO or GH_HOST: the review file only vouches for this folder's branch.",
+          "-H, --head, GH_REPO or GH_HOST" +
+          (mentioned ? " (and, for a command the gate can't read, without a cd)" : "") +
+          ": the review file only vouches for this folder's branch.",
       );
     }
     check(found, cwd ? path.resolve(start, nativePath(cwd)) : start);

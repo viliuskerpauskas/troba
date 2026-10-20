@@ -85,7 +85,9 @@ describe("gatedCommands", () => {
     expect(gatedCommands("Set-Location 'C:\\it''s'; git push", "powershell")).toEqual([
       { kind: "push", cwd: "C:\\it's" },
     ]);
-    expect(gatedCommands('git commit -m "say `"hi`"; git push"', "powershell")).toEqual([]);
+    expect(gatedCommands('git commit -m "say `"hi`"; git push"', "powershell")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
     expect(gatedCommands('git commit -m "say `"hi`""; git push', "powershell")).toEqual([
       { kind: "push", cwd: null },
     ]);
@@ -154,7 +156,9 @@ describe("gatedCommands", () => {
 
   it("doesn't treat a # inside a word as a comment", () => {
     expect(gatedCommands("git log --format=%h#x; git push")).toEqual([{ kind: "push", cwd: null }]);
-    expect(gatedCommands("echo a#b'; git push'")).toEqual([]);
+    expect(gatedCommands("echo a#b'; git push'")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
   });
 
   it("finds a push in a $(…) inside double quotes", () => {
@@ -165,7 +169,9 @@ describe("gatedCommands", () => {
     expect(gatedCommands('$out = "$(git push)"', "powershell")).toEqual([
       { kind: "push", cwd: null },
     ]);
-    expect(gatedCommands("git commit -m \"$(cat <<'EOF'\ngit push\nEOF\n)\"")).toEqual([]);
+    expect(gatedCommands("git commit -m \"$(cat <<'EOF'\ngit push\nEOF\n)\"")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
   });
 
   it("refuses to guess when quotes inside a $(…) in double quotes cut it short", () => {
@@ -199,17 +205,102 @@ describe("gatedCommands", () => {
     expect(gatedCommands("gh pr -R o/r create")).toEqual([{ kind: "pr-elsewhere", cwd: null }]);
   });
 
-  it("ignores the commands when they're only mentioned in quotes or a message", () => {
-    expect(gatedCommands('git commit -m "fix: gate git push and gh pr create"')).toEqual([]);
-    expect(gatedCommands("echo 'git push'")).toEqual([]);
-    expect(gatedCommands('grep -rn "gh pr create" .')).toEqual([]);
+  it("checks a mention in quotes or a message as if it ran, as main's gate did", () => {
+    expect(gatedCommands('git commit -m "fix: gate git push and gh pr create"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("echo 'git push'")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('grep -rn "gh pr create" .')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('git commit -m "the git push-option docs"')).toEqual([]);
   });
 
-  it("ignores a heredoc body and a PowerShell here-string", () => {
+  it("checks a heredoc body or here-string that names a command as if it ran", () => {
     const heredoc = "cat > notes.md <<'EOF'\nthen git push\ngh pr create\nEOF\nls";
-    expect(gatedCommands(heredoc)).toEqual([]);
+    expect(gatedCommands(heredoc)).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
     const hereString = "git commit -m @'\nchore: x\ngit push\n'@";
-    expect(gatedCommands(hereString)).toEqual([]);
+    expect(gatedCommands(hereString, "powershell")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("checks wrappers it doesn't read as if they ran the command", () => {
+    for (const command of [
+      'cmd /c "git push"',
+      "node -e \"require('child_process').execSync('git push')\"",
+      "echo 'git push' | bash",
+      "bash <<'EOF'\ngit push\nEOF",
+      'fish -c "git push"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "push", cwd: null, mentioned: true },
+      ]);
+    }
+    expect(gatedCommands('cmd /c "gh pr create --fill"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("refuses a mentioned PR create next to a cd or a target it can't place", () => {
+    for (const command of [
+      'cd ../wt && cmd /c "gh pr create"',
+      'cmd /c "gh pr create --repo o/r"',
+      'cmd /c "gh pr create -H other"',
+      'set GH_REPO=o/r && cmd /c "gh pr create"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "pr-elsewhere", cwd: null, mentioned: true },
+      ]);
+    }
+  });
+
+  it("reads @ as HEAD, and calls a push target it can't name unclear", () => {
+    expect(gatedCommands("git push origin @")).toEqual([
+      { kind: "push", cwd: null, branches: ["HEAD"] },
+    ]);
+    for (const command of [
+      "git push origin $(git branch --show-current)",
+      'git push -u origin "$BRANCH"',
+      "git push origin `git branch --show-current`",
+      "git push origin HEAD:feat/$NAME",
+    ]) {
+      expect(gatedCommands(command), command).toEqual([{ kind: "unclear", cwd: null }]);
+    }
+    expect(gatedCommands("git push origin $b", "powershell")).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+  });
+
+  it("reads PowerShell's parameter prefixes", () => {
+    expect(gatedCommands('powershell -Comm "git push"', "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    for (const flag of ["-e", "-enc", "-ec", "-EncodedCommand"]) {
+      expect(gatedCommands(`pwsh ${flag} ZwBpAHQA`, "powershell"), flag).toEqual([
+        { kind: "unclear", cwd: null },
+      ]);
+    }
+    expect(gatedCommands("pwsh -ExecutionPolicy Bypass -Command git push", "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("refuses a PR create after GH_REPO is set through env:", () => {
+    for (const command of [
+      '${env:GH_REPO} = "o/r"; gh pr create',
+      "Set-Item env:GH_REPO o/r; gh pr create",
+    ]) {
+      expect(gatedCommands(command, "powershell"), command).toEqual([
+        { kind: "pr-elsewhere", cwd: null },
+      ]);
+    }
   });
 
   it("still finds a push after a heredoc", () => {

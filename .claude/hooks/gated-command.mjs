@@ -3,14 +3,16 @@
 // names one (`git -C <dir>`, or an earlier `cd <dir>`), and for a push the branches it names.
 // A PR create aimed at another repository or branch (`-R`, `--repo`, `-H`, `--head`, or a
 // `GH_REPO` or `GH_HOST` set anywhere in the command) is reported as "pr-elsewhere", since the
-// review file only vouches for the folder's own branch. Text that only mentions them, in quotes,
-// a comment, a heredoc or a here-string, doesn't count, but what runs does: a `$(…)` inside
+// review file only vouches for the folder's own branch. What runs is read: a `$(…)` inside
 // double quotes, a bash backtick, and the command string of `bash -c`, `sh -c`, `eval`,
 // `pwsh -Command` and `Invoke-Expression`. It's a guardrail for the agent's usual commands, not a
-// full shell parser, so where it can't be sure it errs towards checking: a push is found after
-// any prefix word (`time`, `env`, `if`, `sudo`…), an unquoted `echo git push` counts, and a quote
-// left open makes any mention of the commands "unclear", which the hook refuses, as does
-// `pwsh -EncodedCommand`. `git push --dry-run` is checked too.
+// full shell parser, so where it can't be sure it errs towards checking. A push is found after
+// any prefix word (`time`, `env`, `if`, `sudo`…), and an unquoted `echo git push` counts. A quote
+// left open, an encoded PowerShell command, or a push whose target isn't a plain branch name
+// (`$BRANCH`, `$(…)`) is "unclear", which the hook refuses. And text that names either command
+// where the reading above doesn't find it runs (a quoted message, a heredoc, `cmd /c "…"`,
+// `node -e "…"`, a pipe into a shell) is still reported, marked `mentioned`, so the hook checks
+// it as if it ran: only that keeps every wrapper covered. `git push --dry-run` is checked too.
 
 const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl", "push-location"]);
 const PUSHD = new Set(["pushd", "push-location"]);
@@ -35,8 +37,22 @@ const PUSH_ALL = new Set(["--all", "--mirror", "--branches"]);
 // Programs that run a command string.
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 const POWERSHELLS = new Set(["pwsh", "powershell"]);
+const RUNS_COMMAND = new Set([...SHELLS, ...POWERSHELLS, "eval", "invoke-expression", "iex"]);
 const ELSEWHERE = /^(?:-[RH]|--repo(?:=|$)|--head(?:=|$))/;
-const ELSEWHERE_ENV = /^(?:\$env:GH_(?:REPO|HOST)(?:=|$)|GH_(?:REPO|HOST)=)/i;
+// `GH_REPO=…`, `$env:GH_REPO = …`, `${env:GH_REPO}`, `Set-Item env:GH_REPO …`.
+const ELSEWHERE_ENV = /env:GH_(?:REPO|HOST)\b|^GH_(?:REPO|HOST)=/i;
+// A destination branch the gate can name; anything else (a variable, a `$(…)`) is unclear.
+const PLAIN_REF = /^[\w./-]+$/;
+// Main's gate before this parser: any mention, wherever it sits. gh takes flags between `pr` and
+// the subcommand, and a full path may be quoted, so anything up to the next ; & | or line break
+// may sit between the words. The lazy middle is bounded by the line, so it stays near linear.
+const PR_MENTION = /\bgh(?:\.exe)?["']?\s+pr\b[^\n;&|]*?\b(?:create|new)\b/i;
+const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]*?\s)?push(?![\w-])/i;
+// A bare help call is the one form that opens or pushes nothing.
+const HELP_CALL =
+  /^\s*(?:gh(?:\.exe)?\s+pr\s+(?:create|new)|git(?:\.exe)?\s+push)\s+(?:--help|-h)\s*$/i;
+const ELSEWHERE_MENTION =
+  /(^|[\s;&|({`])(cd|pushd|popd|chdir|sl|Set-Location|Push-Location)(\s|$)|GH_(REPO|HOST)\b|--repo\b|--head\b|\s-[RH](\s|\S)/;
 
 // Whether the text mentions both commands' words anywhere. Separate linear tests, since one
 // regex with `[\s\S]*` between the words backtracks badly on long input.
@@ -131,6 +147,8 @@ function tokenize(command, shell) {
         unbalanced = true;
         break;
       }
+      // Like an unquoted `$(…)`: a `$` holds its place in the word, and it runs as a subshell.
+      add("$");
       endCommand();
       subshell(command.slice(i + 1, end));
       i = end;
@@ -173,7 +191,9 @@ function gitSubcommand(words, at, cwd) {
 }
 
 // The branches a `git push` whose subcommand is at words[at] names (the destination of each
-// refspec after the remote), and whether it pushes every branch.
+// refspec after the remote, `@` read as HEAD), whether it pushes every branch, and whether a
+// destination can't be named. Without a refspec it pushes the checked-out branch; a
+// `push.default=matching` or `remote.<name>.push` setting could push more, which isn't read.
 function pushTargets(words, at) {
   const positional = [];
   let all = false;
@@ -187,14 +207,16 @@ function pushTargets(words, at) {
   }
   const branches = positional
     .slice(1)
-    .map((ref) =>
-      ref
+    .map((ref) => {
+      const branch = ref
         .replace(/^\+/, "")
         .split(":")
         .pop()
-        .replace(/^refs\/heads\//, ""),
-    )
+        .replace(/^refs\/heads\//, "");
+      return branch === "@" ? "HEAD" : branch;
+    })
     .filter(Boolean);
+  if (branches.some((branch) => !PLAIN_REF.test(branch))) return { unclear: true };
   return { ...(all && { all }), ...(branches.length && { branches }) };
 }
 
@@ -211,32 +233,29 @@ function isPrCreate(words, at) {
   return words[i]?.text === "create" || words[i]?.text === "new";
 }
 
+const joined = (words) => words.map((w) => w.text).join(" ");
+
 // The command string a shell or `eval` at words[at] runs, with its shell, or "unclear" for an
-// encoded PowerShell command; null when it runs none.
+// encoded PowerShell command; null when it runs none. PowerShell takes any prefix of a parameter
+// name: every `-e…` but `-ex…` (ExecutionPolicy) is EncodedCommand, and `-c` to `-command` is
+// Command.
 function innerCommand(words, at) {
   const name = program(words[at]);
   const rest = words.slice(at + 1);
-  if (name === "eval") return { text: rest.map((w) => w.text).join(" "), shell: "bash" };
+  if (name === "eval") return { text: joined(rest), shell: "bash" };
   if (name === "invoke-expression" || name === "iex") {
-    return { text: rest.map((w) => w.text).join(" "), shell: "powershell" };
+    return { text: joined(rest), shell: "powershell" };
   }
   if (SHELLS.has(name)) {
     const c = rest.findIndex((w) => !w.quoted && /^-[A-Za-z]*c[A-Za-z]*$/.test(w.text));
     return c === -1 || !rest[c + 1] ? null : { text: rest[c + 1].text, shell: "bash" };
   }
   if (POWERSHELLS.has(name)) {
-    if (rest.some((w) => !w.quoted && /^-(?:e|ec|encodedcommand)$/i.test(w.text))) {
-      return "unclear";
-    }
-    const c = rest.findIndex((w) => !w.quoted && /^-(?:c|command)$/i.test(w.text));
-    if (c === -1) return null;
-    return {
-      text: rest
-        .slice(c + 1)
-        .map((w) => w.text)
-        .join(" "),
-      shell: "powershell",
-    };
+    if (rest.some((w) => !w.quoted && /^-e(?!x)[a-z]*$/i.test(w.text))) return "unclear";
+    const c = rest.findIndex(
+      (w) => !w.quoted && /^-c[a-z]*$/i.test(w.text) && "-command".startsWith(w.text.toLowerCase()),
+    );
+    return c === -1 ? null : { text: joined(rest.slice(c + 1)), shell: "powershell" };
   }
   return null;
 }
@@ -245,10 +264,10 @@ function innerCommand(words, at) {
 function gatedIn(words, start, cwd) {
   for (let i = start; i < words.length; i++) {
     const name = program(words[i]);
-    const inner = innerCommand(words, i);
+    const inner = RUNS_COMMAND.has(name) ? innerCommand(words, i) : null;
     if (inner === "unclear") return [{ kind: "unclear", cwd: null }];
     if (inner) {
-      return gatedCommands(inner.text, inner.shell).map((found) => ({
+      return read(inner.text, inner.shell).map((found) => ({
         ...found,
         cwd: found.cwd === null ? cwd : join(cwd, found.cwd),
       }));
@@ -256,7 +275,9 @@ function gatedIn(words, start, cwd) {
     if (name === "git") {
       const git = gitSubcommand(words, i, cwd);
       if (git.subcommand === "push") {
-        return [{ kind: "push", cwd: git.cwd, ...pushTargets(words, git.at) }];
+        const targets = pushTargets(words, git.at);
+        if (targets.unclear) return [{ kind: "unclear", cwd: null }];
+        return [{ kind: "push", cwd: git.cwd, ...targets }];
       }
     } else if (name === "gh" && isPrCreate(words, i)) {
       const elsewhere = words.slice(i + 1).some((w) => !w.quoted && ELSEWHERE.test(w.text));
@@ -266,7 +287,7 @@ function gatedIn(words, start, cwd) {
   return [];
 }
 
-export function gatedCommands(command, shell = "bash") {
+function read(command, shell) {
   const text = joinLines(dropBodies(command), shell);
   const { items, unbalanced } = tokenize(text, shell);
   if (unbalanced) return mentionsGated(text) ? [{ kind: "unclear", cwd: null }] : [];
@@ -307,4 +328,18 @@ export function gatedCommands(command, shell = "bash") {
   return elsewhere
     ? found.map((f) => (f.kind === "pr-create" ? { ...f, kind: "pr-elsewhere" } : f))
     : found;
+}
+
+export function gatedCommands(command, shell = "bash") {
+  const found = read(command, shell);
+  if (HELP_CALL.test(command)) return found;
+  const has = (...kinds) => found.some((f) => kinds.includes(f.kind));
+  if (!has("pr-create", "pr-elsewhere", "unclear") && PR_MENTION.test(command)) {
+    const kind = ELSEWHERE_MENTION.test(command) ? "pr-elsewhere" : "pr-create";
+    found.push({ kind, cwd: null, mentioned: true });
+  }
+  if (!has("push", "unclear") && PUSH_MENTION.test(command)) {
+    found.push({ kind: "push", cwd: null, mentioned: true });
+  }
+  return found;
 }
