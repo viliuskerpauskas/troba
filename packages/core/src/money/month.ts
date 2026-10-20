@@ -1,6 +1,12 @@
 // Calendar months as YYYY-MM, the report's and the transaction list's unit (SPEC-money M7, M8).
 
-export const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
+// 1900-01 to 9999-12: four-digit years Postgres takes as dates (it refuses year 0000), and
+// nothing a person tracks happened earlier.
+const monthPattern = /^(19\d\d|[2-9]\d{3})-(0[1-9]|1[0-2])$/;
+
+export function isMonth(value: string): boolean {
+  return monthPattern.test(value);
+}
 
 function format(year: number, monthNumber: number): string {
   return `${String(year).padStart(4, "0")}-${String(monthNumber).padStart(2, "0")}`;

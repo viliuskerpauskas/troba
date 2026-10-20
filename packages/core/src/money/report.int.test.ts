@@ -153,21 +153,27 @@ describe("monthly report", () => {
     });
   });
 
-  it("lists the month's transactions behind a category row, and behind uncategorized", async () => {
+  it("lists the expenses behind a row: its month, category and currency, to the row's count and cent", async () => {
     const { userId, cashId, category } = await createUser();
+    const travel = await createAccount(db, userId, {
+      name: "Travel",
+      type: "cash",
+      currency: "USD",
+    });
+    if (!travel.ok) throw new Error(travel.reason);
+    const food = category("Food");
     await insert(userId, [
-      { accountId: cashId, bookedOn: "2026-09-30", amountCents: -1n, categoryId: category("Food") },
+      { accountId: cashId, bookedOn: "2026-09-30", amountCents: -1n, categoryId: food },
+      { accountId: cashId, bookedOn: "2026-10-01", amountCents: -1250n, categoryId: food },
+      { accountId: cashId, bookedOn: "2026-10-31", amountCents: -750n, categoryId: food },
+      // A refund is income, so it isn't behind the spending row.
+      { accountId: cashId, bookedOn: "2026-10-20", amountCents: 200n, categoryId: food },
       {
-        accountId: cashId,
-        bookedOn: "2026-10-01",
-        amountCents: -1250n,
-        categoryId: category("Food"),
-      },
-      {
-        accountId: cashId,
-        bookedOn: "2026-10-31",
-        amountCents: -750n,
-        categoryId: category("Food"),
+        accountId: travel.account.id,
+        bookedOn: "2026-10-21",
+        amountCents: -999n,
+        currency: "USD",
+        categoryId: food,
       },
       {
         accountId: cashId,
@@ -176,29 +182,94 @@ describe("monthly report", () => {
         categoryId: category("Bills"),
       },
       { accountId: cashId, bookedOn: "2026-10-16", amountCents: -40n },
-      { accountId: cashId, bookedOn: "2026-11-01", amountCents: -2n },
+      { accountId: cashId, bookedOn: "2026-10-17", amountCents: 5n },
+      { accountId: cashId, bookedOn: "2026-11-01", amountCents: -2n, categoryId: food },
     ]);
     const [eur] = await monthlyReport(db, userId, "2026-10");
     const row = (id: string | null) => eur!.categories.find((c) => c.categoryId === id)!;
+    const behind = (category: string) =>
+      listTransactions(db, userId, {
+        month: "2026-10",
+        category,
+        currency: "EUR",
+        expensesOnly: true,
+      });
 
-    const food = await listTransactions(db, userId, {
-      month: "2026-10",
-      category: category("Food"),
-    });
-    const uncategorized = await listTransactions(db, userId, {
-      month: "2026-10",
-      category: "uncategorized",
-    });
+    const foodRows = await behind(food);
+    const uncategorized = await behind("uncategorized");
 
-    expect(food.map((t) => [t.bookedOn, t.amountCents])).toEqual([
+    expect(foodRows.map((t) => [t.bookedOn, t.amountCents])).toEqual([
       ["2026-10-31", -750n],
       ["2026-10-01", -1250n],
     ]);
-    expect(-food.reduce((sum, t) => sum + t.amountCents, 0n)).toBe(
-      row(category("Food")).spentCents,
-    );
+    expect(foodRows).toHaveLength(row(food).transactionCount);
+    expect(-foodRows.reduce((sum, t) => sum + t.amountCents, 0n)).toBe(row(food).spentCents);
     expect(uncategorized.map((t) => t.amountCents)).toEqual([-40n]);
-    expect(row(null).spentCents).toBe(40n);
+    expect(row(null)).toMatchObject({ spentCents: 40n, transactionCount: 1 });
+  });
+
+  it("pages through a row's transactions, newest first", async () => {
+    const { userId, cashId } = await createUser();
+    await insert(
+      userId,
+      Array.from({ length: 5 }, (_, i) => ({
+        accountId: cashId,
+        bookedOn: `2026-10-0${i + 1}`,
+        amountCents: -BigInt(i + 1),
+      })),
+    );
+    const page = (offset: number) =>
+      listTransactions(db, userId, {
+        month: "2026-10",
+        category: "uncategorized",
+        limit: 2,
+        offset,
+      });
+
+    expect((await page(0)).map((t) => t.bookedOn)).toEqual(["2026-10-05", "2026-10-04"]);
+    expect((await page(2)).map((t) => t.bookedOn)).toEqual(["2026-10-03", "2026-10-02"]);
+    expect((await page(4)).map((t) => t.bookedOn)).toEqual(["2026-10-01"]);
+  });
+
+  it("doesn't list another user's transactions under their category id", async () => {
+    const owner = await createUser();
+    const other = await createUser();
+    await insert(other.userId, [
+      {
+        accountId: other.cashId,
+        bookedOn: "2026-10-02",
+        amountCents: -900n,
+        categoryId: other.category("Food"),
+      },
+    ]);
+
+    expect(
+      await listTransactions(db, owner.userId, {
+        month: "2026-10",
+        category: other.category("Food"),
+      }),
+    ).toEqual([]);
+  });
+
+  it("rounds an exact half basis point up", async () => {
+    const { userId, cashId, category } = await createUser();
+    // 1 of 20000 cents is 0.5 basis points; 19999 of 20000 is 9999.5.
+    await insert(userId, [
+      { accountId: cashId, bookedOn: "2026-10-01", amountCents: -1n, categoryId: category("Food") },
+      {
+        accountId: cashId,
+        bookedOn: "2026-10-01",
+        amountCents: -19999n,
+        categoryId: category("Bills"),
+      },
+    ]);
+
+    const [eur] = await monthlyReport(db, userId, "2026-10");
+
+    expect(eur!.categories.map((c) => [c.categoryName, c.shareBasisPoints])).toEqual([
+      ["Bills", 10000],
+      ["Food", 1],
+    ]);
   });
 
   it("counts only the month's days, across a year end", async () => {

@@ -263,6 +263,9 @@ export type TransactionFilter = {
   month?: string; // YYYY-MM
   // A category id, or the transactions without one.
   category?: string | "uncategorized";
+  // With expensesOnly, what makes up a monthly report row (report.ts).
+  currency?: string;
+  expensesOnly?: boolean;
 };
 
 function filterWhere(filter: TransactionFilter): SQL | undefined {
@@ -273,14 +276,16 @@ function filterWhere(filter: TransactionFilter): SQL | undefined {
   }
   if (filter.category === "uncategorized") conditions.push(isNull(moneyTransactions.categoryId));
   else if (filter.category) conditions.push(eq(moneyTransactions.categoryId, filter.category));
+  if (filter.currency) conditions.push(eq(moneyTransactions.currency, filter.currency));
+  if (filter.expensesOnly) conditions.push(lt(moneyTransactions.amountCents, 0n));
   return and(...conditions);
 }
 
-// Newest first, bounded: paging over the whole history comes with the full list.
+// Newest first, a page at a time.
 export async function listTransactions(
   db: Db,
   userId: string,
-  options: TransactionFilter & { limit?: number } = {},
+  options: TransactionFilter & { limit?: number; offset?: number } = {},
 ): Promise<Transaction[]> {
   return selectTransactions(db, userId, filterWhere(options))
     .orderBy(
@@ -288,5 +293,6 @@ export async function listTransactions(
       desc(moneyTransactions.createdAt),
       desc(moneyTransactions.id),
     )
-    .limit(options.limit ?? transactionListLimit);
+    .limit(options.limit ?? transactionListLimit)
+    .offset(options.offset ?? 0);
 }

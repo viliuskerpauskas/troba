@@ -6,10 +6,20 @@
 import { parseArgs } from "node:util";
 import pg from "pg";
 
+if (process.env.NODE_ENV === "production") {
+  console.error("Refusing to seed fictional transactions with NODE_ENV=production");
+  process.exit(1);
+}
+
 const { positionals } = parseArgs({ allowPositionals: true });
 const [email, countText = "10000", month = new Date().toISOString().slice(0, 7)] = positionals;
 const count = Number(countText);
-if (!email || !Number.isInteger(count) || count < 1 || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+if (
+  !email ||
+  !Number.isInteger(count) ||
+  count < 1 ||
+  !/^(19\d\d|[2-9]\d{3})-(0[1-9]|1[0-2])$/.test(month)
+) {
   console.error("Usage: pnpm db:seed-transactions <email> [count] [YYYY-MM]");
   process.exit(1);
 }

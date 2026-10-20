@@ -1,55 +1,63 @@
 import {
   addMonths,
-  centsToDecimal,
+  isMonth,
   monthlyReport,
+  sortReportCategories,
   type CategorySpending,
   type CurrencyReport,
+  type ReportSortKey,
 } from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
-import { parseMonth, parseSort, type SortDirection, type SortKey } from "./params";
+import { parseReportMonth, parseSort } from "./params";
 import { SpendingChart } from "./spending-chart";
 
 const unsigned = { signed: false };
 
 export const metadata: Metadata = { title: "Monthly spending · troba" };
 
+type SortDirection = "asc" | "desc";
+type ReportQuery = { month: string; sort: ReportSortKey; dir: SortDirection };
+
+const reportHref = (query: ReportQuery) =>
+  `/money/report?month=${query.month}&sort=${query.sort}&dir=${query.dir}`;
+
 export default async function ReportPage({ searchParams }: PageProps<"/money/report">) {
   const { userId } = await requireMoneyUser();
   const params = await searchParams;
-  const month = parseMonth(params.month);
-  const { sort, dir } = parseSort(params);
-  const reports = await monthlyReport(db(), userId, month);
+  const query: ReportQuery = { month: parseReportMonth(params.month), ...parseSort(params) };
+  const reports = await monthlyReport(db(), userId, query.month);
+  // The picker's range ends somewhere; no link past it.
+  const [previous, next] = [-1, 1]
+    .map((step) => addMonths(query.month, step))
+    .map((month) => (isMonth(month) ? month : null));
 
   return (
     <main>
       <h1>Monthly spending</h1>
       <form method="get">
         <label>
-          Month <input type="month" name="month" defaultValue={month} required />
+          Month <input type="month" name="month" defaultValue={query.month} required />
         </label>{" "}
         <button type="submit">Show</button>
       </form>
       <p>
-        <Link href={`/money/report?month=${addMonths(month, -1)}`}>Previous month</Link>{" "}
-        <Link href={`/money/report?month=${addMonths(month, 1)}`}>Next month</Link>
+        {previous && <Link href={reportHref({ ...query, month: previous })}>Previous month</Link>}{" "}
+        {next && <Link href={reportHref({ ...query, month: next })}>Next month</Link>}
       </p>
 
       {reports.length === 0 ? (
-        <p>No transactions in {month}.</p>
+        <p>No transactions in {query.month}.</p>
       ) : (
         reports.map((report) => (
           <CurrencySection
             key={report.currency}
             report={report}
-            month={month}
-            sort={sort}
-            dir={dir}
-            // Headings say the currency only when there is more than one.
-            titled={reports.length > 1}
+            query={query}
+            multiCurrency={reports.length > 1}
           />
         ))
       )}
@@ -60,27 +68,24 @@ export default async function ReportPage({ searchParams }: PageProps<"/money/rep
 
 function CurrencySection({
   report,
-  month,
-  sort,
-  dir,
-  titled,
+  query,
+  multiCurrency,
 }: {
   report: CurrencyReport;
-  month: string;
-  sort: SortKey;
-  dir: SortDirection;
-  titled: boolean;
+  query: ReportQuery;
+  // Headings name the currency only when there is more than one.
+  multiCurrency: boolean;
 }) {
   const { currency } = report;
   const headingId = `report-${currency}`;
-  const categories = sortCategories(report.categories, sort, dir);
   const name = (category: CategorySpending) => category.categoryName ?? "Uncategorized";
   const href = (category: CategorySpending) =>
-    `/money/report/transactions?month=${month}&category=${category.categoryId ?? "uncategorized"}`;
+    `/money/report/transactions?month=${query.month}&currency=${currency}` +
+    `&category=${category.categoryId ?? "uncategorized"}`;
 
   return (
     <section aria-labelledby={headingId}>
-      <h2 id={headingId}>{titled ? `In ${currency}` : "Totals"}</h2>
+      <h2 id={headingId}>{multiCurrency ? `In ${currency}` : "Totals"}</h2>
       <dl>
         <dt>Total spent</dt>
         <dd>{formatAmount(report.spentCents, currency, unsigned)}</dd>
@@ -94,7 +99,7 @@ function CurrencySection({
             title={`Spending by category in ${currency}`}
             bars={report.categories.map((category) => ({
               name: name(category),
-              amount: centsToDecimal(category.spentCents),
+              shareBasisPoints: category.shareBasisPoints,
               label: formatAmount(category.spentCents, currency, unsigned),
             }))}
           />
@@ -103,13 +108,13 @@ function CurrencySection({
             <thead>
               <tr>
                 <th scope="col">Category</th>
-                <SortHeader label="Amount" sortKey="amount" {...{ month, sort, dir }} />
-                <SortHeader label="%" sortKey="share" {...{ month, sort, dir }} />
-                <SortHeader label="Count" sortKey="count" {...{ month, sort, dir }} />
+                <SortHeader label="Amount" sortKey="amount" query={query} />
+                <SortHeader label="%" sortKey="share" query={query} />
+                <SortHeader label="Count" sortKey="count" query={query} />
               </tr>
             </thead>
             <tbody>
-              {categories.map((category) => (
+              {sortReportCategories(report.categories, query.sort, query.dir).map((category) => (
                 <tr key={category.categoryId ?? "uncategorized"}>
                   <th scope="row">
                     <Link href={href(category)}>{name(category)}</Link>
@@ -127,44 +132,31 @@ function CurrencySection({
   );
 }
 
+const directions = {
+  asc: { ariaSort: "ascending", arrow: " ↑" },
+  desc: { ariaSort: "descending", arrow: " ↓" },
+} as const;
+
 // Each column header links to the table sorted by it; the current column's link flips direction.
 function SortHeader({
   label,
   sortKey,
-  month,
-  sort,
-  dir,
+  query,
 }: {
   label: string;
-  sortKey: SortKey;
-  month: string;
-  sort: SortKey;
-  dir: SortDirection;
+  sortKey: ReportSortKey;
+  query: ReportQuery;
 }) {
-  const active = sort === sortKey;
-  const next: SortDirection = active && dir === "desc" ? "asc" : "desc";
+  const active = query.sort === sortKey;
+  const dir: SortDirection = active && query.dir === "desc" ? "asc" : "desc";
   return (
-    <th scope="col" aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
-      <Link href={`/money/report?month=${month}&sort=${sortKey}&dir=${next}`}>
+    <th scope="col" aria-sort={active ? directions[query.dir].ariaSort : "none"}>
+      <Link href={reportHref({ ...query, sort: sortKey, dir })}>
         {label}
-        {active && (dir === "asc" ? " ↑" : " ↓")}
+        {active && directions[query.dir].arrow}
       </Link>
     </th>
   );
-}
-
-function sortCategories(categories: CategorySpending[], sort: SortKey, dir: SortDirection) {
-  const sign = dir === "asc" ? 1 : -1;
-  // The share is the amount over the same total, so both sort the same way.
-  const compare = (a: CategorySpending, b: CategorySpending) =>
-    sort === "count"
-      ? a.transactionCount - b.transactionCount
-      : a.spentCents === b.spentCents
-        ? 0
-        : a.spentCents < b.spentCents
-          ? -1
-          : 1;
-  return categories.toSorted((a, b) => sign * compare(a, b));
 }
 
 // "12.34%" from basis points, in integers.

@@ -43,7 +43,10 @@ test("shows a month's spending by category and the transactions behind a row", a
        ('2026-10-01', -1250, 'GROCERY MART', 'Food'),
        ('2026-10-31', -750, 'CORNER CAFE', 'Food'),
        ('2026-11-01', -9999, 'GROCERY MART', 'Food'),
+       ('2026-10-20', 200, 'GROCERY MART', 'Food'),
        ('2026-10-05', -500, 'CITY TRANSIT', null),
+       ('2026-10-06', -100, 'CITY TRANSIT', null),
+       ('2026-10-07', -100, 'CITY TRANSIT', null),
        ('2026-10-06', -40000, 'OWN SAVINGS', 'Transfers'),
        ('2026-10-15', 250000, 'EXAMPLE EMPLOYER', 'Income')
      ) as v(booked_on, amount, counterparty, category)
@@ -58,25 +61,30 @@ test("shows a month's spending by category and the transactions behind a row", a
   await expect(page).toHaveURL("/money/report?month=2026-10");
 
   const eur = page.getByRole("region", { name: "In EUR" });
-  await expect(eur.getByRole("definition")).toHaveText(["€25.00", "€2,500.00"]);
+  await expect(eur.getByRole("definition")).toHaveText(["€27.00", "€2,502.00"]);
   await expect(eur.getByRole("img", { name: "Spending by category in EUR" })).toBeVisible();
   const rows = eur.getByRole("table").getByRole("row");
   await expect(rows).toHaveText([
     /Category.*Amount.*%.*Count/,
-    /Food\s*€20\.00\s*80\.00%\s*2/,
-    /Uncategorized\s*€5\.00\s*20\.00%\s*1/,
+    /Food\s*€20\.00\s*74\.07%\s*2/,
+    /Uncategorized\s*€7\.00\s*25\.93%\s*3/,
   ]);
   const usd = page.getByRole("region", { name: "In USD" });
   await expect(usd.getByRole("definition")).toHaveText(["$45.99", "$0.00"]);
   await expectNoSideways(page);
 
-  await eur.getByRole("link", { name: "Amount" }).click();
-  await expect(page.getByRole("region", { name: "In EUR" }).getByRole("row").nth(1)).toContainText(
-    "Uncategorized",
-  );
+  // Count orders the rows the other way from amount; a second click flips the direction.
+  const eurSection = () => page.getByRole("region", { name: "In EUR" });
+  await eurSection().getByRole("link", { name: "Count" }).click();
+  await expect(eurSection().getByRole("row").nth(1)).toContainText("Uncategorized");
+  await eurSection().getByRole("link", { name: "Count" }).click();
+  await expect(eurSection().getByRole("row").nth(1)).toContainText("Food");
 
-  await page.getByRole("region", { name: "In EUR" }).getByRole("link", { name: "Food" }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Food in 2026-10");
+  // The row's transactions: its expenses in EUR, without the refund.
+  await eurSection().getByRole("link", { name: "Food" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Food spending in 2026-10 (EUR)",
+  );
   const list = page.getByRole("list", { name: "Food transactions, newest first" });
   await expect(list.getByRole("listitem")).toHaveText([
     /2026-10-31 CORNER CAFE.*-€7\.50/,

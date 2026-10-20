@@ -29,7 +29,7 @@ export type CurrencyReport = {
 };
 
 // The spec's default currency leads; the rest follow alphabetically.
-export const defaultReportCurrency = "EUR";
+const defaultReportCurrency = "EUR";
 
 // One query, grouped by currency and category; served by the (user_id, booked_on) index.
 export async function monthlyReport(
@@ -90,13 +90,35 @@ export async function monthlyReport(
     for (const category of report.categories) {
       category.shareBasisPoints = shareBasisPoints(category.spentCents, report.spentCents);
     }
-    report.categories.sort(
-      (a, b) =>
-        compareBigints(b.spentCents, a.spentCents) ||
-        (a.categoryName ?? "").localeCompare(b.categoryName ?? ""),
-    );
+    report.categories = sortReportCategories(report.categories, "amount", "desc");
   }
   return reports;
+}
+
+// The report table's columns. A share is an amount over the same total, so both sort alike.
+export const reportSortKeys = ["amount", "share", "count"] as const;
+export type ReportSortKey = (typeof reportSortKeys)[number];
+
+// A sorted copy. Ties go by name either way, uncategorized last.
+export function sortReportCategories(
+  categories: CategorySpending[],
+  sort: ReportSortKey,
+  dir: "asc" | "desc",
+): CategorySpending[] {
+  const sign = dir === "asc" ? 1 : -1;
+  const byColumn = (a: CategorySpending, b: CategorySpending) =>
+    sort === "count"
+      ? a.transactionCount - b.transactionCount
+      : compareBigints(a.spentCents, b.spentCents);
+  const byName = (a: CategorySpending, b: CategorySpending) =>
+    a.categoryName === null
+      ? b.categoryName === null
+        ? 0
+        : 1
+      : b.categoryName === null
+        ? -1
+        : a.categoryName.localeCompare(b.categoryName);
+  return categories.toSorted((a, b) => sign * byColumn(a, b) || byName(a, b));
 }
 
 // In bigint, so the share is exact before it is rounded.

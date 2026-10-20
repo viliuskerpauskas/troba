@@ -1,36 +1,54 @@
-import { listCategories, listTransactions, transactionListLimit } from "@troba/core";
+import { getCategory, listTransactions, transactionListLimit } from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../../format";
-import { categoryParam, parseMonth } from "../params";
+import { categoryParam, parsePage, parseReportMonth } from "../params";
 
 export const metadata: Metadata = { title: "Spending in a category · troba" };
 
-// A report row's transactions: one month, one category or uncategorized, every currency.
+const currencyParam = z.string().regex(/^[A-Z]{3}$/);
+
+// What makes up one report row: a month's expenses in one category (or uncategorized) and one
+// currency, so the list adds up to the row's amount and count. A page at a time.
 export default async function ReportTransactionsPage({
   searchParams,
 }: PageProps<"/money/report/transactions">) {
   const { userId } = await requireMoneyUser();
   const params = await searchParams;
-  const month = parseMonth(params.month);
+  const month = parseReportMonth(params.month);
+  const page = parsePage(params.page);
   const category = categoryParam.safeParse(params.category);
-  if (!category.success) notFound();
+  const currency = currencyParam.safeParse(params.currency);
+  if (!category.success || !currency.success) notFound();
 
   let categoryName = "Uncategorized";
   if (category.data !== "uncategorized") {
-    const owned = (await listCategories(db(), userId)).find((c) => c.id === category.data);
+    const owned = await getCategory(db(), userId, category.data);
     if (!owned) notFound();
     categoryName = owned.name;
   }
-  const transactions = await listTransactions(db(), userId, { month, category: category.data });
+  // One more than a page, to know whether there is a next one.
+  const rows = await listTransactions(db(), userId, {
+    month,
+    category: category.data,
+    currency: currency.data,
+    expensesOnly: true,
+    limit: transactionListLimit + 1,
+    offset: (page - 1) * transactionListLimit,
+  });
+  const transactions = rows.slice(0, transactionListLimit);
+  const pageHref = (to: number) =>
+    `/money/report/transactions?month=${month}&currency=${currency.data}` +
+    `&category=${category.data}&page=${to}`;
 
   return (
     <main>
       <h1>
-        {categoryName} in {month}
+        {categoryName} spending in {month} ({currency.data})
       </h1>
       <p>
         <Link href={`/money/report?month=${month}`}>Back to the report</Link>
@@ -57,9 +75,10 @@ export default async function ReportTransactionsPage({
           })}
         </ol>
       )}
-      {transactions.length === transactionListLimit && (
-        <p>Showing the latest {transactionListLimit}.</p>
-      )}
+      <p>
+        {page > 1 && <Link href={pageHref(page - 1)}>Newer</Link>}{" "}
+        {rows.length > transactionListLimit && <Link href={pageHref(page + 1)}>Older</Link>}
+      </p>
     </main>
   );
 }
