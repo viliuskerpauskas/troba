@@ -23,6 +23,19 @@ export async function listCategories(db: Db, userId: string): Promise<Category[]
     .orderBy(asc(moneyCategories.name), asc(moneyCategories.id));
 }
 
+// The id is from the client: null unless the category is the user's.
+export async function getCategory(
+  db: Db,
+  userId: string,
+  categoryId: string,
+): Promise<Category | null> {
+  const [category] = await db
+    .select(categoryColumns)
+    .from(moneyCategories)
+    .where(and(eq(moneyCategories.id, categoryId), eq(moneyCategories.userId, userId)));
+  return category ?? null;
+}
+
 // Only the default Transfers category is excluded from spending; new ones count.
 export async function createCategory(
   db: Db,
