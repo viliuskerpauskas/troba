@@ -188,6 +188,30 @@ describe("parseRows", () => {
     ]);
   });
 
+  it("counts the debit/credit indicators it saw, so a mistyped debit value shows", () => {
+    const text =
+      "\nDate;Amount;D/C;Currency;Orig. amount;Orig. currency;Counterparty;Counterparty account;Purpose;Own account\n" +
+      ["D", "C", "d", "DR", "", "C"]
+        .map((dc, i) => `2026-03-0${i + 1};1,00;${dc};EUR;;;GROCERY MART;;Shop;${ownIban}\n`)
+        .join("");
+
+    const result = parseRows(debitCreditProfile, table(text, debitCreditProfile), euro);
+
+    expect(result).toMatchObject({
+      ok: true,
+      // Compared ignoring case, like the debit values; an empty cell is a failed row instead.
+      debitCredit: [
+        { value: "D", debit: true, rows: 2 },
+        { value: "C", debit: false, rows: 2 },
+        { value: "DR", debit: false, rows: 1 },
+      ],
+      failed: [{ row: 5, reason: "invalid-debit-credit" }],
+    });
+    expect(
+      parseRows(signedProfile, fixture("example-bank-signed.csv", signedProfile), euro),
+    ).toMatchObject({ ok: true, debitCredit: null });
+  });
+
   it("keeps the original amount only when its currency differs", () => {
     const result = parseRows(
       debitCreditProfile,
