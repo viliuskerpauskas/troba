@@ -72,7 +72,8 @@ rollback() {
 trap 'echo "interrupted" >&2; rollback' INT
 trap 'exec >>"$dir/deploy.log" 2>&1; echo "$(date -Is) deploy of $sha lost its session"; rollback' TERM HUP PIPE
 
-compose "$sha" up -d --remove-orphans web
+# Compose removes the old container before starting the new one, so a failed `up` rolls back too.
+compose "$sha" up -d --remove-orphans web || { echo "starting $sha failed on $env" >&2; rollback; }
 if "$here/wait-healthy.sh" "$env" "$sha"; then
   trap - INT TERM HUP PIPE
   echo "$sha" > "$state"

@@ -16,6 +16,8 @@ Three Compose projects on one Docker host:
 
 Caddy reaches each environment's web container as `staging-web` / `prod-web` on the shared `edge` network. Postgres sits only on its own project's network. Each environment has its own database, `postgres-data` and `uploads` volumes, secrets and users.
 
+The app runs as `node` (uid 1000) and writes users' files to `/data/uploads`. The `uploads` named volume is seeded from the image's `/data/uploads`, which is owned by `node`, so it needs no `chown`. If it is ever replaced by a bind mount of a host folder, that folder must be owned by uid 1000.
+
 ```
 /srv/troba/
   deploy/            a copy of this repo's deploy/ folder
@@ -118,7 +120,7 @@ scp -r deploy deploy@<vps>:/srv/troba/
 chmod +x /srv/troba/deploy/*.sh
 ```
 
-Copy it again whenever `deploy/` changes on `main` (until T8 does it as part of the deploy).
+Copy it again whenever `deploy/` changes on `main`. Until a deploy copies it itself, the VPS runs whichever `deploy/` was copied last, whatever sha it deploys.
 
 ### The edge
 
@@ -187,7 +189,7 @@ Going back to an older release by hand is just `deploy.sh <env> <older sha>`, as
 The compose command for an environment is long and needs the running sha. This function (put it in `~/.bashrc`) supplies both:
 
 ```bash
-c() { TROBA_SHA=$(cat /srv/troba/$1/deployed-sha) docker compose -p troba-$1 -f /srv/troba/deploy/app/compose.yaml --env-file /srv/troba/$1/.env "${@:2}"; }
+c() { TROBA_SHA=$(cat "/srv/troba/$1/deployed-sha") docker compose -p "troba-$1" -f /srv/troba/deploy/app/compose.yaml --env-file "/srv/troba/$1/.env" "${@:2}"; }
 c staging ps
 c staging logs -f web
 c staging exec postgres psql -U troba troba

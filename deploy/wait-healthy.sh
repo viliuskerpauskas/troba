@@ -8,11 +8,13 @@ set -euo pipefail
 env=${1:?usage: wait-healthy.sh <staging|prod> <sha> [timeout seconds]}
 sha=${2:?usage: wait-healthy.sh <staging|prod> <sha> [timeout seconds]}
 timeout=${3:-120}
+[[ $timeout =~ ^[0-9]+$ ]] || { echo "timeout must be a number of seconds" >&2; exit 2; }
 
 # Checks one response; prints why it isn't healthy yet. JavaScript, so the shell must not expand it.
+# The fetch timeout keeps a hung server from holding one check past the deadline.
 # shellcheck disable=SC2016
 check='
-fetch("http://127.0.0.1:3000/api/health")
+fetch("http://127.0.0.1:3000/api/health", { signal: AbortSignal.timeout(5000) })
   .then((res) => res.json())
   .then((body) => {
     if (body.status === "ok" && body.version === process.argv[1]) process.exit(0);
