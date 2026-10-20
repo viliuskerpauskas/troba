@@ -11,6 +11,9 @@ export default async function MoneyPage() {
     <main>
       <h1>Money</h1>
       <p>
+        <Link href="/money/transactions">Transactions</Link>
+      </p>
+      <p>
         <Link href="/money/accounts">Accounts</Link>
       </p>
     </main>
