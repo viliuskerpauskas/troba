@@ -244,6 +244,8 @@ Expected: `22/tcp`, `80/tcp` and `443/tcp` open, everything else closed or filte
 | Date | Check | Result |
 |---|---|---|
 | 2026-10-20 | deploy, rollback and Caddy routing, rehearsed on a local Docker host with a local registry and test images (no VPS yet) | first deploy, a second deploy, and a broken image rolled back to the previous sha after the 2-minute timeout, after Ctrl+C and after a SIGHUP (output in `deploy.log`); Caddy served staging over HTTPS, redirected HTTP, answered 502 for the absent prod; no container port published except Caddy's |
-| | known sha on staging (VPS) | not run yet |
-| | broken image rolled back (VPS) | not run yet |
-| | `nmap` from outside | not run yet |
+| 2026-10-20 | known sha on staging (VPS) | first deploy of `c8d7f80` passed; staging `/api/health` over HTTPS reported that sha with `db: ok` |
+| 2026-10-20 | broken image rolled back (VPS) | passed: progress every 10 s, gave up after 120 s, rolled back to `c8d7f80`, exit 1, staging healthy. An earlier attempt stopped with Ctrl+C left the broken image running; deploy.sh now rolls back on interruption too |
+| 2026-10-20 | `nmap -Pn -p-` from outside, IPv4 | passed: 22, 80 and 443 open, the other 65532 ports filtered |
+| | `nmap -6` from outside, IPv6 | not run yet |
+| 2026-10-20 | Caddy over IPv6 (VPS) | the edge network was first created without `--ipv6`, and IPv6 clients reached the app as the gateway address; recreated with `--ipv6`, real addresses arrive |
