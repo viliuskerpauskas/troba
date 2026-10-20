@@ -1,8 +1,14 @@
-import { schema, type Db } from "@troba/db";
+import { schema, type Db, type DbTransaction } from "@troba/db";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import type { Account } from "../accounts";
+import { accountColumns, defaultCurrency, type Account } from "../accounts";
 import { readCsv } from "./csv";
-import { parseRows, type ImportProfile, type ParsedRow, type RowFailure } from "./profile";
+import {
+  parseRows,
+  type DebitCreditCount,
+  type ImportProfile,
+  type ParsedRow,
+  type RowFailureReason,
+} from "./profile";
 
 // Bank CSV import (SPEC-money M3, persistence): a file read with its profile becomes a preview of
 // what would be saved, and on confirm the new rows are saved in one transaction. Commit reads the
@@ -13,7 +19,9 @@ import { parseRows, type ImportProfile, type ParsedRow, type RowFailure } from "
 const { moneyAccounts, moneyCategories, moneyImportProfiles, moneyImports, moneyTransactions } =
   schema;
 
-type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+// The largest file read: readCsv decodes and splits the whole file in memory, with no bound of
+// its own. Upload handlers check it too, before reading the body.
+export const maxImportFileBytes = 5 * 1024 * 1024;
 
 export type ImportInput = {
   profile: ImportProfile;
@@ -28,6 +36,7 @@ export type ImportInput = {
 
 // Why nothing in the file can be imported as it stands.
 export type ImportRefusal =
+  | { ok: false; reason: "file-too-large" }
   | { ok: false; reason: "profile-not-found" }
   | { ok: false; reason: "unknown-encoding" | "invalid-encoding" | "unterminated-quote" }
   | { ok: false; reason: "missing-columns"; columns: string[] }
@@ -40,6 +49,10 @@ export type ImportRefusal =
   // The picked account isn't the one the file's own IBAN names.
   | { ok: false; reason: "account-mismatch" };
 
+// A row that can't be imported. currency-mismatch: amounts are stored in the account's currency,
+// and the file says the row is in another.
+export type ImportRowFailure = { row: number; reason: RowFailureReason | "currency-mismatch" };
+
 export type ImportPreview = {
   account: Account;
   // Data rows in the file: new + duplicates + failed.
@@ -47,19 +60,12 @@ export type ImportPreview = {
   rowsNew: number;
   // Already saved for this account; skipped.
   rowsDuplicate: number;
-  failed: RowFailure[];
+  failed: ImportRowFailure[];
+  // With a debit/credit column, the indicators seen, for the user to check (see parseRows).
+  debitCredit: DebitCreditCount[] | null;
 };
 
 export type PreviewImportResult = ({ ok: true } & ImportPreview) | ImportRefusal;
-
-const accountColumns = {
-  id: moneyAccounts.id,
-  name: moneyAccounts.name,
-  type: moneyAccounts.type,
-  currency: moneyAccounts.currency,
-  iban: moneyAccounts.iban,
-  archivedAt: moneyAccounts.archivedAt,
-};
 
 export async function previewImport(
   db: Db,
@@ -68,18 +74,11 @@ export async function previewImport(
 ): Promise<PreviewImportResult> {
   const prepared = await prepareImport(db, userId, input);
   if (!prepared.ok) return prepared;
-  const { account, rowsParsed, rows, failed } = prepared;
+  const { rows, ...preview } = prepared;
 
-  const existing = await existingDedupKeys(db, userId, account.id, rows);
+  const existing = await existingDedupKeys(db, userId, preview.account.id, rows);
   const rowsDuplicate = rows.filter((row) => existing.has(row.dedupKey)).length;
-  return {
-    ok: true,
-    account,
-    rowsParsed,
-    rowsNew: rows.length - rowsDuplicate,
-    rowsDuplicate,
-    failed,
-  };
+  return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate };
 }
 
 export type CommitImportResult = ({ ok: true; importId: string } & ImportPreview) | ImportRefusal;
@@ -98,7 +97,8 @@ export async function commitImport(
   return db.transaction(async (tx) => {
     const prepared = await prepareImport(tx, userId, input);
     if (!prepared.ok) return prepared;
-    const { account, rowsParsed, rows, failed } = prepared;
+    const { rows, ...preview } = prepared;
+    const { account, rowsParsed, failed } = preview;
 
     const [created] = await tx
       .insert(moneyImports)
@@ -156,14 +156,14 @@ export async function commitImport(
       .update(moneyImports)
       .set({ rowsNew, rowsDuplicate })
       .where(and(eq(moneyImports.id, importId), eq(moneyImports.userId, userId)));
-    return { ok: true, importId, account, rowsParsed, rowsNew, rowsDuplicate, failed };
+    return { ...preview, importId, rowsNew, rowsDuplicate };
   });
 }
 
 // Money moved between the user's own accounts is a transfer, not spending: a row whose
 // counterparty IBAN is one of theirs goes to Transfers, before user rules run. Transfers is found
 // by its flag, which survives a rename; with no such category the row stays uncategorized (T74).
-async function transferDetection(tx: Transaction, userId: string) {
+async function transferDetection(tx: DbTransaction, userId: string) {
   const owned = await tx
     .select({ iban: moneyAccounts.iban })
     .from(moneyAccounts)
@@ -182,18 +182,19 @@ async function transferDetection(tx: Transaction, userId: string) {
       : {};
 }
 
-// The currency a new account gets (SPEC-money M1).
-const defaultCurrency = "EUR";
+// The preview without its duplicate counts, plus the rows that could be saved.
+type PreparedImport = { ok: true; rows: ParsedRow[] } & Omit<
+  ImportPreview,
+  "rowsNew" | "rowsDuplicate"
+>;
 
 // What preview and commit share: the file read with its profile, and the account it goes to.
 async function prepareImport(
-  db: Db | Transaction,
+  db: Db | DbTransaction,
   userId: string,
   input: ImportInput,
-): Promise<
-  | { ok: true; account: Account; rowsParsed: number; rows: ParsedRow[]; failed: RowFailure[] }
-  | ImportRefusal
-> {
+): Promise<PreparedImport | ImportRefusal> {
+  if (input.bytes.byteLength > maxImportFileBytes) return { ok: false, reason: "file-too-large" };
   const { profile } = input;
   if (input.profileId) {
     const [saved] = await db
@@ -245,12 +246,21 @@ async function prepareImport(
     parsed = parseRows(profile, table, { accountCurrency: account.currency });
     if (!parsed.ok) return parsed;
   }
+  const rows: ParsedRow[] = [];
+  const failed: ImportRowFailure[] = [...parsed.failed];
+  for (const row of parsed.rows) {
+    if (row.currency === account.currency) rows.push(row);
+    else failed.push({ row: row.row, reason: "currency-mismatch" });
+  }
+  failed.sort((a, b) => a.row - b.row);
+
   return {
     ok: true,
     account,
     rowsParsed: table.rows.length,
-    rows: parsed.rows,
-    failed: parsed.failed,
+    rows,
+    failed,
+    debitCredit: parsed.debitCredit,
   };
 }
 

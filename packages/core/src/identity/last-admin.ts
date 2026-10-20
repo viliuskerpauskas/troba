@@ -1,4 +1,4 @@
-import { schema, type Db } from "@troba/db";
+import { schema, type DbTransaction } from "@troba/db";
 import { asc, eq, or } from "drizzle-orm";
 
 // troba always keeps at least one active admin: one who can sign in, so not disabled. Anything
@@ -7,13 +7,11 @@ import { asc, eq, or } from "drizzle-orm";
 
 const { users } = schema;
 
-type Transaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
-
 // Locks the user and every admin, in id order so concurrent callers can't deadlock: a second
 // delete or disable waits for the first, then sees its result. Returns null if the user doesn't
 // exist; otherwise whether they are the only active admin left.
 export async function lockForAdminCheck(
-  tx: Transaction,
+  tx: DbTransaction,
   userId: string,
 ): Promise<{ lastActiveAdmin: boolean } | null> {
   const locked = await tx

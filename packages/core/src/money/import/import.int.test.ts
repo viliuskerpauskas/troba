@@ -6,9 +6,16 @@ import { rowsOwnedBy } from "@troba/db/user-tables";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { archiveAccount, createAccount, listAccounts } from "../accounts";
+import { deleteCategory, listCategories, renameCategory } from "../categories";
 import { ensureMoneyDefaults } from "../defaults";
 import { listTransactions } from "../transactions";
-import { commitImport, previewImport, type ImportInput } from "./import";
+import {
+  commitImport,
+  maxImportFileBytes,
+  previewImport,
+  type CommitImportResult,
+  type ImportInput,
+} from "./import";
 import type { ImportProfile } from "./profile";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -42,6 +49,29 @@ const signedProfile: ImportProfile = {
   debitValues: null,
 };
 
+// The debit/credit fixture's format: unsigned amounts, a D/C column, a preamble line.
+const debitCreditProfile: ImportProfile = {
+  name: "Example Bank (D/C)",
+  skipLines: 1,
+  delimiter: ";",
+  encoding: "utf-8",
+  decimalSeparator: ",",
+  dateFormat: "YYYY-MM-DD",
+  columns: {
+    bookingDate: "Date",
+    amount: "Amount",
+    debitCredit: "D/C",
+    currency: "Currency",
+    originalAmount: "Orig. amount",
+    originalCurrency: "Orig. currency",
+    counterparty: "Counterparty",
+    counterpartyIban: "Counterparty account",
+    description: "Purpose",
+    ownIban: "Own account",
+  },
+  debitValues: ["D"],
+};
+
 async function createUser() {
   const [user] = await db
     .insert(schema.users)
@@ -64,6 +94,33 @@ async function createBankAccount(userId: string, iban: string, currency = "EUR")
 
 function signedInput(overrides: Partial<ImportInput> = {}): ImportInput {
   return { profile: signedProfile, filename: "statement.csv", bytes: signedFile, ...overrides };
+}
+
+// A signed-format file of count generated rows, then the extra lines.
+function generatedFile(count: number, extra: string[] = []) {
+  const [header] = signedFile.toString("utf8").split("\n");
+  const rows = Array.from(
+    { length: count },
+    (_, i) => `X${i},02/03/2026,01/03/2026,-1.00,EUR,GROCERY MART,,Card purchase,CARD,${ownIban}`,
+  );
+  return Buffer.from([header, ...rows, ...extra].join("\n"));
+}
+
+// Nothing reads import records back yet.
+async function importRecord(userId: string, result: CommitImportResult) {
+  if (!result.ok) throw new Error(`commitImport failed: ${result.reason}`);
+  const [record] = await db
+    .select({
+      rowsParsed: schema.moneyImports.rowsParsed,
+      rowsNew: schema.moneyImports.rowsNew,
+      rowsDuplicate: schema.moneyImports.rowsDuplicate,
+      rowsFailed: schema.moneyImports.rowsFailed,
+    })
+    .from(schema.moneyImports)
+    .where(
+      and(eq(schema.moneyImports.userId, userId), eq(schema.moneyImports.id, result.importId)),
+    );
+  return record;
 }
 
 describe("import", () => {
@@ -89,6 +146,27 @@ describe("import", () => {
       rowsNew: 5,
       rowsDuplicate: 0,
       failed: [],
+      debitCredit: null,
+    });
+  });
+
+  it("previews the debit/credit indicators a file uses", async () => {
+    const userId = await createUser();
+    await createBankAccount(userId, ownIban);
+
+    const preview = await previewImport(db, userId, {
+      profile: debitCreditProfile,
+      filename: "statement.csv",
+      bytes: readFileSync(path.join(fixtures, "example-bank-debit-credit.csv")),
+    });
+
+    expect(preview).toMatchObject({
+      ok: true,
+      rowsNew: 8,
+      debitCredit: [
+        { value: "D", debit: true, rows: 6 },
+        { value: "C", debit: false, rows: 2 },
+      ],
     });
   });
 
@@ -101,6 +179,12 @@ describe("import", () => {
 
     expect(first).toMatchObject({ ok: true, rowsParsed: 5, rowsNew: 5, rowsDuplicate: 0 });
     expect(again).toMatchObject({ ok: true, rowsParsed: 5, rowsNew: 0, rowsDuplicate: 5 });
+    expect(await importRecord(userId, again)).toEqual({
+      rowsParsed: 5,
+      rowsNew: 0,
+      rowsDuplicate: 5,
+      rowsFailed: 0,
+    });
     expect(await previewImport(db, userId, signedInput())).toMatchObject({
       rowsNew: 0,
       rowsDuplicate: 5,
@@ -166,28 +250,34 @@ describe("import", () => {
     const userId = await createUser();
     await createBankAccount(userId, ownIban);
     const before = await rowsOwnedBy(db, userId);
-    // The file's last row fails on insert, after the import record and the other rows.
+    // The file's last row fails on insert, in a later insert statement than the first rows.
+    const bytes = generatedFile(1500, [
+      `Y1,07/03/2026,06/03/2026,-23.40,EUR,CAFE,,Card purchase,CARD,${ownIban}`,
+    ]);
     await db.$client.query(`
-      create function fail_on_sunny() returns trigger language plpgsql as $$
+      create function fail_on_cafe() returns trigger language plpgsql as $$
       begin
-        if new.counterparty like 'CAFE%' then raise exception 'forced failure'; end if;
+        if new.counterparty = 'CAFE' then raise exception 'forced failure'; end if;
         return new;
       end $$;
-      create trigger fail_on_sunny before insert on money_transactions
-        for each row execute function fail_on_sunny();
+      create trigger fail_on_cafe before insert on money_transactions
+        for each row execute function fail_on_cafe();
     `);
 
     try {
-      await expect(commitImport(db, userId, signedInput())).rejects.toThrow();
+      await expect(commitImport(db, userId, signedInput({ bytes }))).rejects.toThrow();
     } finally {
       await db.$client.query(`
-        drop trigger fail_on_sunny on money_transactions;
-        drop function fail_on_sunny();
+        drop trigger fail_on_cafe on money_transactions;
+        drop function fail_on_cafe();
       `);
     }
 
     expect(await rowsOwnedBy(db, userId)).toEqual(before);
-    expect(await commitImport(db, userId, signedInput())).toMatchObject({ ok: true, rowsNew: 5 });
+    expect(await commitImport(db, userId, signedInput({ bytes }))).toMatchObject({
+      ok: true,
+      rowsNew: 1501,
+    });
   });
 
   it("offers to create a bank account for an IBAN the user has no account for", async () => {
@@ -201,6 +291,52 @@ describe("import", () => {
     expect(commit).toEqual(offer);
     await createBankAccount(userId, ownIban);
     expect(await previewImport(db, userId, signedInput())).toMatchObject({ ok: true, rowsNew: 5 });
+  });
+
+  it("offers the file's currency for the new account", async () => {
+    const userId = await createUser();
+    const bytes = Buffer.from(signedFile.toString("utf8").replaceAll(",EUR,", ",USD,"));
+
+    expect(await previewImport(db, userId, signedInput({ bytes }))).toEqual({
+      ok: false,
+      reason: "unknown-account",
+      iban: ownIban,
+      currency: "USD",
+    });
+  });
+
+  it("fails rows in a currency other than the account's", async () => {
+    const userId = await createUser();
+    await createBankAccount(userId, ownIban);
+    const bytes = Buffer.from(
+      signedFile
+        .toString("utf8")
+        .replace("-1.50,EUR", "-1.50,USD")
+        .replace("12.99,EUR", "12.99,usd"),
+    );
+
+    const result = await commitImport(db, userId, signedInput({ bytes }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      rowsNew: 3,
+      failed: [
+        { row: 3, reason: "currency-mismatch" },
+        { row: 4, reason: "currency-mismatch" },
+      ],
+    });
+    const saved = await listTransactions(db, userId);
+    expect(saved.map((t) => t.currency)).toEqual(["EUR", "EUR", "EUR"]);
+  });
+
+  it(`refuses a file over ${maxImportFileBytes} bytes before reading it`, async () => {
+    const userId = await createUser();
+    await createBankAccount(userId, ownIban);
+    const bytes = new Uint8Array(maxImportFileBytes + 1);
+
+    const tooLarge = { ok: false, reason: "file-too-large" };
+    expect(await previewImport(db, userId, signedInput({ bytes }))).toEqual(tooLarge);
+    expect(await commitImport(db, userId, signedInput({ bytes }))).toEqual(tooLarge);
   });
 
   it("rejects a file with more than one own IBAN, saving nothing", async () => {
@@ -248,31 +384,44 @@ describe("import", () => {
       rowsNew: 3,
       failed,
     });
-    expect(await commitImport(db, userId, signedInput({ bytes }))).toMatchObject({
-      ok: true,
+    const committed = await commitImport(db, userId, signedInput({ bytes }));
+    expect(committed).toMatchObject({ ok: true, rowsNew: 3, failed });
+    expect(await importRecord(userId, committed)).toEqual({
+      rowsParsed: 5,
       rowsNew: 3,
-      failed,
+      rowsDuplicate: 0,
+      rowsFailed: 2,
     });
     expect(await listTransactions(db, userId)).toHaveLength(3);
   });
 
-  it("imports a file too large for one insert statement", async () => {
+  it("imports a file too large for one statement", async () => {
     const userId = await createUser();
-    await createBankAccount(userId, ownIban);
-    const [header] = signedFile.toString("utf8").split("\n");
-    // 5,000 rows bind more parameters than Postgres allows in one statement.
-    const rows = Array.from(
-      { length: 5000 },
-      (_, i) => `X${i},02/03/2026,01/03/2026,-1.00,EUR,GROCERY MART,,Card purchase,CARD,${ownIban}`,
-    );
-    const bytes = Buffer.from([header, ...rows].join("\n"));
-
-    expect(await commitImport(db, userId, signedInput({ bytes }))).toMatchObject({ rowsNew: 5000 });
-    expect(await commitImport(db, userId, signedInput({ bytes }))).toMatchObject({
-      rowsNew: 0,
-      rowsDuplicate: 5000,
+    const account = await createBankAccount(userId, ownIban);
+    // Postgres binds at most 65,535 parameters per statement: more rows than that in one insert
+    // or one dedup lookup (a parameter per row) would fail. Short rows keep the file small.
+    const count = 70_000;
+    const profile: ImportProfile = {
+      ...signedProfile,
+      columns: { transactionId: "Id", bookingDate: "Posted", amount: "Amount" },
+    };
+    const rows = Array.from({ length: count }, (_, i) => `X${i},02/03/2026,-1.00`);
+    const input = signedInput({
+      profile,
+      accountId: account.id,
+      bytes: Buffer.from(["Id,Posted,Amount", ...rows].join("\n")),
     });
-  });
+
+    expect(await commitImport(db, userId, input)).toMatchObject({ rowsNew: count });
+    expect(await previewImport(db, userId, input)).toMatchObject({
+      rowsNew: 0,
+      rowsDuplicate: count,
+    });
+    expect(await commitImport(db, userId, input)).toMatchObject({
+      rowsNew: 0,
+      rowsDuplicate: count,
+    });
+  }, 60_000);
 
   describe("without an own-IBAN column", () => {
     // No currency column either, so rows take the account's currency.
@@ -353,6 +502,33 @@ describe("import", () => {
           categorySource: "transfer",
         }),
       ]);
+    });
+
+    it("finds Transfers after a rename, and leaves transfers uncategorized once it's deleted", async () => {
+      const renamedUser = await createUser();
+      const deletedUser = await createUser();
+      for (const userId of [renamedUser, deletedUser]) {
+        await createBankAccount(userId, ownIban);
+        await createBankAccount(userId, "GB82WEST12345698765432");
+      }
+      const transfersOf = async (userId: string) =>
+        (await listCategories(db, userId)).find((c) => c.name === "Transfers")!.id;
+      await renameCategory(db, renamedUser, {
+        categoryId: await transfersOf(renamedUser),
+        name: "Between my accounts",
+      });
+      await deleteCategory(db, deletedUser, { categoryId: await transfersOf(deletedUser) });
+
+      await commitImport(db, renamedUser, signedInput());
+      expect(await commitImport(db, deletedUser, signedInput())).toMatchObject({ rowsNew: 5 });
+
+      const acme = async (userId: string) =>
+        (await listTransactions(db, userId)).find((t) => t.counterparty === "ACME LTD");
+      expect(await acme(renamedUser)).toMatchObject({
+        categoryName: "Between my accounts",
+        categorySource: "transfer",
+      });
+      expect(await acme(deletedUser)).toMatchObject({ categoryId: null, categorySource: null });
     });
 
     it("leaves rows uncategorized when no counterparty is the user's", async () => {
