@@ -20,7 +20,7 @@ const { moneyAccounts, moneyCategories, moneyImportProfiles, moneyImports, money
   schema;
 
 // The largest file read: readCsv decodes and splits the whole file in memory, with no bound of
-// its own. Upload handlers check it too, before reading the body.
+// its own. An upload handler should check it too, before reading the body.
 export const maxImportFileBytes = 5 * 1024 * 1024;
 
 export type ImportInput = {

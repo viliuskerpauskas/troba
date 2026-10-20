@@ -305,28 +305,30 @@ describe("import", () => {
     });
   });
 
-  it("fails rows in a currency other than the account's", async () => {
+  it("fails rows in a currency other than the account's, listed in row order", async () => {
     const userId = await createUser();
     await createBankAccount(userId, ownIban);
     const bytes = Buffer.from(
       signedFile
         .toString("utf8")
-        .replace("-1.50,EUR", "-1.50,USD")
-        .replace("12.99,EUR", "12.99,usd"),
+        .replace('"1,500.00",EUR', '"1,500.00",USD')
+        .replace("12.99,EUR", "12.99,usd")
+        .replace("-1.50", "one fifty"),
     );
 
     const result = await commitImport(db, userId, signedInput({ bytes }));
 
     expect(result).toMatchObject({
       ok: true,
-      rowsNew: 3,
+      rowsNew: 2,
       failed: [
+        { row: 2, reason: "currency-mismatch" },
         { row: 3, reason: "currency-mismatch" },
-        { row: 4, reason: "currency-mismatch" },
+        { row: 4, reason: "invalid-amount" },
       ],
     });
     const saved = await listTransactions(db, userId);
-    expect(saved.map((t) => t.currency)).toEqual(["EUR", "EUR", "EUR"]);
+    expect(saved.map((t) => t.currency)).toEqual(["EUR", "EUR"]);
   });
 
   it(`refuses a file over ${maxImportFileBytes} bytes before reading it`, async () => {
@@ -337,6 +339,9 @@ describe("import", () => {
     const tooLarge = { ok: false, reason: "file-too-large" };
     expect(await previewImport(db, userId, signedInput({ bytes }))).toEqual(tooLarge);
     expect(await commitImport(db, userId, signedInput({ bytes }))).toEqual(tooLarge);
+    // The limit itself is allowed (this file is refused for its content instead).
+    const atLimit = signedInput({ bytes: new Uint8Array(maxImportFileBytes) });
+    expect(await previewImport(db, userId, atLimit)).not.toMatchObject(tooLarge);
   });
 
   it("rejects a file with more than one own IBAN, saving nothing", async () => {
