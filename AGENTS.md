@@ -44,6 +44,7 @@ pnpm test:e2e          # Playwright against the built app (needs build and db:up
 pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
 pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
 pnpm db:migrate        # apply pending migrations
+pnpm db:seed-transactions <email> [count] [YYYY-MM]  # fictional transactions for a local user (default 10,000)
 pnpm admin:create <email>  # create an admin; prompts for the password (--force if one exists)
 docker build -f apps/web/Dockerfile --build-arg GIT_SHA=$(git rev-parse HEAD) -t troba-web .
 docker run troba-web node migrate.js   # one-shot migrations from the same image (needs DATABASE_URL)

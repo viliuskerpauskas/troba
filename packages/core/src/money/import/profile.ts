@@ -121,10 +121,16 @@ export type ParseRowsResult =
       ownIban: string | null;
       rows: ParsedRow[];
       failed: RowFailure[];
+      // With a debit/credit column: each indicator seen (upper case) and how many rows had it.
+      // Any value that isn't a debit value reads as a credit, so the preview shows these for the
+      // user to spot a mistyped debit value. Null without the column.
+      debitCredit: DebitCreditCount[] | null;
     }
   // The whole file is refused: nothing in it may be saved.
   | { ok: false; reason: "missing-columns"; columns: string[] }
   | { ok: false; reason: "multiple-own-ibans" };
+
+export type DebitCreditCount = { value: string; debit: boolean; rows: number };
 
 export type ParseRowsOptions = {
   // The currency of the account the rows go to: the default when the profile maps no currency
@@ -164,6 +170,7 @@ export function parseRows(
   const ownIbans = new Set<string>();
   const transactionIds = new Set<string>();
   const occurrences = new Map<string, number>();
+  const indicators = new Map<string, DebitCreditCount>();
 
   for (const [i, cells] of table.rows.entries()) {
     const row = i + 1;
@@ -172,6 +179,16 @@ export function parseRows(
       const j = name === undefined ? undefined : columnIndex.get(name);
       return j === undefined ? "" : (cells[j] ?? "").trim();
     };
+    const indicator = cell("debitCredit").toUpperCase();
+    if (indicator) {
+      const seen = indicators.get(indicator) ?? {
+        value: indicator,
+        debit: isDebit(profile, indicator),
+        rows: 0,
+      };
+      seen.rows++;
+      indicators.set(indicator, seen);
+    }
     const parsed = parseRow(profile, cell, accountCurrency);
     if (typeof parsed === "string") {
       failed.push({ row, reason: parsed });
@@ -206,7 +223,13 @@ export function parseRows(
 
   // One file is one account's statement.
   if (ownIbans.size > 1) return { ok: false, reason: "multiple-own-ibans" };
-  return { ok: true, ownIban: [...ownIbans][0] ?? null, rows, failed };
+  return {
+    ok: true,
+    ownIban: [...ownIbans][0] ?? null,
+    rows,
+    failed,
+    debitCredit: profile.columns.debitCredit === undefined ? null : [...indicators.values()],
+  };
 }
 
 type RowFields = Omit<ParsedRow, "row" | "dedupKey" | "raw">;
@@ -242,7 +265,7 @@ function parseRow(
   if (profile.columns.debitCredit !== undefined) {
     const indicator = cell("debitCredit").toUpperCase();
     if (!indicator) return "invalid-debit-credit";
-    const debit = profile.debitValues?.some((value) => value.toUpperCase() === indicator);
+    const debit = isDebit(profile, indicator);
     amountCents = withSign(amount, debit ? -1n : 1n);
   }
 
@@ -288,6 +311,11 @@ function parseRow(
 }
 
 const currencyCode = /^[A-Z]{3}$/;
+
+// Debit values are compared ignoring case; indicator is upper case.
+function isDebit(profile: ImportProfile, indicator: string): boolean {
+  return profile.debitValues?.some((value) => value.toUpperCase() === indicator) ?? false;
+}
 
 function withSign(cents: bigint, sign: 1n | -1n): bigint {
   return (cents < 0n ? -cents : cents) * sign;
