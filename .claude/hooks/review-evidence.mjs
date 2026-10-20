@@ -77,7 +77,7 @@ function shaLines(lines, label) {
   const regex = labelRegex(label);
   return lines
     .map((line) => ({ line, value: regex.exec(line)?.[1] }))
-    .filter(({ value }) => value !== undefined && /^\s*`?[0-9a-f]{7,}(?![g-z])/i.test(value));
+    .filter(({ value }) => value !== undefined && /^\s*`?[0-9a-f]{7,}(?![0-9a-z])/i.test(value));
 }
 
 // The sha on each line; a line without a readable full sha is a problem.
@@ -143,6 +143,11 @@ function checkChain(lines, head, isCommit) {
     if (!isCommit(sha)) problems.push(`${sha} isn't a commit in this repository`);
   }
   return problems;
+}
+
+// Every full sha in the file, once each, for the hook to look up in one call.
+export function shasIn(review) {
+  return [...new Set(review.match(new RegExp(String.raw`(?<![0-9a-f])${SHA}`, "g")))];
 }
 
 // The issue number on the `Spec:` line, or null for `Spec: none - <why>` or no line.

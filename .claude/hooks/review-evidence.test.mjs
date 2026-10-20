@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkReview, specIssue } from "./review-evidence.mjs";
+import { checkReview, shasIn, specIssue } from "./review-evidence.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -111,6 +111,20 @@ describe("checkReview", () => {
       ]);
     });
 
+    it("doesn't count a path that only appears with a longer extension", () => {
+      const problems = check(
+        reviewFile({ filesRead: "Files read:\n- `packages/core/src/a.ts.bak`" }),
+        ["packages/core/src/a.ts"],
+      );
+      expect(problems).toEqual(['"Files read:" leaves out: packages/core/src/a.ts']);
+    });
+
+    it("doesn't take a Files read: list from another section", () => {
+      const list = "Files read:\n- `packages/core/src/a.ts`\n- `packages/core/src/a.test.ts`";
+      const review = reviewFile({ filesRead: "Read the diff.", specAxis: `## Spec\n\n${list}` });
+      expect(check(review)).toEqual(['## Standards has no "Files read:" list']);
+    });
+
     it("doesn't count a path that only appears inside a longer path", () => {
       const problems = check(reviewFile({ filesRead: "Files read:\n- `docs/README.md`" }), [
         "README.md",
@@ -218,6 +232,10 @@ describe("checkReview", () => {
   });
 
   describe("Reviewed commit chain", () => {
+    it("needs a Reviewed commit: line", () => {
+      expect(check(reviewFile({ reviewed: "" }))).toEqual(['no "Reviewed commit: <sha>" line']);
+    });
+
     it("needs a First reviewed commit: line", () => {
       expect(check(reviewFile({ first: "" }))).toEqual(['no "First reviewed commit: <sha>" line']);
     });
@@ -306,6 +324,11 @@ describe("checkReview", () => {
   });
 
   describe("commit lines", () => {
+    it("ignore a hex-looking word that runs on into other letters", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}..${C}: tidied.\nPass: deadbeefs were renamed.`;
+      expect(check(reviewFile({ log }))).toEqual([]);
+    });
+
     it("ignore prose that starts with Pass: or Round N:", () => {
       const log = `Round 1: ${A}..${B}: fixed.\n- Pass: all checklist items.\nRound 1: the range exists in git log.\nPass: ${B}..${C}: tidied.`;
       expect(check(reviewFile({ log }))).toEqual([]);
@@ -376,6 +399,11 @@ describe("checkReview", () => {
         `the review history ends at ${B}, but "Reviewed commit:" is ${C}`,
       ]);
     });
+  });
+
+  it("lists each full sha once for the hook to look up", () => {
+    expect(shasIn(reviewFile())).toEqual([A, C, B]);
+    expect(shasIn(`${A}a ${B.slice(1)}`)).toEqual([]);
   });
 
   it("lists every problem at once", () => {

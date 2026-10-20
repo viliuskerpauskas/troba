@@ -3,7 +3,10 @@ import { gatedCommands } from "./gated-command.mjs";
 
 describe("gatedCommands", () => {
   it("finds a plain push and a PR create", () => {
-    expect(gatedCommands("git push -u origin HEAD")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push -u origin HEAD")).toEqual([
+      { kind: "push", cwd: null, branches: ["HEAD"] },
+    ]);
     expect(gatedCommands("gh pr create --fill")).toEqual([{ kind: "pr-create", cwd: null }]);
   });
 
@@ -128,7 +131,7 @@ describe("gatedCommands", () => {
 
   it("joins line continuations", () => {
     expect(gatedCommands("git -C dir \\\npush -u origin HEAD")).toEqual([
-      { kind: "push", cwd: "dir" },
+      { kind: "push", cwd: "dir", branches: ["HEAD"] },
     ]);
     expect(gatedCommands("git -C dir `\npush", "powershell")).toEqual([
       { kind: "push", cwd: "dir" },
@@ -138,8 +141,10 @@ describe("gatedCommands", () => {
   it("skips # comments, so an apostrophe in one doesn't open a quote", () => {
     const twoComments =
       "# Push the branch's commits\ngit push -u origin HEAD\n# Then open the PR's page";
-    expect(gatedCommands(twoComments)).toEqual([{ kind: "push", cwd: null }]);
-    expect(gatedCommands(twoComments, "powershell")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands(twoComments)).toEqual([{ kind: "push", cwd: null, branches: ["HEAD"] }]);
+    expect(gatedCommands(twoComments, "powershell")).toEqual([
+      { kind: "push", cwd: null, branches: ["HEAD"] },
+    ]);
     expect(gatedCommands("# Don't forget\ngit push")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("git push # it's done")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("<# it's a\nblock #>\ngit push", "powershell")).toEqual([
@@ -180,6 +185,9 @@ describe("gatedCommands", () => {
     expect(gatedCommands("Set-Location -Path ..\\wt; git push", "powershell")).toEqual([
       { kind: "push", cwd: "..\\wt" },
     ]);
+    expect(gatedCommands("Set-Location -LiteralPath ..\\wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "..\\wt" },
+    ]);
     expect(gatedCommands("cd -- ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("{ cd ../wt && git push; }")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("if cd ../wt; then git push; fi")).toEqual([
@@ -207,6 +215,92 @@ describe("gatedCommands", () => {
   it("still finds a push after a heredoc", () => {
     expect(gatedCommands("git commit -F - <<'EOF'\nchore: x\nEOF\ngit push")).toEqual([
       { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("names the branches a push sends to, after the remote", () => {
+    expect(gatedCommands("git push origin feat/T7-x")).toEqual([
+      { kind: "push", cwd: null, branches: ["feat/T7-x"] },
+    ]);
+    expect(
+      gatedCommands("git push -o ci.skip --force origin +HEAD:refs/heads/feat/T7-x b"),
+    ).toEqual([{ kind: "push", cwd: null, branches: ["feat/T7-x", "b"] }]);
+    expect(gatedCommands("git push origin -- :gone")).toEqual([
+      { kind: "push", cwd: null, branches: ["gone"] },
+    ]);
+    expect(gatedCommands("git push --all origin")).toEqual([
+      { kind: "push", cwd: null, all: true },
+    ]);
+    expect(gatedCommands("git push --mirror")).toEqual([{ kind: "push", cwd: null, all: true }]);
+  });
+
+  it("finds the command a shell, eval or Invoke-Expression runs", () => {
+    expect(gatedCommands("bash -c 'git push'")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands('sh -lc "gh pr create --fill"')).toEqual([
+      { kind: "pr-create", cwd: null },
+    ]);
+    expect(gatedCommands("eval 'git push'")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands('cd wt && bash -c "cd sub && git push"')).toEqual([
+      { kind: "push", cwd: "wt/sub" },
+    ]);
+    expect(gatedCommands('pwsh -Command "git push"', "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    expect(gatedCommands("powershell.exe -NoProfile -c git push", "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    expect(gatedCommands("Invoke-Expression 'git push'", "powershell")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+    expect(gatedCommands("iex 'gh pr new'", "powershell")).toEqual([
+      { kind: "pr-create", cwd: null },
+    ]);
+    expect(gatedCommands("bash -c 'echo hi'")).toEqual([]);
+    expect(gatedCommands("bash ./script.sh")).toEqual([]);
+  });
+
+  it("can't read an encoded PowerShell command, so calls it unclear", () => {
+    expect(gatedCommands("pwsh -EncodedCommand ZwBpAHQA", "powershell")).toEqual([
+      { kind: "unclear", cwd: null },
+    ]);
+  });
+
+  it("finds a push in unquoted bash backticks", () => {
+    expect(gatedCommands("echo `git push`")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("x=`gh pr create --fill`")).toEqual([{ kind: "pr-create", cwd: null }]);
+    expect(gatedCommands("echo `git push")).toEqual([{ kind: "unclear", cwd: null }]);
+  });
+
+  it("finds a quoted program after a prefix word", () => {
+    expect(gatedCommands('env "git" push')).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("time 'gh' pr create")).toEqual([{ kind: "pr-create", cwd: null }]);
+  });
+
+  it("follows popd back to the directory before pushd", () => {
+    expect(gatedCommands("pushd ../wt; popd; git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(
+      gatedCommands("Push-Location a; Push-Location b; Pop-Location; git push", "powershell"),
+    ).toEqual([{ kind: "push", cwd: "a" }]);
+  });
+
+  it("skips --config-env's value among git's global options", () => {
+    expect(gatedCommands("git --config-env core.x=ENV push")).toEqual([
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("refuses a PR create after GH_REPO or GH_HOST is set anywhere in the command", () => {
+    expect(gatedCommands("export GH_REPO=o/r; gh pr create --fill")).toEqual([
+      { kind: "pr-elsewhere", cwd: null },
+    ]);
+    expect(gatedCommands('$env:GH_REPO = "o/r"; gh pr create --fill', "powershell")).toEqual([
+      { kind: "pr-elsewhere", cwd: null },
+    ]);
+    expect(gatedCommands('$env:GH_HOST="example.test"; gh pr new', "powershell")).toEqual([
+      { kind: "pr-elsewhere", cwd: null },
+    ]);
+    expect(gatedCommands('git commit -m "GH_REPO=o/r"; gh pr create')).toEqual([
+      { kind: "pr-create", cwd: null },
     ]);
   });
 
