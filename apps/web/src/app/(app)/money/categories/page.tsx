@@ -23,10 +23,15 @@ export default async function CategoriesPage() {
             {categories.map((category) => (
               <li key={category.id}>
                 <RenameCategoryForm categoryId={category.id} name={category.name} />
-                {category.excludedFromSpending && (
-                  <p>Not counted as spending: moving money between your own accounts.</p>
+                {category.excludedFromSpending ? (
+                  // Imports assign it to moves between the user's own accounts; core refuses too.
+                  <p>
+                    Not counted as spending: moving money between your own accounts. It can&apos;t
+                    be deleted, since imports put those moves here.
+                  </p>
+                ) : (
+                  <DeleteCategory categoryId={category.id} name={category.name} />
                 )}
-                <DeleteCategory categoryId={category.id} name={category.name} />
               </li>
             ))}
           </ul>

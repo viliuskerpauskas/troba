@@ -31,7 +31,7 @@ No bank-specific code ships in the repo. A user teaches troba their bank's forma
 - Delimiter (`,` `;` tab) and a UTF-8 BOM are detected. Banks may put preamble lines (a statement title) above the header: the profile stores how many lines to skip, the mapping step guesses it (first line with the file's usual column count) and lets the user correct it. A trailing delimiter on every line (an empty last column) is ignored. The encoding is UTF-8 unless the profile says otherwise (e.g. a `windows-125x` code page, decoded with the built-in `TextDecoder`). Decimal separator and date format come from the profile.
 - **Amount sign:** either a signed amount column, or an unsigned amount plus a debit/credit indicator column with the profile's list of debit values. Amounts are parsed from the decimal string into integer cents without going through a float.
 - **Account:** if the profile maps an own-account IBAN column, rows go to the user's account with that IBAN. If none matches, the user is offered to create a bank account with that IBAN and currency. A file with more than one own IBAN is rejected. Without that column, the user picks the account.
-- A row whose counterparty IBAN is one of the user's own account IBANs is auto-categorized as **Transfers**, before user rules run.
+- A row whose counterparty IBAN is one of the user's own account IBANs is auto-categorized as **Transfers** (the category excluded from spending, whatever the user renamed it to), before user rules run.
 - The system shows a preview before saving: rows parsed, how many are new, how many are duplicates (skipped), and how many failed, each with a reason.
 - On confirm, new rows are saved in one database transaction. All or nothing.
 - Importing the same file, or an overlapping date range, twice creates **no duplicates**.
@@ -45,6 +45,7 @@ No bank-specific code ships in the repo. A user teaches troba their bank's forma
 - A user can add, rename and delete categories. Deleting one moves its transactions to *uncategorized* after confirmation.
 - Flat list only in v1 (no subcategories).
 - The `Transfers` category is excluded from spending totals, so moving money between your own accounts doesn't count as spending.
+- `Transfers` can be renamed but not deleted, since imports assign it (M3). It is the only category excluded from spending: new categories never are.
 
 **M5. Auto-categorization rules**
 - A rule says: field (`counterparty` | `description`) *contains* text (case-insensitive) → category. Example: counterparty contains `GROCERY MART` → Food.

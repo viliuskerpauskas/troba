@@ -50,15 +50,30 @@ export async function renameCategory(
   return renamed.length > 0;
 }
 
-// Returns whether one of the user's categories was deleted. Its transactions become uncategorized
-// with no category source, so rules may categorize them again. The foreign key would null only
-// the category, so they're cleared first, while they still point at it.
+// Returns whether one of the user's categories was deleted. Transfers (the category excluded from
+// spending) is never deleted: imports assign it to moves between the user's own accounts
+// (SPEC-money M3, M4). The flag never changes, so reading it once inside the transaction holds.
+// The deleted category's transactions become uncategorized with no category source, so rules may
+// categorize them again. The foreign key would null only the category, so they're cleared first,
+// while they still point at it.
 export async function deleteCategory(
   db: Db,
   userId: string,
   input: { categoryId: string },
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
+    const [deletable] = await tx
+      .select({ id: moneyCategories.id })
+      .from(moneyCategories)
+      .where(
+        and(
+          eq(moneyCategories.id, input.categoryId),
+          eq(moneyCategories.userId, userId),
+          eq(moneyCategories.excludedFromSpending, false),
+        ),
+      );
+    if (!deletable) return false;
+
     await tx
       .update(moneyTransactions)
       .set({ categoryId: null, categorySource: null })
@@ -68,10 +83,9 @@ export async function deleteCategory(
           eq(moneyTransactions.categoryId, input.categoryId),
         ),
       );
-    const deleted = await tx
+    await tx
       .delete(moneyCategories)
-      .where(and(eq(moneyCategories.id, input.categoryId), eq(moneyCategories.userId, userId)))
-      .returning({ id: moneyCategories.id });
-    return deleted.length > 0;
+      .where(and(eq(moneyCategories.id, input.categoryId), eq(moneyCategories.userId, userId)));
+    return true;
   });
 }
