@@ -141,9 +141,19 @@ export function parseRows(
   const missing = Object.values(profile.columns).filter((name) => !table.headers.includes(name));
   if (missing.length > 0) return { ok: false, reason: "missing-columns", columns: missing };
 
-  // A bank that repeats a header: the first is the one read, and the one kept in raw.
+  const accountCurrency = options.accountCurrency.toUpperCase();
+  if (!currencyCode.test(accountCurrency)) throw new Error("accountCurrency is not a currency");
+
+  // A bank that repeats a header: the first is the one read. Raw keeps every cell, the later
+  // ones under "<header> (2)" and on.
   const columnIndex = new Map<string, number>();
-  table.headers.forEach((name, i) => columnIndex.has(name) || columnIndex.set(name, i));
+  const rawNames = table.headers.map((name, i) => {
+    if (!columnIndex.has(name)) {
+      columnIndex.set(name, i);
+      return name;
+    }
+    return `${name} (${table.headers.slice(0, i + 1).filter((other) => other === name).length})`;
+  });
 
   const rows: ParsedRow[] = [];
   const failed: RowFailure[] = [];
@@ -151,22 +161,25 @@ export function parseRows(
   const transactionIds = new Set<string>();
   const occurrences = new Map<string, number>();
 
-  table.rows.forEach((cells, i) => {
+  for (const [i, cells] of table.rows.entries()) {
     const row = i + 1;
     const cell = (field: ImportField): string => {
       const name = profile.columns[field];
       const j = name === undefined ? undefined : columnIndex.get(name);
       return j === undefined ? "" : (cells[j] ?? "").trim();
     };
-    const parsed = parseRow(profile, cell, options.accountCurrency);
-    if (typeof parsed === "string") return void failed.push({ row, reason: parsed });
+    const parsed = parseRow(profile, cell, accountCurrency);
+    if (typeof parsed === "string") {
+      failed.push({ row, reason: parsed });
+      continue;
+    }
 
-    if (parsed.ownIban) ownIbans.add(parsed.ownIban);
     let dedupKey: string;
     if (parsed.transactionId) {
       // The unique dedup index would silently keep only one of them.
       if (transactionIds.has(parsed.transactionId)) {
-        return void failed.push({ row, reason: "duplicate-transaction-id" });
+        failed.push({ row, reason: "duplicate-transaction-id" });
+        continue;
       }
       transactionIds.add(parsed.transactionId);
       dedupKey = `tx:${parsed.transactionId}`;
@@ -182,9 +195,10 @@ export function parseRows(
       dedupKey = `row:${hash}:${occurrence}`;
     }
 
-    const raw = Object.fromEntries([...columnIndex].map(([name, j]) => [name, cells[j] ?? ""]));
+    if (parsed.ownIban) ownIbans.add(parsed.ownIban);
+    const raw = Object.fromEntries(rawNames.map((name, j) => [name, cells[j] ?? ""]));
     rows.push({ row, ...parsed.fields, dedupKey, raw });
-  });
+  }
 
   // One file is one account's statement.
   if (ownIbans.size > 1) return { ok: false, reason: "multiple-own-ibans" };

@@ -92,29 +92,34 @@ function sniff(text: string): { delimiter: Delimiter } & SplitRecords {
   return best;
 }
 
-// How many records have the most common number of columns above one.
 function sharedWidthCount(records: string[][]): number {
-  const counts = widthCounts(records);
-  return Math.max(0, ...[...counts].filter(([width]) => width > 1).map(([, count]) => count));
+  return usualWidth(records)?.count ?? 0;
 }
 
-// A preamble (a statement title) sits above the header. The header is the first line of the
-// widest width that at least two lines share (the header and a row); a preamble line is
-// narrower, and in a short file it can outnumber the rows.
+// A preamble (a statement title) sits above the header: the header is the first line with the
+// file's usual column count (SPEC-money M3).
 function guessSkipLines(records: string[][]): number {
-  const counts = widthCounts(records.filter(isNonEmpty));
-  const widths = [...counts.keys()].sort((a, b) => b - a);
-  const width = widths.find((w) => counts.get(w)! >= 2) ?? widths[0];
+  const width = usualWidth(records.filter(isNonEmpty))?.width;
   return Math.max(
     0,
     records.findIndex((record) => record.length === width),
   );
 }
 
-function widthCounts(records: string[][]): Map<number, number> {
+// The most common number of columns above one, and how many records have it. Single-cell lines
+// are titles, not the table, so a short file's preamble can't outvote it. On a tie the wider:
+// a header with no rows yet beats a preamble line.
+function usualWidth(records: string[][]): { width: number; count: number } | null {
   const counts = new Map<number, number>();
-  for (const record of records) counts.set(record.length, (counts.get(record.length) ?? 0) + 1);
-  return counts;
+  for (const { length } of records)
+    if (length > 1) counts.set(length, (counts.get(length) ?? 0) + 1);
+  let usual: { width: number; count: number } | null = null;
+  for (const [width, count] of counts) {
+    if (!usual || count > usual.count || (count === usual.count && width > usual.width)) {
+      usual = { width, count };
+    }
+  }
+  return usual;
 }
 
 function isNonEmpty(record: string[]): boolean {

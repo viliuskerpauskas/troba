@@ -395,7 +395,35 @@ describe("parseRows", () => {
     ]);
   });
 
-  it("reads the first of two equal headers, and keeps it in the raw row", () => {
+  it("doesn't count the own IBAN of a row it refuses", () => {
+    const text =
+      "Transaction ID,Posted,Transaction Date,Amount,Currency,Payee,Payee Account,Details,Type,Account\n" +
+      "T1,02/03/2026,,-1.00,EUR,SHOP,,,CARD,DE89370400440532013000\n" +
+      "T1,02/03/2026,,-1.00,EUR,SHOP,,,CARD,NL91ABNA0417164300\n";
+
+    expect(parseRows(signedProfile, table(text, signedProfile), euro)).toMatchObject({
+      ok: true,
+      ownIban,
+      failed: [{ row: 2, reason: "duplicate-transaction-id" }],
+    });
+  });
+
+  it("takes the account currency in any case, and refuses one that isn't a currency", () => {
+    const profile = {
+      ...debitCreditProfile,
+      columns: omit(debitCreditProfile.columns, ["currency"]),
+    };
+    const csv = fixture("example-bank-debit-credit.csv", profile);
+
+    const result = parseRows(profile, csv, { accountCurrency: "eur" });
+    expect(result.ok && [result.rows[0]!.currency, result.rows[0]!.originalCurrency]).toEqual([
+      "EUR",
+      null,
+    ]);
+    expect(() => parseRows(profile, csv, { accountCurrency: "euro" })).toThrow();
+  });
+
+  it("reads the first of two equal headers, and keeps both in the raw row", () => {
     const text = "Posted,Amount,Amount\n02/03/2026,-1.00,99.00\n";
     const profile: ImportProfile = {
       ...signedProfile,
@@ -406,7 +434,7 @@ describe("parseRows", () => {
 
     expect(result.ok && result.rows[0]).toMatchObject({
       amountCents: -100n,
-      raw: { Posted: "02/03/2026", Amount: "-1.00" },
+      raw: { Posted: "02/03/2026", Amount: "-1.00", "Amount (2)": "99.00" },
     });
   });
 

@@ -114,6 +114,25 @@ describe("readCsv", () => {
     });
   });
 
+  it.each([
+    [
+      "rows with stray delimiters, wider than the header",
+      "Date,Payee,Amount\n2026-03-01,SHOP,1.00\n2026-03-02,ACME, INC,2.00\n" +
+        "2026-03-03,FOO, LTD,3.00\n2026-03-04,BAR,4.00\n2026-03-05,BAZ,5.00\n",
+      0,
+    ],
+    [
+      "preamble lines wider than the header",
+      "Account,EXAMPLE ACCOUNT,EUR,Example Bank\nPeriod,2026-03-01,2026-03-31,x\n" +
+        "Date,Amount\n2026-03-01,1.00\n2026-03-02,2.00\n2026-03-03,3.00\n",
+      2,
+    ],
+    // As many preamble lines as header lines: the wider one is the header.
+    ["a header with no rows yet", "Statement;March\nDate;Amount;Payee\n", 1],
+  ])("guesses the header past %s", (_, text, skipLines) => {
+    expect(readCsv(utf8(text))).toMatchObject({ skipLines });
+  });
+
   it("decodes a file with a UTF-8 byte order mark as UTF-8 whatever the encoding given", () => {
     const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...utf8("Payee;Amount\nCAFÉ;1,00\n")]);
 
