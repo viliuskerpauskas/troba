@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+// What the server reports as its version: see gitSha() in src/server/env.ts.
+const version = process.env.GIT_SHA || "dev";
+
 test("home page renders without console errors", async ({ page }) => {
   // Catches a broken standalone bundle, such as static chunks missing next to server.js.
   const errors: string[] = [];
@@ -18,8 +21,8 @@ test("home page renders without console errors", async ({ page }) => {
 test("page footer shows the running version", async ({ page }) => {
   await page.goto("/");
 
-  // Read at request time: the image is built without GIT_SHA, so a prerendered footer would say "dev".
-  await expect(page.getByRole("contentinfo")).toHaveText(`Version ${process.env.GIT_SHA || "dev"}`);
+  // CI builds without GIT_SHA, as the image does, so this fails if the footer is prerendered.
+  await expect(page.getByRole("contentinfo")).toHaveText(`Version ${version}`);
 });
 
 test("health endpoint reports ok with a reachable database", async ({ request }) => {
@@ -29,7 +32,7 @@ test("health endpoint reports ok with a reachable database", async ({ request })
   // The deploy polls for this version, so check GIT_SHA reaches the built server.
   expect(await response.json()).toEqual({
     status: "ok",
-    version: process.env.GIT_SHA || "dev",
+    version,
     db: "ok",
   });
 });

@@ -64,8 +64,9 @@ jobs:
     # A deploy that fails its health check and rolls back takes about 5 minutes.
     timeout-minutes: 10
     environment: staging
-    # One deploy at a time, never cancelled midway. A newer push waiting here replaces an older
-    # one that hasn't started, so staging ends on the newest sha.
+    # One deploy at a time, never cancelled midway. A newer run waiting here replaces an older one
+    # that hasn't started. Runs queue in the order their images finish, so if two pushes' builds
+    # finish out of order, staging stays on the older sha until the next push.
     concurrency:
       group: deploy-staging
       cancel-in-progress: false

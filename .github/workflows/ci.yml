@@ -78,7 +78,11 @@ jobs:
 
       - run: pnpm test:integration
 
+      # Built without GIT_SHA, like the image (apps/web/Dockerfile sets it only at runtime), so the
+      # E2E checks that the footer and /api/health read it per request, not at build time.
       - run: pnpm build
+        env:
+          GIT_SHA: ""
 
       # Headless runs only use the headless shell; full Chrome is ~190 MiB more and has stalled.
       - run: pnpm exec playwright install --with-deps --only-shell chromium

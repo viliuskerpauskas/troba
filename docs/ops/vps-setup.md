@@ -186,7 +186,7 @@ Going back to an older release by hand is just `deploy.sh <env> <older sha>`, as
 
 ### Deploys from GitHub
 
-Every push to `main` builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time; a waiting one is replaced by a newer push.
+Every push to `main` builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time, in the order their images finish building, and a waiting one is replaced by a newer one. Two pushes whose builds finish out of order leave staging on the older sha until the next push; redeploy by hand or push again.
 
 The job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.sh](../../deploy/ci-deploy.sh), which fixes the environment and takes nothing from the client but the sha. GitHub holds the key, the host and its host key, and nothing else from the VPS. To set it up, once [deploy/](../../deploy/) on the VPS includes `ci-deploy.sh`:
 
@@ -202,6 +202,8 @@ The job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.
    ssh deploy@<vps> 'cat >> ~/.ssh/authorized_keys' <<< "restrict,command=\"/srv/troba/deploy/ci-deploy.sh staging\" $(cat ~/troba-ci-staging.pub)"
    ```
 
+   Then check with `tail -n 2 ~/.ssh/authorized_keys` on the VPS that the new line is a line of its own: if the file didn't end with a newline, it is glued onto the previous key and both stop working.
+
 3. Check it runs what the job will run, and nothing else. `IdentitiesOnly` keeps ssh from logging in with your own key instead:
 
    ```bash
@@ -214,7 +216,7 @@ The job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.
    | Secret | Value |
    |---|---|
    | `SSH_PRIVATE_KEY` | the contents of `~/troba-ci-staging` (the private key) |
-   | `SSH_HOST` | `<vps>` |
+   | `SSH_HOST` | `<vps>`, written exactly as in the `ssh-keygen -F` lookup below, or the host key check fails |
    | `SSH_KNOWN_HOSTS` | the VPS's host key as your machine already trusts it: `ssh-keygen -F <vps> \| grep -v '^#'` |
 
 5. Delete both key files from your machine (`rm ~/troba-ci-staging ~/troba-ci-staging.pub`). A new key is cheaper than keeping a copy safe; to replace it, repeat these steps and remove the old line from `authorized_keys`.
