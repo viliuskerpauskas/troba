@@ -5,6 +5,7 @@ import { uploadsDir } from "./env";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../..");
 
+// process.chdir works in vitest's default forks pool, not in worker threads.
 describe("uploadsDir", () => {
   const cwd = process.cwd();
 
@@ -25,6 +26,14 @@ describe("uploadsDir", () => {
 
     expect(fromRoot).toBe(path.join(repoRoot, "uploads"));
     expect(fromWeb).toBe(path.join(repoRoot, "uploads"));
+  });
+
+  it("returns an absolute path as it is, even outside the repo", () => {
+    const absolute = path.join(tmpdir(), "troba-uploads");
+    vi.stubEnv("UPLOADS_DIR", absolute);
+    process.chdir(tmpdir());
+
+    expect(uploadsDir()).toBe(absolute);
   });
 
   it("refuses a relative path when the working directory is outside the repo", () => {
