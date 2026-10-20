@@ -1,9 +1,10 @@
 import { schema, type Db } from "@troba/db";
 import { and, eq, gt, lt, or, sql } from "drizzle-orm";
+import { isIPv6 } from "node:net";
 
 // Sign-in rate limiting (SPEC-identity I3): at most 5 failed attempts per email and per IP address
-// in any 15 minutes. Unknown emails count like known ones, so being refused says nothing about
-// whether an account exists.
+// (an IPv6 /64) in any 15 minutes. Unknown emails count like known ones, so being refused says
+// nothing about whether an account exists.
 
 const { signInAttempts } = schema;
 
@@ -15,6 +16,42 @@ const windowStart = sql`now() - make_interval(mins => ${signInLimit.windowMinute
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+// What the limit counts an address by. An IPv6 client usually controls a whole /64, so it could
+// otherwise rotate addresses to get past the limit: count the /64 prefix instead. An IPv4-mapped
+// address (::ffff:a.b.c.d) is the IPv4 client, so it counts as that address. Anything that isn't
+// an IPv6 address is counted as it is.
+function networkKey(ipAddress: string): string {
+  const address = ipAddress.split("%")[0]!;
+  if (!isIPv6(address)) return ipAddress;
+  const hextets = expandIPv6(address);
+  if (hextets.slice(0, 6).join(":") === "0:0:0:0:0:ffff") {
+    const [high, low] = hextets.slice(6).map((hextet) => parseInt(hextet, 16)) as [number, number];
+    return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+  }
+  return `${hextets.slice(0, 4).join(":")}::/64`;
+}
+
+// The 8 hextets of a valid IPv6 address, as lowercase hex without leading zeros.
+function expandIPv6(address: string): string[] {
+  let text = address.toLowerCase();
+  const ipv4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (ipv4) {
+    const [a, b, c, d] = ipv4.slice(1).map(Number) as [number, number, number, number];
+    text = `${text.slice(0, ipv4.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.split("::") as [string, string | undefined];
+  const parts = (part: string) => (part ? part.split(":") : []);
+  const hextets =
+    tail === undefined
+      ? parts(head)
+      : [
+          ...parts(head),
+          ...Array<string>(8 - parts(head).length - parts(tail).length).fill("0"),
+          ...parts(tail),
+        ];
+  return hextets.map((hextet) => parseInt(hextet, 16).toString(16));
 }
 
 // Call before checking the password. Returns null when the email or IP address is over the limit:
@@ -31,7 +68,7 @@ export async function beginSignInAttempt(
   input: { email: string; ipAddress: string | null },
 ): Promise<SignInAttempt | null> {
   const email = normalizeEmail(input.email);
-  const { ipAddress } = input;
+  const ipAddress = input.ipAddress === null ? null : networkKey(input.ipAddress);
   await db.delete(signInAttempts).where(lt(signInAttempts.createdAt, windowStart));
   const [attempt] = await db
     .insert(signInAttempts)

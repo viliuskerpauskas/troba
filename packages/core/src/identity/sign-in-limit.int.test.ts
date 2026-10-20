@@ -62,6 +62,29 @@ describe("sign-in limit", () => {
     expect(await beginSignInAttempt(db, { email: newEmail(), ipAddress })).toBeNull();
   });
 
+  it("counts IPv6 addresses by their /64, whatever the email", async () => {
+    // Documentation addresses (RFC 3849), all in 2001:db8:0:1::/64.
+    for (let i = 1; i <= 5; i++)
+      await fail(1, { email: newEmail(), ipAddress: `2001:db8:0:1::${i}` });
+
+    expect(
+      await beginSignInAttempt(db, { email: newEmail(), ipAddress: "2001:db8::1:ffff:0:0:6" }),
+    ).toBeNull();
+    expect(
+      await beginSignInAttempt(db, { email: newEmail(), ipAddress: "2001:db8:0:2::1" }),
+    ).not.toBeNull();
+  });
+
+  it("counts an IPv4-mapped IPv6 address as the IPv4 address", async () => {
+    const ipAddress = newIp();
+    for (let i = 0; i < 4; i++) await fail(1, { email: newEmail(), ipAddress });
+    await fail(1, { email: newEmail(), ipAddress: `::ffff:${ipAddress}` });
+
+    expect(await beginSignInAttempt(db, { email: newEmail(), ipAddress })).toBeNull();
+    // Mapped addresses aren't lumped together as one /64: other IPv4 addresses count on their own.
+    expect(await beginSignInAttempt(db, { email: newEmail(), ipAddress: newIp() })).not.toBeNull();
+  });
+
   it("doesn't limit by IP when there's no address", async () => {
     for (let i = 0; i < 6; i++) await fail(1, { email: newEmail(), ipAddress: null });
 

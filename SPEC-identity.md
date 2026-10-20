@@ -26,7 +26,7 @@ Only invited people can use troba. Each user signs in securely, and **no user ca
 **I3. Sign in / sign out**
 - Email + password sign-in. The password needs at least 12 characters, with no composition rules and a max of at least 128.
 - Sessions use an httpOnly, `Secure`, `SameSite=Lax` cookie, rolling for 30 days.
-- Repeated failed sign-ins are rate-limited per IP and email (e.g. 5 per 15 minutes). Errors don't reveal whether the email exists.
+- Repeated failed sign-ins are rate-limited per email and per IP address, with IPv6 addresses counted by their /64 (e.g. 5 per 15 minutes). Errors don't reveal whether the email exists.
 - Sign-out ends the current session. "Sign out everywhere" ends all of them.
 
 **I4. Account settings**
