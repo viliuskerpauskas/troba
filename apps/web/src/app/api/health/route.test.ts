@@ -5,9 +5,11 @@ vi.mock("@troba/db", () => ({
   pingDb: vi.fn(),
 }));
 
-// Fresh modules per test: env and the db pool are cached per process. The imports run one after
-// the other: vitest's mocker can hand the real module to one of two concurrent imports of a mocked
-// module, so a Promise.all here made the route ping a real database now and then (T46).
+// Fresh modules per test: env and the db pool are cached per process. The vi.mock factory's result
+// survives the reset, so every test shares one pingDb; the clearMocks default clears its calls.
+// The imports run one after the other: vitest's mocker can hand the real module to one of two
+// concurrent imports of a mocked module, so a Promise.all here made the route ping a real database
+// now and then.
 async function loadRoute() {
   vi.resetModules();
   const { GET } = await import("./route");
@@ -17,9 +19,8 @@ async function loadRoute() {
 
 describe("GET /api/health", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Every variable env() validates, so the test doesn't lean on .env.example.
     vi.stubEnv("GIT_SHA", "abc123");
+    // Every variable env() validates, so the test doesn't lean on .env.example.
     vi.stubEnv("DATABASE_URL", "postgres://user:pw@localhost:5432/db");
     vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-that-is-at-least-32-characters");
     vi.stubEnv("BETTER_AUTH_URL", "https://troba.example.test");
@@ -35,7 +36,6 @@ describe("GET /api/health", () => {
 
     const response = await GET();
 
-    // The route pinged the mock, not a real database.
     expect(pingDb).toHaveBeenCalledOnce();
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -59,10 +59,12 @@ describe("GET /api/health", () => {
 
   it("answers 503, not 500, when DATABASE_URL is missing", async () => {
     vi.stubEnv("DATABASE_URL", undefined);
-    const { GET } = await loadRoute();
+    const { GET, pingDb } = await loadRoute();
 
     const response = await GET();
 
+    // db() threw before any ping.
+    expect(pingDb).not.toHaveBeenCalled();
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       status: "error",
