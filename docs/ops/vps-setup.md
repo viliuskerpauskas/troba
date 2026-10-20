@@ -247,5 +247,5 @@ Expected: `22/tcp`, `80/tcp` and `443/tcp` open, everything else closed or filte
 | 2026-10-20 | known sha on staging (VPS) | first deploy of `c8d7f80` passed; staging `/api/health` over HTTPS reported that sha with `db: ok` |
 | 2026-10-20 | broken image rolled back (VPS) | passed: progress every 10 s, gave up after 120 s, rolled back to `c8d7f80`, exit 1, staging healthy. An earlier attempt stopped with Ctrl+C left the broken image running; deploy.sh now rolls back on interruption too |
 | 2026-10-20 | `nmap -Pn -p-` from outside, IPv4 | passed: 22, 80 and 443 open, the other 65532 ports filtered |
-| | `nmap -6` from outside, IPv6 | not run yet |
+| | `nmap -6` from outside, IPv6 | not run yet: the owner's connection has no IPv6 route. ufw shows the same 22/80/443 rules for v6 and only Caddy publishes ports; scan from an IPv6 network (e.g. a phone hotspot) to close this |
 | 2026-10-20 | Caddy over IPv6 (VPS) | the edge network was first created without `--ipv6`, and IPv6 clients reached the app as the gateway address; recreated with `--ipv6`, real addresses arrive |
