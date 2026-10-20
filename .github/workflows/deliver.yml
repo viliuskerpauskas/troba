@@ -3,7 +3,7 @@ name: Deliver
 # Every push to main builds ghcr.io/<owner>/troba-web:<sha> once. release-please keeps a release
 # PR open. Merging that PR creates a release, and the release commit's image gets the :<version>
 # tag without a rebuild (ADR-0009). Each image built from main is deployed to staging. A release
-# is then deployed to production, the same image staging is running, once the owner approves it.
+# is then deployed to production, the image staging ran and passed with, once the owner approves.
 
 on:
   push:
@@ -165,6 +165,8 @@ jobs:
   # too).
   deploy-prod:
     needs: [release, release-image, deploy-staging]
+    # Implies success() of every need: a staging deploy that failed or was cancelled (a newer push
+    # replaced it while it waited) skips prod. "Re-run failed jobs" retries both (docs/ops).
     if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -190,7 +192,8 @@ jobs:
           fi
 
       - name: Deploy over SSH
-        # Environment secrets of "production", for a key forced to run ci-deploy.sh prod.
+        # Environment secrets of "production", for a key forced to run ci-deploy.sh prod. Keepalives
+        # as for staging.
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}

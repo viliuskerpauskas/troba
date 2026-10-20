@@ -188,7 +188,9 @@ Going back to an older release by hand is just `deploy.sh <env> <older sha>`, as
 
 Every push to `main` builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time, in the order their images finish building, and a waiting one is replaced by a newer one. Two pushes whose builds finish out of order leave staging on the older sha until the next push; redeploy by hand or push again.
 
-Merging the release PR is such a push. Once its staging deploy has passed and release-please has created the release, the `deploy-prod` job waits for your approval (Actions → the run → **Review deployments**), then runs `deploy.sh prod <sha>` with the same sha, so prod starts the image staging is running. If the release turns up in a later run than its merge (its own run's `release` job failed), `deploy-prod` refuses, because staging ran a different sha there: deploy the release by hand with `deploy.sh prod <release sha>`.
+Merging the release PR is such a push. Once its staging deploy has passed and release-please has created the release, the `deploy-prod` job waits for your approval (Actions → the run → **Review deployments**), then runs `deploy.sh prod <sha>` with the same sha, so prod starts the image staging ran and passed with.
+
+If the release run's `deploy-staging` failed or was cancelled (a newer push replaced it while it waited), `deploy-prod` is skipped and nothing asks for approval. Use **Re-run failed jobs** on that run: it deploys the release sha to staging again, then waits for your approval for prod. Staging stays on that sha until the next push. If the release turns up in a later run than its merge (its own run's `release` job failed), `deploy-prod` refuses, because staging ran a different sha there: deploy the release by hand with `deploy.sh prod <release sha>`.
 
 Each job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.sh](../../deploy/ci-deploy.sh), which fixes the environment and takes nothing from the client but the sha. GitHub holds the key, the host and its host key, and nothing else from the VPS. Each environment gets its own key, so the staging key can't deploy prod. To set one up, for `<env>` = `staging` (GitHub environment `staging`), or `prod` (GitHub environment `production`), once [deploy/](../../deploy/) on the VPS includes `ci-deploy.sh`:
 
@@ -270,10 +272,10 @@ The page footer of `https://staging.<domain>/` shows the same sha.
 **A release deploys to prod after approval.** Merge the release PR. In its Deliver run, `deploy-staging` and `release-image` go green, then `deploy-prod` waits with **Review deployments**. Approve it; the job goes green and prod reports the release commit's sha:
 
 ```bash
-curl -s https://<domain>/api/health   # "version" is the release commit's sha, the same as staging's
+curl -s https://<domain>/api/health   # "version" is the release commit's sha
 ```
 
-On the VPS, both environments run one image: `docker inspect --format '{{.Image}}' troba-staging-web-1 troba-prod-web-1` prints the same id twice.
+If nothing has been pushed to `main` since, both environments run one image on the VPS: `docker inspect --format '{{.Image}}' troba-staging-web-1 troba-prod-web-1` prints the same id twice.
 
 **A broken image rolls back.** With a healthy deploy in place, build an image that exits on start, tagged with a sha that isn't real, and deploy it. Its migrations are the good image's, so only the health check fails.
 
