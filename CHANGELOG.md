@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/viliuskerpauskas/troba/compare/v0.1.0...v0.2.0) (2026-10-20)
+
+
+### Features
+
+* **money:** add, rename and delete categories ([#75](https://github.com/viliuskerpauskas/troba/issues/75)) ([637e273](https://github.com/viliuskerpauskas/troba/commit/637e27377fe648e1fa6ac49514329426824618cd)), closes [#18](https://github.com/viliuskerpauskas/troba/issues/18)
+* **money:** CSV decoding and profile row parsing ([#76](https://github.com/viliuskerpauskas/troba/issues/76)) ([34bb7cb](https://github.com/viliuskerpauskas/troba/commit/34bb7cb559893687e9007f6bd1724837247c5c2e)), closes [#19](https://github.com/viliuskerpauskas/troba/issues/19)
+
 ## 0.1.0 (2026-10-20)
 
 

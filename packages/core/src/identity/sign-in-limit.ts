@@ -1,9 +1,10 @@
 import { schema, type Db } from "@troba/db";
 import { and, eq, gt, lt, or, sql } from "drizzle-orm";
+import { isIPv6 } from "node:net";
 
 // Sign-in rate limiting (SPEC-identity I3): at most 5 failed attempts per email and per IP address
-// in any 15 minutes. Unknown emails count like known ones, so being refused says nothing about
-// whether an account exists.
+// (an IPv6 /64) in any 15 minutes. Unknown emails count like known ones, so being refused says
+// nothing about whether an account exists.
 
 const { signInAttempts } = schema;
 
@@ -15,6 +16,44 @@ const windowStart = sql`now() - make_interval(mins => ${signInLimit.windowMinute
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+// What the limit counts an address by. An IPv6 client usually controls a whole /64, so it could
+// otherwise rotate addresses to get past the limit: count the /64 prefix instead. An IPv4-mapped
+// address (::ffff:a.b.c.d) is the IPv4 client, so it counts as that address. Anything that isn't
+// an IPv6 address is counted as it is. Addresses come from Caddy, so they carry no zone id.
+function ipLimitKey(ipAddress: string): string {
+  if (!isIPv6(ipAddress)) return ipAddress;
+  const hextets = ipv6Hextets(ipAddress);
+  if (hextets.slice(0, 5).every((hextet) => hextet === 0) && hextets[5] === 0xffff) {
+    const [high, low] = hextets.slice(6) as [number, number];
+    return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+  }
+  return `${hextets
+    .slice(0, 4)
+    .map((hextet) => hextet.toString(16))
+    .join(":")}::/64`;
+}
+
+// The 8 16-bit groups of a valid IPv6 address.
+function ipv6Hextets(address: string): number[] {
+  let text = address;
+  const ipv4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (ipv4) {
+    const [a, b, c, d] = ipv4.slice(1).map(Number) as [number, number, number, number];
+    text = `${text.slice(0, ipv4.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.split("::") as [string, string | undefined];
+  const parts = (part: string) => (part ? part.split(":") : []);
+  const hextets =
+    tail === undefined
+      ? parts(head)
+      : [
+          ...parts(head),
+          ...Array<string>(8 - parts(head).length - parts(tail).length).fill("0"),
+          ...parts(tail),
+        ];
+  return hextets.map((hextet) => parseInt(hextet, 16));
 }
 
 // Call before checking the password. Returns null when the email or IP address is over the limit:
@@ -31,28 +70,28 @@ export async function beginSignInAttempt(
   input: { email: string; ipAddress: string | null },
 ): Promise<SignInAttempt | null> {
   const email = normalizeEmail(input.email);
-  const { ipAddress } = input;
+  const ipKey = input.ipAddress === null ? null : ipLimitKey(input.ipAddress);
   await db.delete(signInAttempts).where(lt(signInAttempts.createdAt, windowStart));
   const [attempt] = await db
     .insert(signInAttempts)
-    .values({ email, ipAddress })
+    .values({ email, ipAddress: ipKey })
     .returning({ id: signInAttempts.id });
 
   const [counts] = await db
     .select({
       email: sql<number>`count(*) filter (where ${signInAttempts.email} = ${email})::int`,
-      ipAddress: sql<number>`count(*) filter (where ${signInAttempts.ipAddress} = ${ipAddress})::int`,
+      ipKey: sql<number>`count(*) filter (where ${signInAttempts.ipAddress} = ${ipKey})::int`,
     })
     .from(signInAttempts)
     .where(
       and(
         gt(signInAttempts.createdAt, windowStart),
-        ipAddress === null
+        ipKey === null
           ? eq(signInAttempts.email, email)
-          : or(eq(signInAttempts.email, email), eq(signInAttempts.ipAddress, ipAddress)),
+          : or(eq(signInAttempts.email, email), eq(signInAttempts.ipAddress, ipKey)),
       ),
     );
-  if (counts!.email > signInLimit.attempts || counts!.ipAddress > signInLimit.attempts) {
+  if (counts!.email > signInLimit.attempts || counts!.ipKey > signInLimit.attempts) {
     await db.delete(signInAttempts).where(eq(signInAttempts.id, attempt!.id));
     return null;
   }
