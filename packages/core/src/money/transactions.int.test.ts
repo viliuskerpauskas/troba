@@ -103,7 +103,7 @@ describe("transactions", () => {
     });
   });
 
-  it("lists the latest ${transactionListLimit} by default", async () => {
+  it(`lists the latest ${transactionListLimit} by default`, async () => {
     const { userId, cashId } = await createUser();
     await db.insert(schema.moneyTransactions).values(
       Array.from({ length: transactionListLimit + 1 }, (_, day) => ({
@@ -119,7 +119,8 @@ describe("transactions", () => {
     const listed = await listTransactions(db, userId);
 
     expect(listed).toHaveLength(transactionListLimit);
-    expect(listed.at(-1)!.bookedOn).not.toBe("2025-01-01");
+    // The oldest, the 1st of January, is the one left out.
+    expect(listed.at(-1)!.bookedOn).toBe("2025-01-02");
   });
 
   it.each([0n, -500n])("refuses an amount of %s", async (amountCents) => {
