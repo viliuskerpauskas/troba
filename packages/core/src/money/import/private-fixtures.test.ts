@@ -31,21 +31,19 @@ describe.skipIf(exports.length === 0)("private bank exports", () => {
   it.each(exports.map((file) => [path.basename(file), file]))(
     "parses every row of %s",
     (_, file) => {
-      const profile = importProfileSchema.parse(
-        JSON.parse(readFileSync(file.replace(/\.csv$/, ".profile.json"), "utf8")),
-      );
+      // The profile, plus the currency of the account the export belongs to.
+      const json = JSON.parse(readFileSync(file.replace(/\.csv$/, ".profile.json"), "utf8"));
+      const profile = importProfileSchema.parse(json);
       const bytes = readFileSync(file);
       // What the mapping step would guess for this file, before the profile existed.
       const guessed = readCsv(bytes, { encoding: profile.encoding });
-      expect(guessed.ok && [guessed.skipLines, guessed.delimiter]).toEqual([
-        profile.skipLines,
-        profile.delimiter ?? (guessed.ok && guessed.delimiter),
-      ]);
+      expect(guessed.ok && guessed.skipLines).toBe(profile.skipLines);
+      if (profile.delimiter) expect(guessed.ok && guessed.delimiter).toBe(profile.delimiter);
 
       const table = readCsv(bytes, profile);
       if (!table.ok) throw new Error(table.reason);
 
-      const result = parseRows(profile, table);
+      const result = parseRows(profile, table, { accountCurrency: json.accountCurrency });
 
       expect(result.ok ? { ok: true, failed: result.failed } : result).toEqual({
         ok: true,

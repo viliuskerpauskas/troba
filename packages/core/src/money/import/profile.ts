@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { parseCents } from "../cents";
 import { parseIban } from "../iban";
-import { delimiters, type CsvTable } from "./csv";
+import { delimiters, isKnownEncoding, type CsvTable } from "./csv";
 
 // Import profiles (SPEC-money M3, "Import profile"): a user's description of their bank's CSV
 // format, stored in their own data, so no bank-specific code ships in the repo. This file turns a
@@ -22,16 +22,7 @@ export const dateFormats = [
 ] as const;
 export type DateFormat = (typeof dateFormats)[number];
 
-const header = z.string().min(1).max(200);
-
-function isKnownEncoding(label: string): boolean {
-  try {
-    new TextDecoder(label);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const headerName = z.string().min(1).max(200);
 
 export const importProfileSchema = z
   .object({
@@ -45,21 +36,22 @@ export const importProfileSchema = z
     dateFormat: z.enum(dateFormats),
     // Field → header in the file.
     columns: z.strictObject({
-      bookingDate: header,
-      transactionDate: header.optional(),
-      amount: header,
-      debitCredit: header.optional(),
-      currency: header.optional(),
-      originalAmount: header.optional(),
-      originalCurrency: header.optional(),
-      counterparty: header.optional(),
-      counterpartyIban: header.optional(),
-      description: header.optional(),
-      transactionId: header.optional(),
-      transactionType: header.optional(),
-      ownIban: header.optional(),
+      bookingDate: headerName,
+      transactionDate: headerName.optional(),
+      amount: headerName,
+      debitCredit: headerName.optional(),
+      currency: headerName.optional(),
+      originalAmount: headerName.optional(),
+      originalCurrency: headerName.optional(),
+      counterparty: headerName.optional(),
+      counterpartyIban: headerName.optional(),
+      description: headerName.optional(),
+      transactionId: headerName.optional(),
+      transactionType: headerName.optional(),
+      ownIban: headerName.optional(),
     }),
-    // With an unsigned amount and a debit/credit column: the indicator values that mean a debit.
+    // With an unsigned amount and a debit/credit column: the indicator values that mean a debit,
+    // compared ignoring case.
     debitValues: z.array(z.string().trim().min(1).max(40)).min(1).max(20).nullable(),
   })
   .refine(
@@ -81,11 +73,12 @@ export const importProfileSchema = z
 export type ImportProfile = z.infer<typeof importProfileSchema>;
 export type ImportField = keyof ImportProfile["columns"];
 
-// Identifies a format by its exact set of headers, so a later upload finds its profile. Column
-// order is ignored: some banks let the user reorder an export's columns.
+// Identifies a format by its exact headers, so a later upload finds its profile. Column order is
+// ignored: some banks let the user reorder an export's columns.
 export function headerFingerprint(headers: string[]): string {
-  const set = [...new Set(headers)].sort();
-  return createHash("sha256").update(JSON.stringify(set)).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify([...headers].sort()))
+    .digest("hex");
 }
 
 export type ParsedRow = {
@@ -96,30 +89,30 @@ export type ParsedRow = {
   bookedOn: string;
   // Negative is a debit. In the account's currency.
   amountCents: bigint;
-  // Null: the account's.
-  currency: string | null;
+  // The file's, else the account's.
+  currency: string;
+  // Only when the original currency differs from currency.
   originalAmountCents: bigint | null;
   originalCurrency: string | null;
   counterparty: string | null;
   counterpartyIban: string | null;
   description: string | null;
   bankTxType: string | null;
-  ownIban: string | null;
   dedupKey: string;
   // Header → cell, as the bank wrote it.
   raw: Record<string, string>;
 };
 
-export type RowFailure = {
-  row: number;
-  reason:
-    | "invalid-date"
-    | "invalid-amount"
-    | "invalid-debit-credit"
-    | "invalid-currency"
-    | "invalid-original-amount"
-    | "invalid-own-iban";
-};
+export type RowFailureReason =
+  | "invalid-date"
+  | "invalid-amount"
+  | "invalid-debit-credit"
+  | "invalid-currency"
+  | "invalid-original-amount"
+  | "invalid-own-iban"
+  | "duplicate-transaction-id";
+
+export type RowFailure = { row: number; reason: RowFailureReason };
 
 export type ParseRowsResult =
   | {
@@ -134,98 +127,131 @@ export type ParseRowsResult =
   | { ok: false; reason: "multiple-own-ibans" };
 
 export type ParseRowsOptions = {
-  // Compared with the original currency when the profile maps no currency column.
-  accountCurrency?: string;
+  // The currency of the account the rows go to: the default when the profile maps no currency
+  // column, and what an original amount is compared with.
+  accountCurrency: string;
 };
-
-const currencyCode = /^[A-Z]{3}$/;
-
-function withSign(cents: bigint, sign: 1n | -1n): bigint {
-  return (cents < 0n ? -cents : cents) * sign;
-}
 
 export function parseRows(
   profile: ImportProfile,
   table: CsvTable,
-  options: ParseRowsOptions = {},
+  options: ParseRowsOptions,
 ): ParseRowsResult {
   // A header the profile maps but the file lacks means a different format, not empty cells.
   const missing = Object.values(profile.columns).filter((name) => !table.headers.includes(name));
   if (missing.length > 0) return { ok: false, reason: "missing-columns", columns: missing };
 
-  // The first of two equal headers.
-  const index = new Map(table.headers.map((name, i) => [name, i] as const).reverse());
+  // A bank that repeats a header: the first is the one read, and the one kept in raw.
+  const columnIndex = new Map<string, number>();
+  table.headers.forEach((name, i) => columnIndex.has(name) || columnIndex.set(name, i));
+
   const rows: ParsedRow[] = [];
   const failed: RowFailure[] = [];
   const ownIbans = new Set<string>();
-
-  // The bank's transaction id when there is one. Otherwise the row's hash (the amount's sign
-  // carries debit/credit), numbered so that identical rows in one file, two equal coffees on one
-  // day, stay two transactions while a re-import of the same file matches them again.
+  const transactionIds = new Set<string>();
   const occurrences = new Map<string, number>();
-  const dedupKey = (transactionId: string, fields: (string | bigint | null)[]): string => {
-    if (transactionId) return `tx:${transactionId}`;
-    const hash = createHash("sha256")
-      .update(JSON.stringify(fields.map((field) => field?.toString() ?? null)))
-      .digest("hex");
-    const occurrence = occurrences.get(hash) ?? 0;
-    occurrences.set(hash, occurrence + 1);
-    return `row:${hash}:${occurrence}`;
-  };
 
   table.rows.forEach((cells, i) => {
     const row = i + 1;
-    const raw = Object.fromEntries(table.headers.map((name, j) => [name, cells[j] ?? ""]));
     const cell = (field: ImportField): string => {
       const name = profile.columns[field];
-      const j = name === undefined ? undefined : index.get(name);
+      const j = name === undefined ? undefined : columnIndex.get(name);
       return j === undefined ? "" : (cells[j] ?? "").trim();
     };
-    const text = (field: ImportField): string | null => cell(field) || null;
+    const parsed = parseRow(profile, cell, options.accountCurrency);
+    if (typeof parsed === "string") return void failed.push({ row, reason: parsed });
 
-    const bookedOn = parseDate(cell("transactionDate") || cell("bookingDate"), profile.dateFormat);
-    if (!bookedOn) return failed.push({ row, reason: "invalid-date" });
-
-    const amount = parseCents(cell("amount"), { decimalSeparator: profile.decimalSeparator });
-    if (amount === null) return failed.push({ row, reason: "invalid-amount" });
-    let amountCents = amount;
-    if (profile.columns.debitCredit !== undefined) {
-      const indicator = cell("debitCredit");
-      if (!indicator) return failed.push({ row, reason: "invalid-debit-credit" });
-      amountCents = withSign(amount, profile.debitValues?.includes(indicator) ? -1n : 1n);
-    }
-
-    const currency = text("currency")?.toUpperCase() ?? null;
-    if (currency !== null && !currencyCode.test(currency)) {
-      return failed.push({ row, reason: "invalid-currency" });
-    }
-
-    // A purchase in another currency: the bank's amount is converted, the original is kept.
-    let originalAmountCents: bigint | null = null;
-    let originalCurrency = text("originalCurrency")?.toUpperCase() ?? null;
-    const accountCurrency = currency ?? options.accountCurrency ?? null;
-    if (originalCurrency !== null && originalCurrency !== accountCurrency) {
-      if (!currencyCode.test(originalCurrency)) {
-        return failed.push({ row, reason: "invalid-currency" });
+    if (parsed.ownIban) ownIbans.add(parsed.ownIban);
+    let dedupKey: string;
+    if (parsed.transactionId) {
+      // The unique dedup index would silently keep only one of them.
+      if (transactionIds.has(parsed.transactionId)) {
+        return void failed.push({ row, reason: "duplicate-transaction-id" });
       }
-      const original = parseCents(cell("originalAmount"), {
-        decimalSeparator: profile.decimalSeparator,
-      });
-      if (original === null) return failed.push({ row, reason: "invalid-original-amount" });
-      originalAmountCents = withSign(original, amountCents < 0n ? -1n : 1n);
-    } else originalCurrency = null;
-
-    let ownIban: string | null = null;
-    if (cell("ownIban")) {
-      ownIban = parseIban(cell("ownIban"));
-      if (!ownIban) return failed.push({ row, reason: "invalid-own-iban" });
-      ownIbans.add(ownIban);
+      transactionIds.add(parsed.transactionId);
+      dedupKey = `tx:${parsed.transactionId}`;
+    } else {
+      // The row's hash (the amount's sign carries debit/credit), numbered so that identical rows
+      // in one file, two equal coffees on one day, stay two transactions while a re-import of
+      // the same file matches them again.
+      const hash = createHash("sha256")
+        .update(JSON.stringify(parsed.hashed.map((field) => field?.toString() ?? null)))
+        .digest("hex");
+      const occurrence = occurrences.get(hash) ?? 0;
+      occurrences.set(hash, occurrence + 1);
+      dedupKey = `row:${hash}:${occurrence}`;
     }
 
-    const counterparty = text("counterparty");
-    const description = text("description");
-    rows.push({
-      row,
+    const raw = Object.fromEntries([...columnIndex].map(([name, j]) => [name, cells[j] ?? ""]));
+    rows.push({ row, ...parsed.fields, dedupKey, raw });
+  });
+
+  // One file is one account's statement.
+  if (ownIbans.size > 1) return { ok: false, reason: "multiple-own-ibans" };
+  return { ok: true, ownIban: [...ownIbans][0] ?? null, rows, failed };
+}
+
+type RowFields = Omit<ParsedRow, "row" | "dedupKey" | "raw">;
+
+// One row's fields, or why it can't be read.
+function parseRow(
+  profile: ImportProfile,
+  cell: (field: ImportField) => string,
+  accountCurrency: string,
+):
+  | {
+      fields: RowFields;
+      ownIban: string | null;
+      transactionId: string;
+      hashed: (string | bigint | null)[];
+    }
+  | RowFailureReason {
+  const text = (field: ImportField): string | null => cell(field) || null;
+  const amountOf = (field: ImportField) =>
+    parseCents(cell(field), { decimalSeparator: profile.decimalSeparator });
+  // Undefined: not a currency code.
+  const currencyOf = (field: ImportField): string | null | undefined => {
+    const code = text(field)?.toUpperCase() ?? null;
+    return code === null || currencyCode.test(code) ? code : undefined;
+  };
+
+  const bookedOn = parseDate(cell("transactionDate") || cell("bookingDate"), profile.dateFormat);
+  if (!bookedOn) return "invalid-date";
+
+  const amount = amountOf("amount");
+  if (amount === null) return "invalid-amount";
+  let amountCents = amount;
+  if (profile.columns.debitCredit !== undefined) {
+    const indicator = cell("debitCredit").toUpperCase();
+    if (!indicator) return "invalid-debit-credit";
+    const debit = profile.debitValues?.some((value) => value.toUpperCase() === indicator);
+    amountCents = withSign(amount, debit ? -1n : 1n);
+  }
+
+  const fileCurrency = currencyOf("currency");
+  if (fileCurrency === undefined) return "invalid-currency";
+  const currency = fileCurrency ?? accountCurrency;
+
+  // A purchase in another currency: the bank's amount is converted, the original is kept.
+  let originalAmountCents: bigint | null = null;
+  let originalCurrency = currencyOf("originalCurrency");
+  if (originalCurrency === undefined) return "invalid-currency";
+  if (originalCurrency !== null && originalCurrency !== currency) {
+    const original = amountOf("originalAmount");
+    if (original === null) return "invalid-original-amount";
+    originalAmountCents = withSign(original, amountCents < 0n ? -1n : 1n);
+  } else originalCurrency = null;
+
+  let ownIban: string | null = null;
+  if (cell("ownIban")) {
+    ownIban = parseIban(cell("ownIban"));
+    if (!ownIban) return "invalid-own-iban";
+  }
+
+  const counterparty = text("counterparty");
+  const description = text("description");
+  return {
+    fields: {
       bookedOn,
       amountCents,
       currency,
@@ -236,15 +262,17 @@ export function parseRows(
       counterpartyIban: parseIban(cell("counterpartyIban")),
       description,
       bankTxType: text("transactionType"),
-      ownIban,
-      dedupKey: dedupKey(cell("transactionId"), [bookedOn, amountCents, counterparty, description]),
-      raw,
-    });
-  });
+    },
+    ownIban,
+    transactionId: cell("transactionId"),
+    hashed: [bookedOn, amountCents, counterparty, description],
+  };
+}
 
-  // One file is one account's statement.
-  if (ownIbans.size > 1) return { ok: false, reason: "multiple-own-ibans" };
-  return { ok: true, ownIban: [...ownIbans][0] ?? null, rows, failed };
+const currencyCode = /^[A-Z]{3}$/;
+
+function withSign(cents: bigint, sign: 1n | -1n): bigint {
+  return (cents < 0n ? -cents : cents) * sign;
 }
 
 const datePatterns: Record<DateFormat, RegExp> = Object.fromEntries(
@@ -270,6 +298,7 @@ function parseDate(text: string, format: DateFormat): string | null {
     number,
   ];
   const date = new Date(Date.UTC(year, month - 1, day));
+  // Date.UTC also reads years 0–99 as 1900–1999.
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1) return null;
   return date.toISOString().slice(0, 10);
 }

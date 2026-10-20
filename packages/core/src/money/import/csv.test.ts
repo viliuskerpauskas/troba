@@ -104,6 +104,46 @@ describe("readCsv", () => {
     });
   });
 
+  it("guesses the header in a short file whose preamble outnumbers its rows", () => {
+    const text = "Statement\nEXAMPLE ACCOUNT\nMarch 2026\nDate,Amount\n2026-03-01,1.00\n";
+
+    expect(readCsv(utf8(text))).toMatchObject({
+      skipLines: 3,
+      headers: ["Date", "Amount"],
+      rows: [["2026-03-01", "1.00"]],
+    });
+  });
+
+  it("decodes a file with a UTF-8 byte order mark as UTF-8 whatever the encoding given", () => {
+    const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...utf8("Payee;Amount\nCAFÉ;1,00\n")]);
+
+    expect(readCsv(bytes, { encoding: "windows-1252" })).toMatchObject({
+      headers: ["Payee", "Amount"],
+      rows: [["CAFÉ", "1,00"]],
+    });
+  });
+
+  it("keeps a quote inside a field as a character", () => {
+    const text = 'Date;Payee\n2026-03-01;TV 55" SHOP\n2026-03-02;CAFE "SUNNY" LTD\n';
+
+    expect(readCsv(utf8(text))).toMatchObject({
+      rows: [
+        ["2026-03-01", 'TV 55" SHOP'],
+        ["2026-03-02", 'CAFE "SUNNY" LTD'],
+      ],
+    });
+  });
+
+  it("refuses a file that ends inside a quoted field", () => {
+    const text = 'Date;Payee\n2026-03-01;"GROCERY MART\n2026-03-02;ACME\n';
+
+    expect(readCsv(utf8(text))).toEqual({ ok: false, reason: "unterminated-quote" });
+    expect(readCsv(utf8(text), { delimiter: ";" })).toEqual({
+      ok: false,
+      reason: "unterminated-quote",
+    });
+  });
+
   it("reads quoted fields with delimiters, line breaks and doubled quotes", () => {
     const result = readCsv(
       utf8('Payee;Description\r\n"SHOP ""BEST"" LTD";"line one\r\nline; two"\r\n'),

@@ -31,6 +31,7 @@ function table(text: string, profile: ImportProfile): CsvTable {
 }
 
 const ownIban = "DE89370400440532013000";
+const euro = { accountCurrency: "EUR" };
 
 // Example Bank, style 1: one signed amount column, a transaction id, day-first dates.
 const signedProfile: ImportProfile = {
@@ -140,6 +141,10 @@ describe("headerFingerprint", () => {
     expect(headerFingerprint(other)).not.toBe(headerFingerprint(headers));
   });
 
+  it("counts a repeated header", () => {
+    expect(headerFingerprint(["A", "A", "B"])).not.toBe(headerFingerprint(["A", "B"]));
+  });
+
   it("doesn't confuse headers that contain the joining character", () => {
     expect(headerFingerprint(["a\nb", "c"])).not.toBe(headerFingerprint(["a", "b\nc"]));
   });
@@ -147,7 +152,11 @@ describe("headerFingerprint", () => {
 
 describe("parseRows", () => {
   it("prefers the transaction date, falls back to the booking date, and keeps refunds and fees", () => {
-    const result = parseRows(signedProfile, fixture("example-bank-signed.csv", signedProfile));
+    const result = parseRows(
+      signedProfile,
+      fixture("example-bank-signed.csv", signedProfile),
+      euro,
+    );
 
     expect(result.ok && result.rows.map(summary)).toEqual([
       ["2026-03-01", -4215n, "GROCERY MART"],
@@ -163,6 +172,7 @@ describe("parseRows", () => {
     const result = parseRows(
       debitCreditProfile,
       fixture("example-bank-debit-credit.csv", debitCreditProfile),
+      euro,
     );
 
     expect(result).toMatchObject({ ok: true, ownIban, failed: [] });
@@ -182,6 +192,7 @@ describe("parseRows", () => {
     const result = parseRows(
       debitCreditProfile,
       fixture("example-bank-debit-credit.csv", debitCreditProfile),
+      euro,
     );
     const original = (row: ParsedRow) => [
       row.currency,
@@ -203,13 +214,18 @@ describe("parseRows", () => {
         text
           ? table(text, debitCreditProfile)
           : fixture("example-bank-debit-credit.csv", debitCreditProfile),
+        euro,
       );
       if (!result.ok) throw new Error(result.reason);
       return result.rows.map((row) => row.dedupKey);
     };
 
     it("is tx: and the transaction id when the profile maps one", () => {
-      const result = parseRows(signedProfile, fixture("example-bank-signed.csv", signedProfile));
+      const result = parseRows(
+        signedProfile,
+        fixture("example-bank-signed.csv", signedProfile),
+        euro,
+      );
 
       expect(result.ok && result.rows.map((row) => row.dedupKey)).toEqual([
         "tx:T1001",
@@ -259,7 +275,7 @@ describe("parseRows", () => {
         ...signedProfile,
         columns: { transactionId: "Transaction ID", bookingDate: "Posted", amount: "Amount" },
       };
-      const result = parseRows(profile, table(text, profile));
+      const result = parseRows(profile, table(text, profile), euro);
 
       expect(result.ok && result.rows[0]!.dedupKey).toMatch(/^row:[0-9a-f]{64}:0$/);
     });
@@ -268,7 +284,7 @@ describe("parseRows", () => {
   it("rejects a file without a column the profile maps, naming the missing headers", () => {
     const text = "Transaction ID,Posted,Amount,Payee\nT1,02/03/2026,-1.00,SHOP\n";
 
-    expect(parseRows(signedProfile, table(text, signedProfile))).toEqual({
+    expect(parseRows(signedProfile, table(text, signedProfile), euro)).toEqual({
       ok: false,
       reason: "missing-columns",
       columns: ["Transaction Date", "Currency", "Payee Account", "Details", "Type", "Account"],
@@ -281,7 +297,7 @@ describe("parseRows", () => {
       "T1,02/03/2026,,-1.00,EUR,SHOP,,,CARD,DE89370400440532013000\n" +
       "T2,02/03/2026,,-1.00,EUR,SHOP,,,CARD,NL91ABNA0417164300\n";
 
-    expect(parseRows(signedProfile, table(text, signedProfile))).toEqual({
+    expect(parseRows(signedProfile, table(text, signedProfile), euro)).toEqual({
       ok: false,
       reason: "multiple-own-ibans",
     });
@@ -311,10 +327,13 @@ describe("parseRows", () => {
       "2026-03-01;1,00;D;euro;;;",
       "2026-03-01;1,00;D;EUR;x;USD;",
       "2026-03-01;1,00;D;EUR;;;DE00 1234",
+      "0026-03-01;1,00;D;EUR;;;", // a year Date.UTC would read as 1926
+      "2026-03-01;1,00;D;EUR;1,00;us$;",
       "2026-03-01;1,00;X;eur;;;",
+      "2026-03-01;1,00;d;EUR;1,10;usd;",
     ].join("\n");
 
-    const result = parseRows(profile, table(text, profile));
+    const result = parseRows(profile, table(text, profile), euro);
 
     expect(result.ok && result.failed).toEqual([
       { row: 1, reason: "invalid-date" },
@@ -325,11 +344,22 @@ describe("parseRows", () => {
       { row: 6, reason: "invalid-currency" },
       { row: 7, reason: "invalid-original-amount" },
       { row: 8, reason: "invalid-own-iban" },
+      { row: 9, reason: "invalid-date" },
+      { row: 10, reason: "invalid-currency" },
     ]);
-    // An indicator that isn't a debit value is a credit; the currency is upper-cased.
-    expect(result.ok && result.rows.map((row) => [row.row, row.amountCents, row.currency])).toEqual(
-      [[9, 100n, "EUR"]],
-    );
+    // An indicator that isn't a debit value is a credit; debit values and currencies are matched
+    // ignoring case.
+    const read = (row: ParsedRow) => [
+      row.row,
+      row.amountCents,
+      row.currency,
+      row.originalAmountCents,
+      row.originalCurrency,
+    ];
+    expect(result.ok && result.rows.map(read)).toEqual([
+      [11, 100n, "EUR", null, null],
+      [12, -100n, "EUR", -110n, "USD"],
+    ]);
   });
 
   it("compares the original currency with the account's when there is no currency column", () => {
@@ -350,11 +380,58 @@ describe("parseRows", () => {
       null,
       null,
     ]);
-    expect(inEuro.ok && inEuro.rows[0]!.currency).toBeNull();
+    expect(inEuro.ok && inEuro.rows[0]!.currency).toBe("EUR");
+
+    const inDollars = parseRows(profile, csv, { accountCurrency: "USD" });
+    expect(inDollars.ok && inDollars.rows.map((row) => row.originalCurrency)).toEqual([
+      "EUR",
+      "EUR",
+      null,
+      "EUR",
+      "EUR",
+      "EUR",
+      "EUR",
+      "EUR",
+    ]);
+  });
+
+  it("reads the first of two equal headers, and keeps it in the raw row", () => {
+    const text = "Posted,Amount,Amount\n02/03/2026,-1.00,99.00\n";
+    const profile: ImportProfile = {
+      ...signedProfile,
+      columns: { bookingDate: "Posted", amount: "Amount" },
+    };
+
+    const result = parseRows(profile, table(text, profile), euro);
+
+    expect(result.ok && result.rows[0]).toMatchObject({
+      amountCents: -100n,
+      raw: { Posted: "02/03/2026", Amount: "-1.00" },
+    });
+  });
+
+  it("reports a transaction id seen earlier in the same file", () => {
+    const text = "Transaction ID,Posted,Amount\nT1,02/03/2026,-1.00\nT1,03/03/2026,-2.00\n";
+    const profile: ImportProfile = {
+      ...signedProfile,
+      columns: { transactionId: "Transaction ID", bookingDate: "Posted", amount: "Amount" },
+    };
+
+    const result = parseRows(profile, table(text, profile), euro);
+
+    expect(result).toMatchObject({
+      ok: true,
+      rows: [{ row: 1, dedupKey: "tx:T1" }],
+      failed: [{ row: 2, reason: "duplicate-transaction-id" }],
+    });
   });
 
   it("reads a signed-amount export", () => {
-    const result = parseRows(signedProfile, fixture("example-bank-signed.csv", signedProfile));
+    const result = parseRows(
+      signedProfile,
+      fixture("example-bank-signed.csv", signedProfile),
+      euro,
+    );
 
     expect(result).toMatchObject({ ok: true, ownIban, failed: [] });
     expect(result.ok && result.rows[0]).toEqual({
@@ -368,7 +445,6 @@ describe("parseRows", () => {
       counterpartyIban: null,
       description: "Card purchase",
       bankTxType: "CARD",
-      ownIban,
       dedupKey: "tx:T1001",
       raw: {
         "Transaction ID": "T1001",
