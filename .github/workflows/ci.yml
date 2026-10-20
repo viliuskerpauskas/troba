@@ -63,6 +63,10 @@ jobs:
 
       - run: pnpm test
 
+      # TEMPORARY (T46 verification): reverted before merge.
+      - name: Unit suite 50 runs in a row
+        run: for i in $(seq 1 50); do echo "::group::run $i"; pnpm test || exit 1; echo "::endgroup::"; done
+
       - name: Migration drift check (ADR-0005)
         # drizzle-kit may prompt on an ambiguous rename; fail fast instead of waiting for input.
         timeout-minutes: 2
