@@ -438,6 +438,23 @@ describe("parseRows", () => {
     });
   });
 
+  it("names a repeated header's raw cell clear of the file's own headers", () => {
+    const text = "Posted,Amount,Amount,Amount (2)\n02/03/2026,-1.00,99.00,7.00\n";
+    const profile: ImportProfile = {
+      ...signedProfile,
+      columns: { bookingDate: "Posted", amount: "Amount" },
+    };
+
+    const result = parseRows(profile, table(text, profile), euro);
+
+    expect(result.ok && result.rows[0]!.raw).toEqual({
+      Posted: "02/03/2026",
+      Amount: "-1.00",
+      "Amount (2)": "7.00",
+      "Amount (3)": "99.00",
+    });
+  });
+
   it("reports a transaction id seen earlier in the same file", () => {
     const text = "Transaction ID,Posted,Amount\nT1,02/03/2026,-1.00\nT1,03/03/2026,-2.00\n";
     const profile: ImportProfile = {

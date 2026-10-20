@@ -145,14 +145,18 @@ export function parseRows(
   if (!currencyCode.test(accountCurrency)) throw new Error("accountCurrency is not a currency");
 
   // A bank that repeats a header: the first is the one read. Raw keeps every cell, the later
-  // ones under "<header> (2)" and on.
+  // ones under "<header> (2)" and on, skipping names the file itself uses.
   const columnIndex = new Map<string, number>();
+  const rawNameSet = new Set(table.headers);
   const rawNames = table.headers.map((name, i) => {
     if (!columnIndex.has(name)) {
       columnIndex.set(name, i);
       return name;
     }
-    return `${name} (${table.headers.slice(0, i + 1).filter((other) => other === name).length})`;
+    let n = 2;
+    while (rawNameSet.has(`${name} (${n})`)) n++;
+    rawNameSet.add(`${name} (${n})`);
+    return `${name} (${n})`;
   });
 
   const rows: ParsedRow[] = [];
