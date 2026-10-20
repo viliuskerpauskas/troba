@@ -2,8 +2,8 @@ name: Deliver
 
 # Every push to main builds ghcr.io/<owner>/troba-web:<sha> once. release-please keeps a release
 # PR open. Merging that PR creates a release, and the release commit's image gets the :<version>
-# tag without a rebuild (ADR-0009). Each image built from main is deployed to staging; the
-# production deploy is added later (T9).
+# tag without a rebuild (ADR-0009). Each image built from main is deployed to staging. A release
+# is then deployed to production, the same image staging is running, once the owner approves it.
 
 on:
   push:
@@ -156,3 +156,49 @@ jobs:
             echo "::error::$VERSION points to $dst, expected $src"
             exit 1
           fi
+
+  # The release PR's merge is a push to main like any other, so by the time this job asks for
+  # approval, the same run has deployed that commit's image to staging and it passed its health
+  # check there. Prod gets the same sha, and so the same image: both environments run on one Docker
+  # host with one TROBA_IMAGE, and deploy.sh pulls a sha tag only when it's missing, so prod starts
+  # the image staging pulled, digest for digest (release-image checked the version tag points to it
+  # too).
+  deploy-prod:
+    needs: [release, release-image, deploy-staging]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Required reviewers on the "production" environment hold the job here until the owner approves.
+    environment: production
+    # One prod deploy at a time, never cancelled midway, as for staging.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    permissions: {}
+
+    steps:
+      - name: Check staging ran the release commit
+        # release-please can report a release in a later run than the release PR's merge, if that
+        # run's release job failed and a newer push created it. That run's staging deploy was a
+        # different sha, so stop: deploy the release by hand once staging has run it.
+        env:
+          RELEASE_SHA: ${{ needs.release.outputs.sha }}
+        run: |
+          if [ "$RELEASE_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::the release is $RELEASE_SHA, but this run deployed $GITHUB_SHA to staging"
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        # Environment secrets of "production", for a key forced to run ci-deploy.sh prod.
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          (umask 077; printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key)
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "deploy@$SSH_HOST" "$GITHUB_SHA"
