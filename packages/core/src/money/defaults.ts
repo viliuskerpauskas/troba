@@ -22,7 +22,7 @@ export const defaultCategoryNames = [
 // Idempotent and safe to call on every money page. The money_settings row is the marker: the
 // first caller inserts it and seeds in the same transaction; a concurrent caller's insert waits
 // on that row's unique key, then finds it committed and does nothing.
-export async function ensureMoneyDefaults(db: Db, userId: string, now = new Date()): Promise<void> {
+export async function ensureMoneyDefaults(db: Db, userId: string): Promise<void> {
   const [seeded] = await db
     .select({ userId: moneySettings.userId })
     .from(moneySettings)
@@ -32,7 +32,7 @@ export async function ensureMoneyDefaults(db: Db, userId: string, now = new Date
   await db.transaction(async (tx) => {
     const marked = await tx
       .insert(moneySettings)
-      .values({ userId, defaultsSeededAt: now })
+      .values({ userId, defaultsSeededAt: new Date() })
       .onConflictDoNothing()
       .returning({ userId: moneySettings.userId });
     if (marked.length === 0) return;

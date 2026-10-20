@@ -129,12 +129,16 @@ ALTER TABLE "money_transactions" ADD CONSTRAINT "money_transactions_account_id_m
 ALTER TABLE "money_transactions" ADD CONSTRAINT "money_transactions_category_id_money_categories_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."money_categories"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "money_transactions" ADD CONSTRAINT "money_transactions_import_id_money_imports_id_fk" FOREIGN KEY ("import_id") REFERENCES "public"."money_imports"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "money_accounts_user_id_iban_idx" ON "money_accounts" USING btree ("user_id","iban");--> statement-breakpoint
+CREATE INDEX "money_attachments_user_id_idx" ON "money_attachments" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "money_attachments_transaction_id_idx" ON "money_attachments" USING btree ("transaction_id");--> statement-breakpoint
 CREATE INDEX "money_categories_user_id_idx" ON "money_categories" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "money_import_profiles_user_id_fingerprint_idx" ON "money_import_profiles" USING btree ("user_id","header_fingerprint");--> statement-breakpoint
 CREATE INDEX "money_imports_user_id_imported_at_idx" ON "money_imports" USING btree ("user_id","imported_at");--> statement-breakpoint
+CREATE INDEX "money_imports_profile_id_idx" ON "money_imports" USING btree ("profile_id");--> statement-breakpoint
 CREATE INDEX "money_rules_user_id_position_idx" ON "money_rules" USING btree ("user_id","position");--> statement-breakpoint
 CREATE INDEX "money_rules_category_id_idx" ON "money_rules" USING btree ("category_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "money_transactions_user_id_account_id_dedup_key_idx" ON "money_transactions" USING btree ("user_id","account_id","dedup_key");--> statement-breakpoint
 CREATE INDEX "money_transactions_user_id_booked_on_idx" ON "money_transactions" USING btree ("user_id","booked_on");--> statement-breakpoint
-CREATE INDEX "money_transactions_category_id_idx" ON "money_transactions" USING btree ("category_id");
+CREATE INDEX "money_transactions_account_id_idx" ON "money_transactions" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "money_transactions_category_id_idx" ON "money_transactions" USING btree ("category_id");--> statement-breakpoint
+CREATE INDEX "money_transactions_import_id_idx" ON "money_transactions" USING btree ("import_id");

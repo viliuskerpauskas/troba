@@ -28,7 +28,8 @@ export type CreateAccountResult =
   | { ok: true; account: Account }
   | { ok: false; reason: "invalid-iban" | "iban-not-bank" | "iban-taken" };
 
-const columns = {
+// The columns that make an Account.
+const accountColumns = {
   id: moneyAccounts.id,
   name: moneyAccounts.name,
   type: moneyAccounts.type,
@@ -44,7 +45,7 @@ export async function listAccounts(
   options: { includeArchived?: boolean } = {},
 ): Promise<Account[]> {
   return db
-    .select(columns)
+    .select(accountColumns)
     .from(moneyAccounts)
     .where(
       and(
@@ -73,7 +74,7 @@ export async function createAccount(
     .insert(moneyAccounts)
     .values({ userId, name: input.name.trim(), type: input.type, currency: input.currency, iban })
     .onConflictDoNothing({ target: [moneyAccounts.userId, moneyAccounts.iban] })
-    .returning(columns);
+    .returning(accountColumns);
   if (!account) return { ok: false, reason: "iban-taken" };
   return { ok: true, account };
 }

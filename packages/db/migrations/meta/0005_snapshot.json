@@ -1,5 +1,5 @@
 {
-  "id": "57e456ce-8b99-4c4a-b667-b14a4fd06879",
+  "id": "fe054fcc-eaae-48e0-afea-6eac6a68f02a",
   "prevId": "f248d82e-20ff-41ea-a9dc-a01fafee83a6",
   "version": "7",
   "dialect": "postgresql",
@@ -866,6 +866,21 @@
         }
       },
       "indexes": {
+        "money_attachments_user_id_idx": {
+          "name": "money_attachments_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "money_attachments_transaction_id_idx": {
           "name": "money_attachments_transaction_id_idx",
           "columns": [
@@ -1232,6 +1247,21 @@
             },
             {
               "expression": "imported_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "money_imports_profile_id_idx": {
+          "name": "money_imports_profile_id_idx",
+          "columns": [
+            {
+              "expression": "profile_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1659,11 +1689,41 @@
           "method": "btree",
           "with": {}
         },
+        "money_transactions_account_id_idx": {
+          "name": "money_transactions_account_id_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "money_transactions_category_id_idx": {
           "name": "money_transactions_category_id_idx",
           "columns": [
             {
               "expression": "category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "money_transactions_import_id_idx": {
+          "name": "money_transactions_import_id_idx",
+          "columns": [
+            {
+              "expression": "import_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

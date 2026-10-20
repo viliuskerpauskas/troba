@@ -32,6 +32,9 @@ const userId = () =>
     .references(() => users.id, { onDelete: "cascade" });
 const currency = (name: string) => char(name, { length: 3 });
 const cents = (name: string) => bigint(name, { mode: "bigint" });
+// The check constraint's list, from the same array as the TypeScript type, so the two can't drift.
+const oneOf = (values: readonly string[]) =>
+  sql.raw(values.map((value) => `'${value}'`).join(", "));
 
 // Per-user money state. A row exists once the defaults were seeded (core/money/defaults.ts), so
 // they are seeded once even after the user renames, archives or deletes them.
@@ -60,7 +63,7 @@ export const moneyAccounts = pgTable(
   (table) => [
     // Nulls are distinct, so accounts without an IBAN don't collide.
     uniqueIndex("money_accounts_user_id_iban_idx").on(table.userId, table.iban),
-    check("money_accounts_type_check", sql`${table.type} in ('bank', 'cash', 'other')`),
+    check("money_accounts_type_check", sql`${table.type} in (${oneOf(accountTypes)})`),
     check("money_accounts_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check("money_accounts_iban_check", sql`${table.iban} is null or ${table.type} = 'bank'`),
   ],
@@ -128,7 +131,11 @@ export const moneyImports = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index("money_imports_user_id_imported_at_idx").on(table.userId, table.importedAt)],
+  (table) => [
+    index("money_imports_user_id_imported_at_idx").on(table.userId, table.importedAt),
+    // Serves the set-null when a profile is deleted.
+    index("money_imports_profile_id_idx").on(table.profileId),
+  ],
 );
 
 export const moneyTransactions = pgTable(
@@ -171,8 +178,11 @@ export const moneyTransactions = pgTable(
       table.dedupKey,
     ),
     index("money_transactions_user_id_booked_on_idx").on(table.userId, table.bookedOn),
-    // Serves the set-null when a category is deleted.
+    // These serve the foreign-key checks when an account, category or import is deleted
+    // (a user's deletion cascades to all three); without them each one scans every user's rows.
+    index("money_transactions_account_id_idx").on(table.accountId),
     index("money_transactions_category_id_idx").on(table.categoryId),
+    index("money_transactions_import_id_idx").on(table.importId),
     check("money_transactions_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check(
       "money_transactions_original_check",
@@ -180,9 +190,12 @@ export const moneyTransactions = pgTable(
     ),
     check(
       "money_transactions_category_source_check",
-      sql`${table.categorySource} is null or ${table.categorySource} in ('manual', 'rule', 'transfer')`,
+      sql`${table.categorySource} is null or ${table.categorySource} in (${oneOf(categorySources)})`,
     ),
-    check("money_transactions_source_check", sql`${table.source} in ('manual', 'csv_import')`),
+    check(
+      "money_transactions_source_check",
+      sql`${table.source} in (${oneOf(transactionSources)})`,
+    ),
   ],
 );
 
@@ -204,7 +217,7 @@ export const moneyRules = pgTable(
   (table) => [
     index("money_rules_user_id_position_idx").on(table.userId, table.position),
     index("money_rules_category_id_idx").on(table.categoryId),
-    check("money_rules_field_check", sql`${table.field} in ('counterparty', 'description')`),
+    check("money_rules_field_check", sql`${table.field} in (${oneOf(ruleFields)})`),
   ],
 );
 
@@ -225,5 +238,8 @@ export const moneyAttachments = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (table) => [index("money_attachments_transaction_id_idx").on(table.transactionId)],
+  (table) => [
+    index("money_attachments_user_id_idx").on(table.userId),
+    index("money_attachments_transaction_id_idx").on(table.transactionId),
+  ],
 );
