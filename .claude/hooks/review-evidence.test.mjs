@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkReview } from "./review-evidence.mjs";
+import { checkReview, specIssue } from "./review-evidence.mjs";
 
 const A = "a".repeat(40);
 const B = "b".repeat(40);
@@ -8,40 +8,42 @@ const D = "d".repeat(40);
 
 // A review that meets every rule for a branch at C changing two files, reviewed first at A.
 function reviewFile({
+  spec = "Spec: #7",
   first = `First reviewed commit: ${A}`,
   reviewed = `Reviewed commit: ${C}`,
   filesRead = "Files read:\n- `packages/core/src/a.ts`\n- `packages/core/src/a.test.ts`",
   mutation = "Mutation: dropping the guard fails `a.test.ts`.",
-  security = "Nothing applies.",
-  audit = "## Review audit\n\nNo gaps.",
+  checks = "Nothing else applies.",
+  specAxis = "## Spec\n\nEvery acceptance item is met.",
   log = `Round 1: ${A}..${B}: fixed the guard.\nPass: ${B}..${C}: renamed a variable.`,
 } = {}) {
   return [
-    "# Review: chore/x",
+    "# Review: feat/T7-x (T7 · feat: x)",
+    spec,
     first,
     reviewed,
-    "## code-review-and-quality",
+    log,
+    "## Standards",
     filesRead,
     "",
+    "No findings.",
+    specAxis,
+    "## Checks",
     mutation,
-    "## security-and-hardening",
-    security,
-    "## performance-optimization",
-    "Fine.",
+    checks,
     "## Personal information",
     "Clean.",
-    "## Fresh-context review",
-    "No findings.",
-    audit,
-    "",
-    log,
   ].join("\n");
 }
 
 const known = new Set([A, B, C, D]);
 
-function check(review, changedFiles = ["packages/core/src/a.ts", "packages/core/src/a.test.ts"]) {
-  return checkReview({ review, head: C, changedFiles, isCommit: (sha) => known.has(sha) });
+function check(
+  review,
+  changedFiles = ["packages/core/src/a.ts", "packages/core/src/a.test.ts"],
+  branch = "feat/T7-x",
+) {
+  return checkReview({ review, branch, head: C, changedFiles, isCommit: (sha) => known.has(sha) });
 }
 
 describe("checkReview", () => {
@@ -49,13 +51,41 @@ describe("checkReview", () => {
     expect(check(reviewFile())).toEqual([]);
   });
 
-  it("names a missing section, including the review audit", () => {
-    expect(check(reviewFile({ audit: "" }))).toEqual(["missing section: ## Review audit"]);
+  it("names a missing section", () => {
+    expect(check(reviewFile({ specAxis: "" }))).toEqual(["missing section: ## Spec"]);
+  });
+
+  describe("Spec line", () => {
+    it("is required", () => {
+      expect(check(reviewFile({ spec: "" }))).toEqual([
+        'no "Spec: #<issue>" line (or "Spec: none - <why>" for work with no issue)',
+      ]);
+    });
+
+    it("must name the issue in the branch name", () => {
+      expect(check(reviewFile({ spec: "Spec: #8" }))).toEqual([
+        'the Spec: line must be "Spec: #7": the branch feat/T7-x belongs to T7',
+      ]);
+    });
+
+    it("may say none, with a reason, on a branch with no issue", () => {
+      const review = reviewFile({ spec: "Spec: none - a one-line docs fix" });
+      expect(check(review, undefined, "docs/typo")).toEqual([]);
+      expect(check(review)).toEqual([
+        'the Spec: line must be "Spec: #7": the branch feat/T7-x belongs to T7',
+      ]);
+    });
+
+    it("gives the hook the issue to check, or none", () => {
+      expect(specIssue(reviewFile())).toBe("7");
+      expect(specIssue(reviewFile({ spec: "Spec: none - a docs fix" }))).toBeNull();
+    });
   });
 
   it("refuses a review that doesn't name HEAD", () => {
     const problems = checkReview({
       review: reviewFile(),
+      branch: "feat/T7-x",
       head: D,
       changedFiles: ["packages/core/src/a.ts", "packages/core/src/a.test.ts"],
       isCommit: (sha) => known.has(sha),
@@ -64,9 +94,9 @@ describe("checkReview", () => {
   });
 
   describe("Files read", () => {
-    it("is required in ## code-review-and-quality", () => {
+    it("is required in ## Standards", () => {
       expect(check(reviewFile({ filesRead: "Read everything." }))).toEqual([
-        '## code-review-and-quality has no "Files read:" list',
+        '## Standards has no "Files read:" list',
       ]);
     });
 
@@ -119,15 +149,15 @@ describe("checkReview", () => {
     });
   });
 
-  it("requires a Mutation: line in ## code-review-and-quality", () => {
+  it("requires a Mutation: line in ## Checks", () => {
     expect(check(reviewFile({ mutation: "Tests look fine." }))).toEqual([
-      '## code-review-and-quality has no "Mutation:" line',
+      '## Checks has no "Mutation:" line',
     ]);
   });
 
   it("doesn't take a Mutation: line from another section", () => {
-    const review = reviewFile({ mutation: "", security: "Mutation: n/a." });
-    expect(check(review)).toEqual(['## code-review-and-quality has no "Mutation:" line']);
+    const review = reviewFile({ mutation: "", specAxis: "## Spec\n\nMutation: n/a." });
+    expect(check(review)).toEqual(['## Checks has no "Mutation:" line']);
   });
 
   describe("Headers", () => {
@@ -139,7 +169,7 @@ describe("checkReview", () => {
         filesRead: `Files read:\n${files.map((f) => `- \`${f}\``).join("\n")}`,
       });
       expect(check(review, files)).toEqual([
-        '## security-and-hardening has no "Headers:" line, but the diff changes apps/web/src/app/(app)/settings/page.tsx',
+        '## Checks has no "Headers:" line, but the diff changes apps/web/src/app/(app)/settings/page.tsx',
       ]);
     });
 
@@ -149,7 +179,7 @@ describe("checkReview", () => {
         filesRead: `Files read:\n${files.map((f) => `- \`${f}\``).join("\n")}`,
       });
       expect(check(review, files)).toEqual([
-        '## security-and-hardening has no "Headers:" line, but the diff changes apps/web/next.config.ts',
+        '## Checks has no "Headers:" line, but the diff changes apps/web/next.config.ts',
       ]);
     });
 
@@ -157,7 +187,7 @@ describe("checkReview", () => {
       const files = [...pageChange, "apps/web/next.config.ts"];
       const review = reviewFile({
         filesRead: `Files read:\n${files.map((f) => `- \`${f}\``).join("\n")}`,
-        security: "- **Headers:** `/` returns X-Frame-Options: DENY.",
+        checks: "- **Headers:** `/` returns X-Frame-Options: DENY.",
       });
       expect(check(review, files)).toEqual([]);
     });
@@ -169,12 +199,20 @@ describe("checkReview", () => {
 
     it("is required when pnpm-lock.yaml changes", () => {
       expect(check(reviewFile({ filesRead }), files)).toEqual([
-        '## security-and-hardening has no "pnpm audit:" line, but pnpm-lock.yaml changed',
+        '## Checks has no "pnpm audit:" line, but the diff changes pnpm-lock.yaml',
+      ]);
+    });
+
+    it("is required when a package.json changes", () => {
+      const changed = ["package.json", "apps/web/package.json"];
+      const read = `Files read:\n${changed.map((f) => `- \`${f}\``).join("\n")}`;
+      expect(check(reviewFile({ filesRead: read }), changed)).toEqual([
+        '## Checks has no "pnpm audit:" line, but the diff changes package.json, apps/web/package.json',
       ]);
     });
 
     it("is satisfied by a pnpm audit: line", () => {
-      const review = reviewFile({ filesRead, security: "pnpm audit: no known vulnerabilities." });
+      const review = reviewFile({ filesRead, checks: "pnpm audit: no known vulnerabilities." });
       expect(check(review, files)).toEqual([]);
     });
   });
@@ -210,6 +248,16 @@ describe("checkReview", () => {
       ]);
     });
 
+    it("follows Review: ranges for new work, such as a merge of main", () => {
+      const log = `Round 1: ${A}..${B}: fixed.\nReview: ${B}..${C}: the merge's own changes.`;
+      expect(check(reviewFile({ log }))).toEqual([]);
+    });
+
+    it("leaves the title line alone, although it starts with Review:", () => {
+      const review = reviewFile().replace("# Review: feat/T7-x", "# Review: deadbeef-notes");
+      expect(check(review)).toEqual([]);
+    });
+
     it("reads round lines written as list items with a backticked range", () => {
       const log = `- Round 1: \`${A}..${B}\`: fixed.\n- **Pass:** ${B}..${C}: tidied.`;
       expect(check(reviewFile({ log }))).toEqual([]);
@@ -243,7 +291,7 @@ describe("checkReview", () => {
 
   it("names an empty Mutation: line", () => {
     expect(check(reviewFile({ mutation: "Mutation:" }))).toEqual([
-      '## code-review-and-quality has no "Mutation:" line',
+      '## Checks has no "Mutation:" line',
     ]);
   });
 
@@ -252,7 +300,7 @@ describe("checkReview", () => {
     const review = reviewFile({
       filesRead: `\`Files read:\`\n${files.map((f) => `- \`${f}\``).join("\n")}`,
       mutation: "- `Mutation`: dropping the guard fails a.test.ts.",
-      security: "- `pnpm audit:` no known vulnerabilities.",
+      checks: "- `pnpm audit:` no known vulnerabilities.",
     });
     expect(check(review, files)).toEqual([]);
   });
@@ -263,20 +311,20 @@ describe("checkReview", () => {
       expect(check(reviewFile({ log }))).toEqual([]);
     });
 
-    it("ignore a range repeated in prose, such as the audit's", () => {
+    it("ignore a range repeated in prose", () => {
       const log = `Round 1: ${A}..${B}: fixed.\nPass: ${B}..${C}: tidied.\n- Round 1: \`${A}..${B}\` exists in git log.`;
       expect(check(reviewFile({ log }))).toEqual([]);
     });
 
-    it("accept an audit that quotes ranges out of order or only in part", () => {
-      const audit = `## Review audit\n\n- Pass: \`${B}..${C}\` exists; diff only renames.\n- Round 1: \`${A}..${B}\` exists.\n- Reviewed commit: \`${C}\` is HEAD.`;
-      expect(check(reviewFile({ audit }))).toEqual([]);
-      const partial = `## Review audit\n\n- Pass: \`${B}..${C}\` exists.`;
-      expect(check(reviewFile({ audit: partial }))).toEqual([]);
+    it("accept ranges quoted again out of order or only in part", () => {
+      const quoted = `## Spec\n\n- Pass: \`${B}..${C}\` exists; diff only renames.\n- Round 1: \`${A}..${B}\` exists.\n- Reviewed commit: \`${C}\` is HEAD.`;
+      expect(check(reviewFile({ specAxis: quoted }))).toEqual([]);
+      const partial = `## Spec\n\n- Pass: \`${B}..${C}\` exists.`;
+      expect(check(reviewFile({ specAxis: partial }))).toEqual([]);
     });
 
     it("ignore a Reviewed commit line in prose", () => {
-      const review = reviewFile({ audit: "## Review audit\n\nReviewed commit: matches HEAD." });
+      const review = reviewFile({ specAxis: "## Spec\n\nReviewed commit: matches HEAD." });
       expect(check(review)).toEqual([]);
     });
 
@@ -331,10 +379,10 @@ describe("checkReview", () => {
   });
 
   it("lists every problem at once", () => {
-    const review = reviewFile({ mutation: "", audit: "", first: "" });
+    const review = reviewFile({ mutation: "", specAxis: "", first: "" });
     expect(check(review)).toEqual([
-      "missing section: ## Review audit",
-      '## code-review-and-quality has no "Mutation:" line',
+      "missing section: ## Spec",
+      '## Checks has no "Mutation:" line',
       'no "First reviewed commit: <sha>" line',
     ]);
   });

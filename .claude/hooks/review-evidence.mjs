@@ -1,20 +1,17 @@
-// What .claude/hooks/review-gate.mjs checks in a review file (AGENTS.md, Workflow → Review).
-// Pure: the hook passes in the file, HEAD, the branch's changed files and a commit lookup,
-// and gets back one line per problem, so a refusal names everything that's missing at once.
+// What .claude/hooks/review-gate.mjs checks in a review file (docs/agents/skill-overrides.md,
+// /code-review). Pure: the hook passes in the file, the branch, HEAD, the branch's changed files
+// and a commit lookup, and gets back one line per problem, so a refusal names everything that's
+// missing at once.
 
-// One heading per review step, so a skipped step is visible.
-const SECTIONS = [
-  "## code-review-and-quality",
-  "## security-and-hardening",
-  "## performance-optimization",
-  "## Personal information",
-  "## Fresh-context review",
-  "## Review audit",
-];
+// One heading per part of the review, so a skipped part is visible.
+const SECTIONS = ["## Standards", "## Spec", "## Checks", "## Personal information"];
 
 const SHA = "[0-9a-f]{40}(?![0-9a-f])";
 const LIST_ITEM = /^\s*(?:[-*+]|\d+\.)\s/;
 const MARK = String.raw`(?:\*\*|__|\`)?`;
+// `Spec: #<n>` names the spec issue (or the standalone task's own issue); `Spec: none - <why>`
+// is the recorded exception for work with no issue.
+const SPEC = /^Spec:\s*(?:#(\d+)|none\s+[-–—]\s+\S.*?)\s*$/m;
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const indent = (line) => line.match(/^\s*/)[0].length;
@@ -28,14 +25,14 @@ function labelRegex(label) {
   );
 }
 
-const isStep = (line) => SECTIONS.some((h) => line === h || line.startsWith(`${h} `));
+const isPart = (line) => SECTIONS.some((h) => line === h || line.startsWith(`${h} `));
 
-// A section's lines run from its heading to the next step's heading, so a "## " heading pasted
-// into a section (say from a skill's template) doesn't end it.
+// A section's lines run from its heading to the next part's heading, so a "## " heading pasted
+// into a section (say from an axis's report) doesn't end it.
 function sectionLines(lines, heading) {
   const start = lines.findIndex((line) => line === heading || line.startsWith(`${heading} `));
   if (start === -1) return null;
-  const end = lines.findIndex((line, i) => i > start && isStep(line));
+  const end = lines.findIndex((line, i) => i > start && isPart(line));
   return lines.slice(start + 1, end === -1 ? undefined : end);
 }
 
@@ -70,9 +67,11 @@ function mentions(text, file) {
 }
 
 const isPage = (file) => file.startsWith("apps/web/src/app/") || file === "apps/web/next.config.ts";
+const isDependencies = (file) =>
+  file === "pnpm-lock.yaml" || file === "package.json" || file.endsWith("/package.json");
 
 // The lines labelled `label` whose text starts like a sha, with that text. Only these count, so
-// prose such as "Pass: all checklist items" or "Reviewed commit: matches HEAD." is left alone,
+// prose such as "Pass: all checks green" or "Reviewed commit: matches HEAD." is left alone,
 // while a short sha or a three-dot range is still named.
 function shaLines(lines, label) {
   const regex = labelRegex(label);
@@ -94,7 +93,7 @@ function commitShas(found, problems) {
 
 function checkChain(lines, head, isCommit) {
   const problems = [];
-  // The same sha may be quoted again (say, by the audit); two different ones conflict.
+  // The same sha may be quoted again; two different ones conflict.
   const reviewedLines = shaLines(lines, "Reviewed commit");
   const reviewed = new Set(commitShas(reviewedLines, problems));
   if (reviewedLines.length === 0) problems.push('no "Reviewed commit: <sha>" line');
@@ -109,14 +108,15 @@ function checkChain(lines, head, isCommit) {
   if (firsts.size !== 1) return problems;
   const [first] = firsts;
 
-  // The distinct "<from>..<to>" ranges of the round and pass lines must run from the first
-  // reviewed commit to the Reviewed commit without a gap. They're followed by sha, not by
-  // file order, so an audit that quotes some of them again, in any order, changes nothing.
-  // Shas are only checked to exist: after a rebase the history isn't an ancestry chain, so
-  // ancestry is left to the audit.
+  // The distinct "<from>..<to>" ranges of the round, pass and review lines must run from the
+  // first reviewed commit to the Reviewed commit without a gap. They're followed by sha, not by
+  // file order, so a range quoted again, in any order, changes nothing. Shas are only checked to
+  // exist: after a rebase the history isn't an ancestry chain.
   const range = new RegExp(String.raw`^\s*\`?(${SHA})\.\.(${SHA})`);
   const ranges = new Map();
-  for (const { line, value } of shaLines(lines, String.raw`Round \d+|Pass`)) {
+  // The file's "# Review: <branch>" title is left out, although it reads like a Review: line.
+  const rangeLines = lines.filter((line) => !/^#\s/.test(line));
+  for (const { line, value } of shaLines(rangeLines, String.raw`Round \d+|Pass|Review`)) {
     const match = value.match(range);
     if (match) ranges.set(`${match[1]}..${match[2]}`, [match[1], match[2]]);
     else problems.push(`can't read a "<full sha>..<full sha>" range in: "${line.trim()}"`);
@@ -145,9 +145,27 @@ function checkChain(lines, head, isCommit) {
   return problems;
 }
 
-export function checkReview({ review, head, changedFiles, isCommit }) {
+// The issue number on the `Spec:` line, or null for `Spec: none - <why>` or no line.
+export function specIssue(review) {
+  return review.match(SPEC)?.[1] ?? null;
+}
+
+export function checkReview({ review, branch, head, changedFiles, isCommit }) {
   const lines = review.split(/\r?\n/);
   const problems = [];
+
+  const spec = review.match(SPEC);
+  if (!spec) {
+    problems.push('no "Spec: #<issue>" line (or "Spec: none - <why>" for work with no issue)');
+  } else {
+    // A branch named after an issue always has that issue as its spec.
+    const key = branch.match(/\/T(\d+)-/)?.[1];
+    if (key && key !== spec[1]) {
+      problems.push(
+        `the Spec: line must be "Spec: #${key}": the branch ${branch} belongs to T${key}`,
+      );
+    }
+  }
 
   for (const heading of SECTIONS) {
     const section = sectionLines(lines, heading);
@@ -155,31 +173,28 @@ export function checkReview({ review, head, changedFiles, isCommit }) {
     else if (!section.some((line) => line.trim())) problems.push(`${heading} is empty`);
   }
 
-  const quality = sectionLines(lines, "## code-review-and-quality");
-  if (quality) {
-    const filesRead = filesReadBlock(quality);
+  const standards = sectionLines(lines, "## Standards");
+  if (standards) {
+    const filesRead = filesReadBlock(standards);
     if (filesRead === null) {
-      problems.push('## code-review-and-quality has no "Files read:" list');
+      problems.push('## Standards has no "Files read:" list');
     } else {
       const unread = changedFiles.filter((file) => !mentions(filesRead, file));
       if (unread.length) problems.push(`"Files read:" leaves out: ${unread.join(", ")}`);
     }
-    if (!hasFilledLabel(quality, "Mutation")) {
-      problems.push('## code-review-and-quality has no "Mutation:" line');
-    }
   }
 
-  const security = sectionLines(lines, "## security-and-hardening");
-  if (security) {
+  const checks = sectionLines(lines, "## Checks");
+  if (checks) {
+    if (!hasFilledLabel(checks, "Mutation")) problems.push('## Checks has no "Mutation:" line');
     const pages = changedFiles.filter(isPage);
-    if (pages.length && !hasFilledLabel(security, "Headers")) {
-      problems.push(
-        `## security-and-hardening has no "Headers:" line, but the diff changes ${pages.join(", ")}`,
-      );
+    if (pages.length && !hasFilledLabel(checks, "Headers")) {
+      problems.push(`## Checks has no "Headers:" line, but the diff changes ${pages.join(", ")}`);
     }
-    if (changedFiles.includes("pnpm-lock.yaml") && !hasFilledLabel(security, "pnpm audit")) {
+    const dependencies = changedFiles.filter(isDependencies);
+    if (dependencies.length && !hasFilledLabel(checks, "pnpm audit")) {
       problems.push(
-        '## security-and-hardening has no "pnpm audit:" line, but pnpm-lock.yaml changed',
+        `## Checks has no "pnpm audit:" line, but the diff changes ${dependencies.join(", ")}`,
       );
     }
   }

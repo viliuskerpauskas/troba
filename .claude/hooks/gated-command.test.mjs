@@ -30,10 +30,26 @@ describe("gatedCommands", () => {
     expect(gatedCommands("git -C a -C /abs push")).toEqual([{ kind: "push", cwd: "/abs" }]);
   });
 
-  it("finds gh pr new and a PR create after -R/--repo", () => {
+  it("finds gh pr new, and a PR create for another repository or branch", () => {
     expect(gatedCommands("gh pr new")).toEqual([{ kind: "pr-create", cwd: null }]);
-    expect(gatedCommands("gh -R o/r pr create")).toEqual([{ kind: "pr-create", cwd: null }]);
-    expect(gatedCommands("gh --repo=o/r pr create")).toEqual([{ kind: "pr-create", cwd: null }]);
+    for (const command of [
+      "gh -R o/r pr create",
+      "gh --repo=o/r pr create",
+      "gh pr create --repo o/r",
+      "gh pr create -H other",
+      "gh pr create --head=other --fill",
+      "gh pr create -Ho/r:other",
+      "GH_REPO=o/r gh pr create",
+      "GH_HOST=example.test gh pr new",
+    ]) {
+      expect(gatedCommands(command), command).toEqual([{ kind: "pr-elsewhere", cwd: null }]);
+    }
+  });
+
+  it("doesn't count -R or --head inside a quoted title as a target", () => {
+    expect(gatedCommands('gh pr create --title "-R and --head explained"')).toEqual([
+      { kind: "pr-create", cwd: null },
+    ]);
   });
 
   it("finds each command in a chain, with the directory a cd moved to", () => {
@@ -171,8 +187,8 @@ describe("gatedCommands", () => {
     ]);
   });
 
-  it("finds a PR create with -R after pr", () => {
-    expect(gatedCommands("gh pr -R o/r create")).toEqual([{ kind: "pr-create", cwd: null }]);
+  it("finds a PR create with -R after pr, as one for another repository", () => {
+    expect(gatedCommands("gh pr -R o/r create")).toEqual([{ kind: "pr-elsewhere", cwd: null }]);
   });
 
   it("ignores the commands when they're only mentioned in quotes or a message", () => {

@@ -1,6 +1,8 @@
 // Which parts of a Bash or PowerShell command .claude/hooks/review-gate.mjs must check: each
 // `git push` and `gh pr create` (or `gh pr new`), with the directory it runs in when the command
-// names one (`git -C <dir>`, or an earlier `cd <dir>`). Text that only mentions them, in quotes,
+// names one (`git -C <dir>`, or an earlier `cd <dir>`). A PR create aimed at another repository
+// or branch (`-R`, `--repo`, `-H`, `--head`, or a `GH_REPO` or `GH_HOST` prefix) is reported as
+// "pr-elsewhere", since the review file only vouches for the folder's own branch. Text that only mentions them, in quotes,
 // a comment, a heredoc or a here-string, doesn't count, but a `$(…)` inside double quotes runs
 // and is checked. It's a guardrail for the agent's usual commands,
 // not a full shell parser, so where it can't be sure it errs towards checking: a push is found
@@ -141,6 +143,9 @@ function gitSubcommand(words, at, cwd) {
   return { subcommand: words[i]?.text, cwd };
 }
 
+const ELSEWHERE = /^(?:-[RH]|--repo(?:=|$)|--head(?:=|$))/;
+const ELSEWHERE_ENV = /^GH_(?:REPO|HOST)=/;
+
 // Whether the gh at words[at] runs `pr create` or `pr new`, with options before or after `pr`.
 function isPrCreate(words, at) {
   let i = at + 1;
@@ -188,7 +193,10 @@ export function gatedCommands(command, shell = "bash") {
             break;
           }
         } else if ((name === "gh" || name === "gh.exe") && isPrCreate(words, i)) {
-          found.push({ kind: "pr-create", cwd });
+          const elsewhere =
+            words.slice(0, i).some((w) => !w.quoted && ELSEWHERE_ENV.test(w.text)) ||
+            words.slice(i + 1).some((w) => !w.quoted && ELSEWHERE.test(w.text));
+          found.push({ kind: elsewhere ? "pr-elsewhere" : "pr-create", cwd });
           break;
         }
       }

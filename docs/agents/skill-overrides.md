@@ -149,26 +149,38 @@ Stage 5, in the feature worktree, with `main` as the fixed point: `/mattpocock-s
 
 - **Spec axis** gets the spec issue and its ticket issues as the checklist (fetched with `gh`), or for a standalone task the issue and the `SPEC-<module>.md` section it names.
 - **Standards axis** gets [CODING_STANDARDS.md](../../CODING_STANDARDS.md) and [AGENTS.md](../../AGENTS.md) as the documented standards, alongside the skill's smell baseline, and a brief that follows "How to apply this file" at the top of CODING_STANDARDS.md. The skill's 400-word cap doesn't apply to it.
-- **Checks no diff reading can do**, run by the reviewing session alongside the two axes: `pnpm audit` when `package.json` or the lockfile changed, and the response headers of every changed page from the running app (`curl -sI`), checked against [CODING_STANDARDS.md](../../CODING_STANDARDS.md#security).
+- **Checks no diff reading can do**, run by the reviewing session alongside the two axes: `pnpm audit` when `package.json` or the lockfile changed, the response headers of every changed page from the running app (`curl -sI`), checked against [CODING_STANDARDS.md](../../CODING_STANDARDS.md#security), and a mutation check of the tests: break the changed code in at least one place a test should catch, and note which test failed.
 - **Personal information**: the reviewing session reads the diff and every commit message on the branch for the data AGENTS.md forbids.
 
 **Severity.** Hard documented-standard breaches and Spec findings are Critical or Important; smells are always Suggestions. **Fixing**, in place of upstream `implement-spec` step 7's "fix all issues": fix every Critical and Important finding on the feature branch, in fix rounds; list Suggestions and Nits for the owner, and fix the ones worth it in the same round. A finding that belongs to another task becomes an issue.
 
-**Record** the review in `.reviews/<branch>.md` (gitignored; `/` in the branch name becomes `-`). The PR gate ([review-gate.mjs](../../.claude/hooks/review-gate.mjs)) refuses `gh pr create` until the file has every one of these:
+**Record** the review in `.reviews/<branch>.md` (gitignored; `/` in the branch name becomes `-`). The review gate ([review-gate.mjs](../../.claude/hooks/review-gate.mjs)) refuses `gh pr create` until the file has every one of these:
 
 ```markdown
 # Review: <branch> (T<N> · …)
 
 Spec: #<N>
+First reviewed commit: <full sha of the HEAD the first review read>
 Reviewed commit: <full HEAD sha>
 
 ## Standards
+Files read:
+- <every path in git diff --name-only main...HEAD>
 ## Spec
 ## Checks
+Mutation: <what was broken, and which test failed>
 ## Personal information
 ```
 
-`## Checks` records the audit and header results, or why neither applied. `Spec:` names the spec issue, or a standalone task's own issue, and must match the `T<N>` in the branch name; work with no issue writes `Spec: none - <why>`. The gate also checks that the named issue has its `## What actually happened` section.
+The gate reads the file for this evidence ([review-evidence.mjs](../../.claude/hooks/review-evidence.mjs)), and a refusal names everything missing at once:
+
+- **Every section has content**, and each evidence line has text after its label. A `## ` heading pasted into a section (say from an axis's report) doesn't end it; only the next of the four does.
+- **`Spec:`** names the spec issue, or a standalone task's own issue, and must match the `T<N>` in the branch name; work with no issue writes `Spec: none - <why>`. For `gh pr create`, the named issue must also have its `## What actually happened` section.
+- **`## Standards` has a `Files read:` list** naming every path in `git diff --name-only main...HEAD` (against `origin/main` when it exists), tests and deleted files included: each axis read the whole diff, not a sample.
+- **`## Checks` has a `Mutation:` line**, a `Headers:` line when the diff touches `apps/web/src/app/**` or `apps/web/next.config.ts`, and a `pnpm audit:` line when `pnpm-lock.yaml` or a `package.json` changed. Work with nothing to mutate says so (`Mutation: none - docs only`).
+- **The history chains**: the `Round N:`, `Pass:` and `Review:` ranges, with full 40-character shas, run from `First reviewed commit:` to `Reviewed commit:` without a gap, and `Reviewed commit:` is HEAD, so no commit goes unreviewed. They're followed by sha, so a range quoted again in prose changes nothing.
+
+Labels may be plain, bold, backticked, list items or headings (`**Files read:**`, `- Round 1: \`<a>..<b>\``, `### Pass: …`).
 
 **Fix rounds**, bounded so the review can't loop:
 
@@ -178,6 +190,9 @@ Reviewed commit: <full HEAD sha>
 - New work after an early review is not a fix round. Review it and record it as `Review: <old sha>..<new sha>: …`: for merged tickets, review `git diff <old sha>..HEAD`; for a merge of `main`, only what the merge itself changed (`git show --remerge-diff <merge sha>`), since `main`'s own commits were reviewed in their PRs. A bookkeeping commit (a `tasks/plan.md` checkpoint tick) is recorded the same way.
 - The review is done when a round finds no Critical or Important finding, new or unresolved.
 - If the **second** fix round still finds one, stop: fixes that keep producing findings usually point at a design problem. List them in the review file and in chat, don't push, and ask the owner. If the owner accepts them, record that in the review file and carry on to the PR.
+- **After the PR opens**, fixes for its review and CI findings go through fix rounds too, in the same review file, with the round numbering carried on. The gate refuses `git push` on a branch with an open PR and a review file until the file names HEAD and has the evidence above; `main` and branches without a review file push freely. After each push, post the new `Round N:` or `Pass:` lines to the PR as a comment.
+
+**Which commands the gate checks** ([gated-command.mjs](../../.claude/hooks/gated-command.mjs)): `gh pr create` and `gh pr new`, and `git push`, including `git -C <dir> push`, a push after `cd <dir>` (checked in that folder), in a subshell or a `$(…)`, and `--dry-run`. Text that only mentions them (a quoted message, a comment, a heredoc, `--help`) doesn't count. A PR aimed elsewhere (`-R`, `--repo`, `-H`, `--head`, `GH_REPO`, `GH_HOST`) is refused, since the review file only vouches for the folder's own branch. A command with an unclosed quote, or quotes nested inside a `$(…)` in double quotes, that mentions either command is refused too, since the gate can't tell what runs.
 
 ## /wrap
 
