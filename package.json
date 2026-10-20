@@ -19,6 +19,7 @@
     "db:up": "docker compose up -d --wait postgres",
     "db:generate": "pnpm --filter @troba/db generate",
     "db:migrate": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/migrate-cli.ts",
+    "db:seed-transactions": "node --env-file-if-exists=.env.example --env-file-if-exists=.env packages/db/src/seed-transactions-cli.ts",
     "admin:create": "node apps/web/src/build-cli.ts apps/web/.cli && node --env-file-if-exists=.env.example --env-file-if-exists=.env apps/web/.cli/scripts/create-admin.js"
   },
   "devDependencies": {

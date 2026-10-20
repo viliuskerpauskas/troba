@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
-import { and, desc, eq, isNull, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, type SQL } from "drizzle-orm";
+import { monthRange } from "./month";
 
 // Transactions (SPEC-money M2, M8). Manual ones are entered by hand and fully editable; imported
 // ones (csv_import) keep what the bank reported, so only their category and note change.
@@ -258,13 +259,30 @@ export async function deleteTransaction(
   return deleted.length > 0;
 }
 
-// Newest first, bounded: filters and paging over the whole history come with the full list.
+export type TransactionFilter = {
+  month?: string; // YYYY-MM
+  // A category id, or the transactions without one.
+  category?: string | "uncategorized";
+};
+
+function filterWhere(filter: TransactionFilter): SQL | undefined {
+  const conditions: SQL[] = [];
+  if (filter.month) {
+    const [from, to] = monthRange(filter.month);
+    conditions.push(gte(moneyTransactions.bookedOn, from), lt(moneyTransactions.bookedOn, to));
+  }
+  if (filter.category === "uncategorized") conditions.push(isNull(moneyTransactions.categoryId));
+  else if (filter.category) conditions.push(eq(moneyTransactions.categoryId, filter.category));
+  return and(...conditions);
+}
+
+// Newest first, bounded: paging over the whole history comes with the full list.
 export async function listTransactions(
   db: Db,
   userId: string,
-  options: { limit?: number } = {},
+  options: TransactionFilter & { limit?: number } = {},
 ): Promise<Transaction[]> {
-  return selectTransactions(db, userId)
+  return selectTransactions(db, userId, filterWhere(options))
     .orderBy(
       desc(moneyTransactions.bookedOn),
       desc(moneyTransactions.createdAt),
