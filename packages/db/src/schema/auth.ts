@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { createdAt, id, timestamptz, updatedAt } from "./columns";
 
 // Better Auth tables (identity). Generated with Better Auth's Drizzle schema generator for our
 // options (plural names, uuid ids, admin plugin), then adjusted: timestamps carry a time zone
@@ -7,18 +8,6 @@ import { boolean, check, index, pgTable, text, timestamp, uuid } from "drizzle-o
 
 export const roles = ["admin", "user"] as const;
 export type Role = (typeof roles)[number];
-
-const id = () =>
-  uuid("id")
-    .default(sql`gen_random_uuid()`)
-    .primaryKey();
-const timestamptz = (name: string) => timestamp(name, { withTimezone: true });
-const createdAt = () => timestamptz("created_at").defaultNow().notNull();
-const updatedAt = () =>
-  timestamptz("updated_at")
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull();
 
 export const users = pgTable(
   "users",

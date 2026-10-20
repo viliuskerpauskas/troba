@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
-import { requireUser } from "@/server/session";
+import Link from "next/link";
+import { requireMoneyUser } from "@/server/money";
 
 export const metadata: Metadata = { title: "Money · troba" };
 
 export default async function MoneyPage() {
-  await requireUser();
+  await requireMoneyUser();
 
   return (
     <main>
       <h1>Money</h1>
-      <p>Nothing here yet.</p>
+      <p>
+        <Link href="/money/accounts">Accounts</Link>
+      </p>
     </main>
   );
 }

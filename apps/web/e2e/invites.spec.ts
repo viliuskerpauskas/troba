@@ -47,7 +47,7 @@ test("an admin invites a friend, who signs up and lands in an empty app", async 
 
   await expect(friend).toHaveURL("/money");
   await expect(friend.getByRole("heading", { level: 1, name: "Money" })).toBeVisible();
-  await expect(friend.getByText("Nothing here yet.")).toBeVisible();
+  await expect(friend.getByRole("link", { name: "Accounts" })).toBeVisible();
   await expect(friend.getByRole("link", { name: "Invites" })).toHaveCount(0);
 
   // The invite is used up.
