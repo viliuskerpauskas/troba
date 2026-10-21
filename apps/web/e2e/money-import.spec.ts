@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import type { Page } from "@playwright/test";
+import { getImportProfile, listImportProfiles, saveImportProfile } from "@troba/core";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { expect, test } from "./test";
@@ -8,8 +9,21 @@ import { expect, test } from "./test";
 const fixtures = path.join(import.meta.dirname, "../../../packages/core/test/fixtures/csv");
 // Fictional: a preamble line, semicolons, unsigned amounts with a D/C column, decimal commas.
 const statement = path.join(fixtures, "example-bank-debit-credit.csv");
-// Fictional: signed amounts, commas, a transaction ID column, no preamble.
-const signedStatement = path.join(fixtures, "example-bank-signed.csv");
+
+// The signed format with 60 transactions, more than the preview lists one by one.
+const sixtyRows = {
+  name: "statement.csv",
+  mimeType: "text/csv",
+  buffer: Buffer.from(
+    [
+      "Transaction ID,Posted,Transaction Date,Amount,Currency,Payee,Payee Account,Details,Type,Account",
+      ...Array.from(
+        { length: 60 },
+        (_, i) => `T${2000 + i},02/03/2026,01/03/2026,-42.15,EUR,GROCERY MART,,Card purchase,CARD,`,
+      ),
+    ].join("\n"),
+  ),
+};
 
 // SPEC-money success criterion 6: every page works at 360px.
 test.use({ viewport: { width: 360, height: 740 } });
@@ -95,7 +109,7 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
 }) => {
   await signIn(page, "e2e-import-signed@example.test", "198.51.100.23");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(signedStatement);
+  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByLabel("Lines above the header")).toHaveValue("0");
 
@@ -103,7 +117,7 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await page.getByLabel("Lines above the header").fill("1");
   await page.getByRole("button", { name: "Read the file again" }).click();
   const headers = page.getByRole("table").getByRole("columnheader");
-  await expect(headers.first()).toHaveText("T1001");
+  await expect(headers.first()).toHaveText("T2000");
 
   // A refused save keeps what the user set.
   await page.getByLabel("Profile name").fill("Example Bank (signed)");
@@ -138,10 +152,12 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expect(page.getByText("Account: Cash")).toBeVisible();
-  await expectSummary(page, { "Rows in the file": 5, New: 0, "Can't be read": 5 });
+  await expectSummary(page, { "Rows in the file": 60, New: 0, "Can't be read": 60 });
+  // The first 50 with their reasons, then a count.
   const failed = page.getByRole("list", { name: /can't be read/ }).getByRole("listitem");
-  await expect(failed).toHaveCount(5);
+  await expect(failed).toHaveCount(50);
   await expect(failed.first()).toHaveText("Row 1: the date isn't in the profile's date format");
+  await expect(page.getByText("And 10 more.")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Import/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Edit profile" }).click();
@@ -149,19 +165,39 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await page.getByRole("button", { name: "Save profile and preview" }).click();
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
-  await expectSummary(page, { New: 5, "Can't be read": 0 });
-  await page.getByRole("button", { name: "Import 5 transactions" }).click();
-  await expect(page.getByRole("status")).toHaveText("Imported 5 transactions into Cash.");
+  await expectSummary(page, { New: 60, "Can't be read": 0 });
+  await page.getByRole("button", { name: "Import 60 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 60 transactions into Cash.");
+
+  // A second profile for the same format, saved later: finding by columns now gives that one.
+  const {
+    rows: [user],
+  } = await db().$client.query<{ id: string }>("select id from users where email = $1", [
+    "e2e-import-signed@example.test",
+  ]);
+  const copy = await getImportProfile(
+    db(),
+    user!.id,
+    (await listImportProfiles(db(), user!.id))[0]!.id,
+  );
+  await saveImportProfile(db(), user!.id, {
+    profile: { ...copy!, name: "Example Bank (copy)" },
+    bytes: sixtyRows.buffer,
+  });
+  await page.goto("/money/import");
+  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Read with the profile Example Bank (copy).")).toBeVisible();
 
   // Picked by hand rather than found by its columns.
-  await page.getByRole("button", { name: "Import another file" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(signedStatement);
+  await page.getByRole("button", { name: "Start over" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
   await page.getByLabel("Import profile").selectOption("Example Bank (signed)");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Read with the profile Example Bank (signed).")).toBeVisible();
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
-  await expectSummary(page, { New: 0, "Already imported, skipped": 5 });
+  await expectSummary(page, { New: 0, "Already imported, skipped": 60 });
 });
 
 // A fresh user, signed in from their own address, so the other spec files' sign-ins don't count

@@ -50,10 +50,9 @@ export function readCsvHeaders(
   if (bytes.byteLength > headerBytes) {
     const decoded = decode(bytes.subarray(0, headerBytes), options.encoding, { partial: true });
     if (!decoded.ok) return decoded;
-    // Whole lines only: the cut can fall inside a record.
-    const text = decoded.text.slice(0, decoded.text.lastIndexOf("\n") + 1);
-    const table = readText(text, options);
-    // A complete record after the header shows the header itself was complete.
+    // The last record may be cut short. A record after the header shows the header is whole;
+    // a cut inside a quoted field reads as unterminated, and the whole file is read instead.
+    const table = readText(decoded.text, options);
     if (table.ok && table.rows.length > 0) return { ok: true, headers: table.headers };
   }
   const table = readCsv(bytes, options);

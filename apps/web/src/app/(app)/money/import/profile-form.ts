@@ -51,7 +51,8 @@ const SkipLines = z
   .transform(Number)
   .pipe(importProfileFields.shape.skipLines.unwrap());
 
-const Encoding = z.string().trim().toLowerCase().max(40);
+// Bounded only to keep the value small; whether it is an encoding is the profile schema's call.
+const Encoding = z.string().trim().toLowerCase().max(200);
 
 export function profileFromForm(formData: FormData): ProfileFromFormResult {
   for (const name of formData.keys()) {
@@ -63,11 +64,11 @@ export function profileFromForm(formData: FormData): ProfileFromFormResult {
     .map((value) => value.trim())
     .filter(Boolean);
   const skipLines = SkipLines.safeParse(text(formData, "skipLines"));
-  if (!skipLines.success) return { ok: false, problem: "skipLines" };
 
   const parsed = importProfileSchema.safeParse({
     name: text(formData, "name"),
-    skipLines: skipLines.data,
+    // Not a count: left for the schema to refuse, so a problem earlier in the form comes first.
+    skipLines: skipLines.success ? skipLines.data : -1,
     delimiter: delimiterFromForm(text(formData, "delimiter")),
     encoding: encodingFromForm(formData),
     decimalSeparator: text(formData, "decimalSeparator"),
@@ -135,7 +136,9 @@ function delimiterToForm(delimiter: Delimiter | null): string {
   return delimiter === null ? "detect" : delimiter === "\t" ? "tab" : delimiter;
 }
 
+// Blank is UTF-8. A label too long to be one is passed on as "unknown", which no decoder knows,
+// so it is refused like any other unknown label.
 function encodingFromForm(formData: FormData): string {
   const encoding = Encoding.safeParse(text(formData, "encoding"));
-  return (encoding.success && encoding.data) || "utf-8";
+  return encoding.success ? encoding.data || "utf-8" : "unknown";
 }

@@ -177,9 +177,9 @@ describe("readCsv", () => {
 });
 
 describe("readCsvHeaders", () => {
-  // Far past the part of the file it reads, with multi-byte characters across every boundary.
+  // Far past the part of the file it reads.
   const long = utf8(
-    'Statement "März"\nDatum;Betrag;Empfänger\n' +
+    'Statement "Café"\nDate;Amount;Payée\n' +
       Array.from({ length: 20000 }, (_, i) => `2026-03-01;-${i},20;CAFÉ ÜBER ${i}\n`).join(""),
   );
 
@@ -187,7 +187,7 @@ describe("readCsvHeaders", () => {
     expect(readCsv(long)).toMatchObject({ ok: true, skipLines: 1 });
     expect(readCsvHeaders(long, { skipLines: 1, delimiter: null, encoding: "utf-8" })).toEqual({
       ok: true,
-      headers: ["Datum", "Betrag", "Empfänger"],
+      headers: ["Date", "Amount", "Payée"],
     });
   });
 
@@ -197,8 +197,49 @@ describe("readCsvHeaders", () => {
 
     expect(readCsv(brokenEnd)).toEqual({ ok: false, reason: "invalid-encoding" });
     expect(readCsvHeaders(brokenEnd, { skipLines: 1, delimiter: null, encoding: "utf-8" })).toEqual(
-      { ok: true, headers: ["Datum", "Betrag", "Empfänger"] },
+      { ok: true, headers: ["Date", "Amount", "Payée"] },
     );
+  });
+
+  // A file whose last byte read (the read stops at 64 KiB) starts the given text, as a field of
+  // its own.
+  const crossingAt = (text: string) => {
+    const header = "Date;Amount;Payée\n";
+    const filler = 64 * 1024 - utf8(header).byteLength;
+    const row = "2026-03-01;-1,00;";
+    return utf8(
+      header + row + "x".repeat(filler - row.length - 2) + ";" + text + "\n2026-03-02;-1,00;B\n",
+    );
+  };
+
+  it("reads a character split where the read stops", () => {
+    // "É" is two bytes in UTF-8: the first is read, the second isn't.
+    const split = crossingAt("ÉCOLE");
+
+    expect(split[64 * 1024 - 1]).toBe(0xc3);
+    expect(readCsvHeaders(split, { skipLines: 0, delimiter: ";", encoding: "utf-8" })).toEqual({
+      ok: true,
+      headers: ["Date", "Amount", "Payée"],
+    });
+  });
+
+  it("reads the whole file when the header lies past where the read stops", () => {
+    const longTitle = utf8(`${"x".repeat(70 * 1024)}\nDate;Amount\n2026-03-01;-1,00\n`);
+
+    expect(readCsvHeaders(longTitle, { skipLines: 1, delimiter: ";", encoding: "utf-8" })).toEqual({
+      ok: true,
+      headers: ["Date", "Amount"],
+    });
+  });
+
+  it("reads the whole file when the read stops inside a quoted field", () => {
+    const quoted = crossingAt('"a note\nover\nlines"');
+
+    expect(readCsv(quoted)).toMatchObject({ ok: true });
+    expect(readCsvHeaders(quoted, { skipLines: 0, delimiter: ";", encoding: "utf-8" })).toEqual({
+      ok: true,
+      headers: ["Date", "Amount", "Payée"],
+    });
   });
 
   it("reads with the given settings", () => {

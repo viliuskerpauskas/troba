@@ -65,11 +65,17 @@ describe("profileFromForm", () => {
     ["a field the profile doesn't have", { "column.secret": "Amount" }, "columns"],
     ["an unknown date format", { dateFormat: "YY-M-D" }, "dateFormat"],
     ["an unknown encoding", { encoding: "klingon" }, "encoding"],
+    [
+      "an encoding label over 40 characters",
+      { encoding: `utf-8${" ".repeat(10)}x`.padEnd(41, "x") },
+      "encoding",
+    ],
     ["negative skip lines", { skipLines: "-1" }, "skipLines"],
     ["blank skip lines", { skipLines: " " }, "skipLines"],
     ["fractional skip lines", { skipLines: "1.5" }, "skipLines"],
     ["skip lines past 100", { skipLines: "101" }, "skipLines"],
-  ])("refuses a form with %s, naming the field", (_case, change, problem) => {
+    ["no name and blank skip lines", { name: "", skipLines: "" }, "name"],
+  ])("refuses a form with %s, naming the first wrong field", (_case, change, problem) => {
     expect(profileFromForm(form({ ...filled, ...change }))).toEqual({ ok: false, problem });
   });
 });
