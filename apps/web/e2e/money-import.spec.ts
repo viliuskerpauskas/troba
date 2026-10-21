@@ -10,7 +10,9 @@ const fixtures = path.join(import.meta.dirname, "../../../packages/core/test/fix
 // Fictional: a preamble line, semicolons, unsigned amounts with a D/C column, decimal commas.
 const statement = path.join(fixtures, "example-bank-debit-credit.csv");
 
-// The signed format with 60 transactions, more than the preview lists one by one.
+// The signed format with 60 transactions, more than the preview lists one by one. Mostly the same
+// card purchase under new IDs, plus an income with a thousands separator and a filled account
+// column, which the profile in that test leaves unmapped.
 const sixtyRows = {
   name: "statement.csv",
   mimeType: "text/csv",
@@ -18,9 +20,11 @@ const sixtyRows = {
     [
       "Transaction ID,Posted,Transaction Date,Amount,Currency,Payee,Payee Account,Details,Type,Account",
       ...Array.from(
-        { length: 60 },
+        { length: 58 },
         (_, i) => `T${2000 + i},02/03/2026,01/03/2026,-42.15,EUR,GROCERY MART,,Card purchase,CARD,`,
       ),
+      'T2058,03/03/2026,03/03/2026,"1,500.00",EUR,ACME LTD,GB82 WEST 1234 5698 7654 32,Salary March,TRANSFER,DE89 3704 0044 0532 0130 00',
+      "T2059,04/03/2026,,-1.50,EUR,EXAMPLE BANK,,Monthly fee,FEE,",
     ].join("\n"),
   ),
 };
@@ -180,11 +184,12 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
     user!.id,
     (await listImportProfiles(db(), user!.id))[0]!.id,
   );
-  await saveImportProfile(db(), user!.id, {
+  const saved = await saveImportProfile(db(), user!.id, {
     profile: { ...copy!, name: "Example Bank (copy)" },
     bytes: sixtyRows.buffer,
   });
-  await page.goto("/money/import");
+  expect(saved).toMatchObject({ ok: true });
+  await page.getByRole("button", { name: "Import another file" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Read with the profile Example Bank (copy).")).toBeVisible();
@@ -198,6 +203,15 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expectSummary(page, { New: 0, "Already imported, skipped": 60 });
+
+  // The income kept its sign and its thousands.
+  await page.goto("/money/transactions");
+  const newest = page
+    .getByRole("list", { name: "Transactions, newest first" })
+    .getByRole("listitem");
+  await expect(newest.first()).toContainText("2026-03-04 EXAMPLE BANK");
+  await expect(newest.nth(1)).toContainText("2026-03-03 ACME LTD");
+  await expect(newest.nth(1)).toContainText("+€1,500.00");
 });
 
 // A fresh user, signed in from their own address, so the other spec files' sign-ins don't count

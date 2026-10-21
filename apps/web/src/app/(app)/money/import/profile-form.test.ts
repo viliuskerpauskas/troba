@@ -66,10 +66,11 @@ describe("profileFromForm", () => {
     ["an unknown date format", { dateFormat: "YY-M-D" }, "dateFormat"],
     ["an unknown encoding", { encoding: "klingon" }, "encoding"],
     [
-      "an encoding label over 40 characters",
+      "an encoding label over the profile's 40 characters",
       { encoding: `utf-8${" ".repeat(10)}x`.padEnd(41, "x") },
       "encoding",
     ],
+    ["an encoding label over 200 characters", { encoding: "x".repeat(201) }, "encoding"],
     ["negative skip lines", { skipLines: "-1" }, "skipLines"],
     ["blank skip lines", { skipLines: " " }, "skipLines"],
     ["fractional skip lines", { skipLines: "1.5" }, "skipLines"],
