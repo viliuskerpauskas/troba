@@ -28,8 +28,11 @@ export type CreateAccountResult =
   | { ok: true; account: Account }
   | { ok: false; reason: "invalid-iban" | "iban-not-bank" | "iban-taken" };
 
+// The currency a new account gets (SPEC-money M1).
+export const defaultCurrency = "EUR";
+
 // The columns that make an Account.
-const accountColumns = {
+export const accountColumns = {
   id: moneyAccounts.id,
   name: moneyAccounts.name,
   type: moneyAccounts.type,

@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
 import { eq } from "drizzle-orm";
+import { defaultCurrency } from "./accounts";
 
 // A user's money defaults (SPEC-money M1, M4): one Cash account in EUR and the default
 // categories. Seeded lazily on the first visit to money, so identity never calls into money.
@@ -37,7 +38,9 @@ export async function ensureMoneyDefaults(db: Db, userId: string): Promise<void>
       .returning({ userId: moneySettings.userId });
     if (marked.length === 0) return;
 
-    await tx.insert(moneyAccounts).values({ userId, name: "Cash", type: "cash", currency: "EUR" });
+    await tx
+      .insert(moneyAccounts)
+      .values({ userId, name: "Cash", type: "cash", currency: defaultCurrency });
     await tx.insert(moneyCategories).values(
       defaultCategoryNames.map((name) => ({
         userId,

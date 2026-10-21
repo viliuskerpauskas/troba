@@ -16,6 +16,8 @@ export function createDb(connectionString: string) {
 }
 
 export type Db = ReturnType<typeof createDb>;
+// The handle inside db.transaction(); named apart from the money domain's Transaction.
+export type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export async function pingDb(db: Db): Promise<void> {
   await db.execute(sql`select 1`);

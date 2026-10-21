@@ -2,7 +2,13 @@ import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createAccount } from "./accounts";
-import { createCategory, deleteCategory, listCategories, renameCategory } from "./categories";
+import {
+  createCategory,
+  deleteCategory,
+  getCategory,
+  listCategories,
+  renameCategory,
+} from "./categories";
 import { ensureMoneyDefaults } from "./defaults";
 import { createTransaction, getTransaction } from "./transactions";
 
@@ -50,6 +56,15 @@ describe("categories", () => {
 
     expect(category).toMatchObject({ name: "Pets", excludedFromSpending: false });
     expect(await listCategories(db, userId)).toEqual([category]);
+  });
+
+  it("gets one of the user's categories by id, and not another user's", async () => {
+    const owner = await createUser();
+    const other = await createUser();
+    const category = await createCategory(db, owner, { name: "Pets" });
+
+    expect(await getCategory(db, owner, category.id)).toEqual(category);
+    expect(await getCategory(db, other, category.id)).toBeNull();
   });
 
   it("renames a category", async () => {
