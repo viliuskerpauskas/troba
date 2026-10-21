@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/viliuskerpauskas/troba/compare/v0.2.0...v0.3.0) (2026-10-21)
+
+
+### Features
+
+* **identity:** count IPv6 sign-in attempts per /64 ([#79](https://github.com/viliuskerpauskas/troba/issues/79)) ([7ea6217](https://github.com/viliuskerpauskas/troba/commit/7ea62172e313306569a716cd4818ca4eb37fa068)), closes [#52](https://github.com/viliuskerpauskas/troba/issues/52)
+* **money:** import preview and atomic commit ([#82](https://github.com/viliuskerpauskas/troba/issues/82)) ([2d386f0](https://github.com/viliuskerpauskas/troba/commit/2d386f00352acc872206af53c9695e7b48153b8f)), closes [#20](https://github.com/viliuskerpauskas/troba/issues/20)
+* **money:** monthly spending view ([#81](https://github.com/viliuskerpauskas/troba/issues/81)) ([8388d03](https://github.com/viliuskerpauskas/troba/commit/8388d03e260a826e0ad942521d314ab6bd2a73a1)), closes [#23](https://github.com/viliuskerpauskas/troba/issues/23)
+
+
+### Bug Fixes
+
+* make the health route unit test deterministic ([#84](https://github.com/viliuskerpauskas/troba/issues/84)) ([0e5b804](https://github.com/viliuskerpauskas/troba/commit/0e5b80470bc99afa74e42c40cb63aace1bf9d1c5)), closes [#46](https://github.com/viliuskerpauskas/troba/issues/46)
+* **money:** keep the Transfers category from being deleted ([#86](https://github.com/viliuskerpauskas/troba/issues/86)) ([5879b22](https://github.com/viliuskerpauskas/troba/commit/5879b2294ab918d31aa99e67fd29f93c85d0ece8)), closes [#74](https://github.com/viliuskerpauskas/troba/issues/74)
+
 ## [0.2.0](https://github.com/viliuskerpauskas/troba/compare/v0.1.0...v0.2.0) (2026-10-20)
 
 
