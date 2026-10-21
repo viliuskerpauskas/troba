@@ -254,11 +254,53 @@ describe("gatedCommands", () => {
       'cmd /c "gh pr create --repo o/r"',
       'cmd /c "gh pr create -H other"',
       'set GH_REPO=o/r && cmd /c "gh pr create"',
+      'cmd /c "cd ../wt && gh pr create"',
+      'set-location ..\\wt; cmd /c "gh pr create"',
+      'Pop-Location; cmd /c "gh pr create"',
     ]) {
       expect(gatedCommands(command), command).toEqual([
         { kind: "pr-elsewhere", cwd: null, mentioned: true },
       ]);
     }
+  });
+
+  it("counts every mention, so a parsed command doesn't hide a mentioned one", () => {
+    expect(gatedCommands('git push origin main && cmd /c "git push"')).toEqual([
+      { kind: "push", cwd: null, branches: ["main"] },
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('gh pr create --fill; cmd /c "gh pr create --repo o/r"')).toEqual([
+      { kind: "pr-create", cwd: null },
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("git push; git push")).toEqual([
+      { kind: "push", cwd: null },
+      { kind: "push", cwd: null },
+    ]);
+  });
+
+  it("calls a mentioned push next to a cd unclear, since its folder can't be told", () => {
+    for (const command of [
+      'cd ../wt && cmd /c "git push"',
+      'git push; cd ../wt && cmd /c "git push"',
+      'cmd /c "cd ../wt && git push"',
+    ]) {
+      expect(gatedCommands(command), command).toContainEqual({ kind: "unclear", cwd: null });
+    }
+    expect(gatedCommands("cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+  });
+
+  it("reads past redirections to a push's targets", () => {
+    expect(gatedCommands("git push -u origin main 2>&1 | tee log")).toEqual([
+      { kind: "push", cwd: null, branches: ["main"] },
+    ]);
+    expect(gatedCommands("git push origin feat/T7-x > log 2>err")).toEqual([
+      { kind: "push", cwd: null, branches: ["feat/T7-x"] },
+    ]);
+    expect(gatedCommands("git push >log")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("git push origin main *>&1", "powershell")).toEqual([
+      { kind: "push", cwd: null, branches: ["main"] },
+    ]);
   });
 
   it("reads @ as HEAD, and calls a push target it can't name unclear", () => {
@@ -323,6 +365,9 @@ describe("gatedCommands", () => {
       { kind: "push", cwd: null, all: true },
     ]);
     expect(gatedCommands("git push --mirror")).toEqual([{ kind: "push", cwd: null, all: true }]);
+    expect(gatedCommands("git push --branches origin")).toEqual([
+      { kind: "push", cwd: null, all: true },
+    ]);
   });
 
   it("finds the command a shell, eval or Invoke-Expression runs", () => {

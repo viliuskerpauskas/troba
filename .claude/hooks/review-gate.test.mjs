@@ -153,6 +153,7 @@ describe("review-gate", { timeout: 30000 }, () => {
     it("to an open PR needs the review file to name HEAD", () => {
       const gh = { openPrs: ["docs/x"] };
       expect(gate("git push", { gh }).status).toBe(0);
+      expect(gate("git push -u origin docs/x 2>&1 | tail -1", { gh }).status).toBe(0);
       writeReview({ reviewed: git(repo, "rev-parse", "HEAD~1") });
       const { status, stderr } = gate("git push origin @", { gh });
       expect(status).toBe(2);

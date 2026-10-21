@@ -76,7 +76,7 @@ Feed it from the ticket sessions' reports, the review file and the git log. Reje
 3. `git push -u origin <branch>`.
 4. Write the PR body with the `/pr` template, plus the additions in [skill-overrides.md](../../../docs/agents/skill-overrides.md#pr): `Closes #<N>` and one `Closes #<M>` per ticket, **Review**, **Verification**, **Owner / after merge**. End it with the attribution line the session's instructions give for PRs, if any.
 5. From the feature worktree, `gh pr create --title "<type>(<scope>): <description>" --body-file <file>`. The title is a plain Conventional Commit without the T-id. The [review gate](../../hooks/review-gate.mjs) refuses this until the review file has its evidence, names HEAD, and the spec issue has its "What actually happened" section; each refusal names what's missing.
-6. `gh pr comment --body-file .reviews/<branch>.md`, so the whole review is on the PR. Later fixes for review or CI findings are fix rounds in the same file; the gate refuses a push to the open PR until the file names HEAD, and each push's new round lines go on the PR as a comment.
+6. `gh pr comment --body-file .reviews/<branch>.md`, so the whole review is on the PR. Later fixes for review or CI findings are fix rounds in the same file; the gate refuses a push to the open PR until the file names HEAD and has its evidence, and each push's new `Round N:`, `Pass:` or `Review:` lines go on the PR as a comment.
 
 A push or `gh` call that fails leaves the commits in place: that is a recoverable state, so report it and stop rather than rewriting history.
 

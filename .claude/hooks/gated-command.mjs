@@ -46,13 +46,21 @@ const PLAIN_REF = /^[\w./-]+$/;
 // Main's gate before this parser: any mention, wherever it sits. gh takes flags between `pr` and
 // the subcommand, and a full path may be quoted, so anything up to the next ; & | or line break
 // may sit between the words. The lazy middle is bounded by the line, so it stays near linear.
-const PR_MENTION = /\bgh(?:\.exe)?["']?\s+pr\b[^\n;&|]*?\b(?:create|new)\b/i;
-const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]*?\s)?push(?![\w-])/i;
+const PR_MENTION = /\bgh(?:\.exe)?["']?\s+pr\b[^\n;&|]*?\b(?:create|new)\b/gi;
+const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]*?\s)?push(?![\w-])/gi;
 // A bare help call is the one form that opens or pushes nothing.
 const HELP_CALL =
   /^\s*(?:gh(?:\.exe)?\s+pr\s+(?:create|new)|git(?:\.exe)?\s+push)\s+(?:--help|-h)\s*$/i;
-const ELSEWHERE_MENTION =
-  /(^|[\s;&|({`])(cd|pushd|popd|chdir|sl|Set-Location|Push-Location)(\s|$)|GH_(REPO|HOST)\b|--repo\b|--head\b|\s-[RH](\s|\S)/;
+// A directory change anywhere, in either shell's spelling, also just inside a quote
+// (`cmd /c "cd ../wt && …"`): a mention next to one can't be placed in a folder.
+const CD_MENTION = new RegExp(
+  String.raw`(?:^|[\s;&|({\`"'])(?:${[...CD, ...POPD].join("|")})(?:[\s;&|)}\`"']|$)`,
+  "i",
+);
+const ELSEWHERE_MENTION = /GH_(REPO|HOST)\b|--repo\b|--head\b|\s-[RH](\s|\S)/;
+// A redirection (`2>&1` splits at the `&`, leaving `2>`; `> log`, `>log`, `*>&1`) is no branch.
+const REDIRECT = /^[\d*]*[<>]/;
+const BARE_REDIRECT = /^[\d*]*[<>]+$/;
 
 // Whether the text mentions both commands' words anywhere. Separate linear tests, since one
 // regex with `[\s\S]*` between the words backtracks badly on long input.
@@ -200,7 +208,8 @@ function pushTargets(words, at) {
   let options = true;
   for (let i = at + 1; i < words.length; i++) {
     const text = words[i].text;
-    if (options && text === "--") options = false;
+    if (!words[i].quoted && REDIRECT.test(text)) i += BARE_REDIRECT.test(text) ? 1 : 0;
+    else if (options && text === "--") options = false;
     else if (options && PUSH_ALL.has(text)) all = true;
     else if (options && text.startsWith("-")) i += PUSH_VALUE_OPTIONS.has(text) ? 1 : 0;
     else positional.push(text);
@@ -332,14 +341,19 @@ function read(command, shell) {
 
 export function gatedCommands(command, shell = "bash") {
   const found = read(command, shell);
-  if (HELP_CALL.test(command)) return found;
-  const has = (...kinds) => found.some((f) => kinds.includes(f.kind));
-  if (!has("pr-create", "pr-elsewhere", "unclear") && PR_MENTION.test(command)) {
-    const kind = ELSEWHERE_MENTION.test(command) ? "pr-elsewhere" : "pr-create";
+  if (HELP_CALL.test(command) || found.some((f) => f.kind === "unclear")) return found;
+  // A mention the reading didn't place: the text names the command more often than the reading
+  // found it run, so one sits somewhere it can't read. Counting, rather than asking whether any
+  // was found, keeps `git push origin main && cmd /c "git push"` from hiding the second.
+  const count = (...kinds) => found.filter((f) => kinds.includes(f.kind)).length;
+  const cd = CD_MENTION.test(command);
+  if ([...command.matchAll(PR_MENTION)].length > count("pr-create", "pr-elsewhere")) {
+    const kind = cd || ELSEWHERE_MENTION.test(command) ? "pr-elsewhere" : "pr-create";
     found.push({ kind, cwd: null, mentioned: true });
   }
-  if (!has("push", "unclear") && PUSH_MENTION.test(command)) {
-    found.push({ kind: "push", cwd: null, mentioned: true });
+  if ([...command.matchAll(PUSH_MENTION)].length > count("push")) {
+    // Next to a cd it may run in another folder, so it can't be checked in the session's.
+    found.push(cd ? { kind: "unclear", cwd: null } : { kind: "push", cwd: null, mentioned: true });
   }
   return found;
 }
