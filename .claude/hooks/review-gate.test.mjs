@@ -168,6 +168,15 @@ describe("review-gate", { timeout: 30000 }, () => {
       expect(gate("git push origin HEAD:docs/y", { gh }).status).toBe(0);
     });
 
+    it("named next to a cd is refused, saying why and what to do instead", () => {
+      const { status, stderr } = gate('cd sub && git commit -m "fix: push the check"');
+      expect(status).toBe(2);
+      expect(stderr).toContain("names `git push` next to a directory change");
+      expect(stderr).toContain("git commit -F <file>");
+      expect(stderr).not.toContain("unclosed quote");
+      expect(stderr).not.toContain("checked as if it ran");
+    });
+
     it("is refused when gh can't say whether a PR is open", () => {
       const { status, stderr } = gate("git push", { gh: { fail: true } });
       expect(status).toBe(2);

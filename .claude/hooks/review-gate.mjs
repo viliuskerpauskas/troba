@@ -185,6 +185,15 @@ try {
           ": the review file only vouches for this folder's branch.",
       );
     }
+    if (kind === "push-elsewhere") {
+      mentioned = false; // The message below already says what to do about the mention.
+      block(
+        "this command names `git push` next to a directory change (cd, pushd, Set-Location…), " +
+          "where the gate can't tell which folder it would push from. If it pushes, run the " +
+          "push in the worktree it belongs to, without the cd. If it only names it (a commit " +
+          "message, say), put that text in a file: `git commit -F <file>`.",
+      );
+    }
     check(found, cwd ? path.resolve(start, nativePath(cwd)) : start);
   }
 } catch (error) {

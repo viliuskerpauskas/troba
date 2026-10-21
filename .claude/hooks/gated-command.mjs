@@ -12,7 +12,9 @@
 // (`$BRANCH`, `$(…)`) is "unclear", which the hook refuses. And text that names either command
 // where the reading above doesn't find it runs (a quoted message, a heredoc, `cmd /c "…"`,
 // `node -e "…"`, a pipe into a shell) is still reported, marked `mentioned`, so the hook checks
-// it as if it ran: only that keeps every wrapper covered. `git push --dry-run` is checked too.
+// it as if it ran: only that keeps every wrapper covered. A mentioned one next to a directory
+// change can't be placed in a folder, so it's "pr-elsewhere" or "push-elsewhere", which the
+// hook refuses. `git push --dry-run` is checked too.
 
 const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl", "push-location"]);
 const PUSHD = new Set(["pushd", "push-location"]);
@@ -58,9 +60,10 @@ const CD_MENTION = new RegExp(
   "i",
 );
 const ELSEWHERE_MENTION = /GH_(REPO|HOST)\b|--repo\b|--head\b|\s-[RH](\s|\S)/;
-// A redirection (`2>&1` splits at the `&`, leaving `2>`; `> log`, `>log`, `*>&1`) is no branch.
-const REDIRECT = /^[\d*]*[<>]/;
-const BARE_REDIRECT = /^[\d*]*[<>]+$/;
+// A redirection (`2>&1`, `>&2`, `&>log`, `>| log`, `> log`, `*>&1`) is no branch. A bare one
+// (`>`, `2>`, `>|`) takes the next word as its target.
+const REDIRECT = /^[\d*&]*[<>]/;
+const BARE_REDIRECT = /^[\d*&]*[<>]+[&|]?$/;
 
 // Whether the text mentions both commands' words anywhere. Separate linear tests, since one
 // regex with `[\s\S]*` between the words backtracks badly on long input.
@@ -160,10 +163,13 @@ function tokenize(command, shell) {
       endCommand();
       subshell(command.slice(i + 1, end));
       i = end;
-    } else if (c === "\n" || c === ";" || c === "|") {
-      endCommand();
-    } else if (c === "&") {
-      // Also splits `2>&1` and `&>`, which only cuts a redirection's target off the command.
+    } else if ((c === "&" || c === "|") && /[<>]/.test(command[i - 1] ?? "")) {
+      // `>&`, `<&` and `>|` belong to a redirection word, not between two commands: splitting
+      // there would cut the rest of a push off, so its later targets went unread.
+      add(c);
+    } else if (c === "&" && next === ">") {
+      add(c); // `&>log` redirects; it doesn't end the command.
+    } else if (c === "\n" || c === ";" || c === "|" || c === "&") {
       endCommand();
     } else if (c === "(" || c === ")") {
       endCommand();
@@ -353,7 +359,7 @@ export function gatedCommands(command, shell = "bash") {
   }
   if ([...command.matchAll(PUSH_MENTION)].length > count("push")) {
     // Next to a cd it may run in another folder, so it can't be checked in the session's.
-    found.push(cd ? { kind: "unclear", cwd: null } : { kind: "push", cwd: null, mentioned: true });
+    found.push({ kind: cd ? "push-elsewhere" : "push", cwd: null, mentioned: true });
   }
   return found;
 }

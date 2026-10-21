@@ -279,13 +279,18 @@ describe("gatedCommands", () => {
     ]);
   });
 
-  it("calls a mentioned push next to a cd unclear, since its folder can't be told", () => {
+  it("reports a mentioned push next to a cd as elsewhere, since its folder can't be told", () => {
     for (const command of [
       'cd ../wt && cmd /c "git push"',
       'git push; cd ../wt && cmd /c "git push"',
       'cmd /c "cd ../wt && git push"',
+      'cd apps/web && git commit -m "fix: push the health check"',
     ]) {
-      expect(gatedCommands(command), command).toContainEqual({ kind: "unclear", cwd: null });
+      expect(gatedCommands(command), command).toContainEqual({
+        kind: "push-elsewhere",
+        cwd: null,
+        mentioned: true,
+      });
     }
     expect(gatedCommands("cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
   });
@@ -300,6 +305,23 @@ describe("gatedCommands", () => {
     expect(gatedCommands("git push >log")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("git push origin main *>&1", "powershell")).toEqual([
       { kind: "push", cwd: null, branches: ["main"] },
+    ]);
+  });
+
+  it("keeps reading a push's targets after a redirection in the middle", () => {
+    for (const command of [
+      "git push origin 2>&1 feat/other",
+      "git push origin >&2 HEAD:feat/other",
+      "git push origin >| log feat/other",
+      "git push &>log origin feat/other",
+      "git push origin 0<&- feat/other",
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "push", cwd: null, branches: ["feat/other"] },
+      ]);
+    }
+    expect(gatedCommands("git status 2>&1 && git push origin feat/other")).toEqual([
+      { kind: "push", cwd: null, branches: ["feat/other"] },
     ]);
   });
 
