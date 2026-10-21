@@ -23,10 +23,15 @@ export default async function CategoriesPage() {
             {categories.map((category) => (
               <li key={category.id}>
                 <RenameCategoryForm categoryId={category.id} name={category.name} />
-                {category.excludedFromSpending && (
-                  <p>Not counted as spending: moving money between your own accounts.</p>
+                {category.excludedFromSpending ? (
+                  // Core refuses the delete too; hiding the button only spares a dead control.
+                  <p>
+                    Not counted as spending: moving money between your own accounts. It can&apos;t
+                    be deleted, since imports put those moves here.
+                  </p>
+                ) : (
+                  <DeleteCategory categoryId={category.id} name={category.name} />
                 )}
-                <DeleteCategory categoryId={category.id} name={category.name} />
               </li>
             ))}
           </ul>

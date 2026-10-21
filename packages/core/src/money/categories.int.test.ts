@@ -9,6 +9,7 @@ import {
   listCategories,
   renameCategory,
 } from "./categories";
+import { ensureMoneyDefaults } from "./defaults";
 import { createTransaction, getTransaction } from "./transactions";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -118,5 +119,26 @@ describe("categories", () => {
 
     expect(await listCategories(db, owner)).toEqual([pets]);
     expect(await getTransaction(db, owner, vet.id)).toMatchObject({ categoryId: pets.id });
+  });
+
+  it("refuses to delete Transfers, even renamed, and leaves its transactions alone", async () => {
+    const userId = await createUser();
+    await ensureMoneyDefaults(db, userId);
+    const transfers = (await listCategories(db, userId)).find(
+      (category) => category.excludedFromSpending,
+    )!;
+    await renameCategory(db, userId, { categoryId: transfers.id, name: "Own accounts" });
+    const move = await createExpense(userId, transfers.id);
+
+    expect(await deleteCategory(db, userId, { categoryId: transfers.id })).toBe(false);
+
+    expect(await listCategories(db, userId)).toContainEqual({
+      ...transfers,
+      name: "Own accounts",
+    });
+    expect(await getTransaction(db, userId, move.id)).toMatchObject({
+      categoryId: transfers.id,
+      categorySource: "manual",
+    });
   });
 });

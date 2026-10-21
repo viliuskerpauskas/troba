@@ -509,31 +509,42 @@ describe("import", () => {
       ]);
     });
 
-    it("finds Transfers after a rename, and leaves transfers uncategorized once it's deleted", async () => {
-      const renamedUser = await createUser();
-      const deletedUser = await createUser();
-      for (const userId of [renamedUser, deletedUser]) {
-        await createBankAccount(userId, ownIban);
-        await createBankAccount(userId, "GB82WEST12345698765432");
-      }
-      const transfersOf = async (userId: string) =>
-        (await listCategories(db, userId)).find((c) => c.name === "Transfers")!.id;
-      await renameCategory(db, renamedUser, {
-        categoryId: await transfersOf(renamedUser),
-        name: "Between my accounts",
-      });
-      await deleteCategory(db, deletedUser, { categoryId: await transfersOf(deletedUser) });
+    it("finds Transfers after a rename and a refused delete", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      await createBankAccount(userId, "GB82WEST12345698765432");
+      const transfers = (await listCategories(db, userId)).find((c) => c.name === "Transfers")!;
+      await renameCategory(db, userId, { categoryId: transfers.id, name: "Between my accounts" });
+      expect(await deleteCategory(db, userId, { categoryId: transfers.id })).toBe(false);
 
-      await commitImport(db, renamedUser, signedInput());
-      expect(await commitImport(db, deletedUser, signedInput())).toMatchObject({ rowsNew: 5 });
+      await commitImport(db, userId, signedInput());
 
-      const acme = async (userId: string) =>
-        (await listTransactions(db, userId)).find((t) => t.counterparty === "ACME LTD");
-      expect(await acme(renamedUser)).toMatchObject({
+      const acme = (await listTransactions(db, userId)).find((t) => t.counterparty === "ACME LTD");
+      expect(acme).toMatchObject({
+        categoryId: transfers.id,
         categoryName: "Between my accounts",
         categorySource: "transfer",
       });
-      expect(await acme(deletedUser)).toMatchObject({ categoryId: null, categorySource: null });
+    });
+
+    it("leaves transfers uncategorized for a user who deleted Transfers before it was kept", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      await createBankAccount(userId, "GB82WEST12345698765432");
+      const transfers = (await listCategories(db, userId)).find((c) => c.name === "Transfers")!;
+      await db
+        .delete(schema.moneyCategories)
+        .where(
+          and(
+            eq(schema.moneyCategories.id, transfers.id),
+            eq(schema.moneyCategories.userId, userId),
+          ),
+        );
+
+      expect(await commitImport(db, userId, signedInput())).toMatchObject({ rowsNew: 5 });
+
+      const acme = (await listTransactions(db, userId)).find((t) => t.counterparty === "ACME LTD");
+      expect(acme).toMatchObject({ categoryId: null, categorySource: null });
     });
 
     it("leaves rows uncategorized when no counterparty is the user's", async () => {

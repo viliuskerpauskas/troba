@@ -34,6 +34,11 @@ test("adds, renames and deletes categories; deleting one uncategorizes its trans
   await expect(
     yours.getByRole("listitem").filter({ hasText: "Not counted as spending" }).getByRole("textbox"),
   ).toHaveValue("Transfers");
+  // Imports assign Transfers, so it can't be deleted.
+  await expect(yours.getByRole("button", { name: "Delete Transfers" })).toHaveCount(0);
+  await expect(
+    yours.getByRole("listitem").filter({ hasText: "Not counted as spending" }),
+  ).toContainText("It can't be deleted");
 
   const create = page.getByRole("region", { name: "New category" });
   await create.getByLabel("Name").fill("Pets");
