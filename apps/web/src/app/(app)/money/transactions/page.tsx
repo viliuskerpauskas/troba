@@ -17,6 +17,9 @@ export default async function TransactionsPage() {
       <p>
         <Link href="/money/transactions/new">Add transaction</Link>
       </p>
+      <p>
+        <Link href="/money/import">Import a bank statement</Link>
+      </p>
 
       {transactions.length === 0 ? (
         <p>No transactions yet.</p>

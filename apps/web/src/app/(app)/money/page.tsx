@@ -17,6 +17,9 @@ export default async function MoneyPage() {
         <Link href="/money/transactions">Transactions</Link>
       </p>
       <p>
+        <Link href="/money/import">Import a bank statement</Link>
+      </p>
+      <p>
         <Link href="/money/accounts">Accounts</Link>
       </p>
       <p>

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { adminEmail } from "./global-setup";
+import { expect, test } from "./test";
 
 const invalidHeading = "This invite link doesn't work";
 

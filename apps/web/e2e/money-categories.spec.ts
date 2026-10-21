@@ -1,13 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { expect, test } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
+import { expect, test } from "./test";
 
 const email = "e2e-categories@example.test";
-
-test.afterAll(async () => {
-  await db().$client.end();
-});
 
 test("adds, renames and deletes categories; deleting one uncategorizes its transactions", async ({
   page,
