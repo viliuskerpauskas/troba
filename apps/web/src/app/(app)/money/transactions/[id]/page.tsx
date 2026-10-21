@@ -78,6 +78,11 @@ export default async function EditTransactionPage({
           note: transaction.note ?? "",
         }}
       />
+      {!transaction.categoryId && (
+        <p>
+          <Link href={`/money/rules?from=${transaction.id}`}>Create rule from this</Link>
+        </p>
+      )}
       <DeleteTransaction transactionId={transaction.id} />
     </main>
   );
