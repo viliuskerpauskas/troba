@@ -24,36 +24,38 @@ export type DateFormat = (typeof dateFormats)[number];
 
 const headerName = z.string().min(1).max(200);
 
-export const importProfileSchema = z
-  .object({
-    name: z.string().trim().min(1).max(100),
-    skipLines: z.int().min(0).max(100).default(0),
-    // Null: detected per file.
-    delimiter: z.enum(delimiters).nullable().default(null),
-    // A WHATWG label, e.g. a windows-125x code page.
-    encoding: z.string().max(40).refine(isKnownEncoding).default("utf-8"),
-    decimalSeparator: z.enum([".", ","]),
-    dateFormat: z.enum(dateFormats),
-    // Field → header in the file.
-    columns: z.strictObject({
-      bookingDate: headerName,
-      transactionDate: headerName.optional(),
-      amount: headerName,
-      debitCredit: headerName.optional(),
-      currency: headerName.optional(),
-      originalAmount: headerName.optional(),
-      originalCurrency: headerName.optional(),
-      counterparty: headerName.optional(),
-      counterpartyIban: headerName.optional(),
-      description: headerName.optional(),
-      transactionId: headerName.optional(),
-      transactionType: headerName.optional(),
-      ownIban: headerName.optional(),
-    }),
-    // With an unsigned amount and a debit/credit column: the indicator values that mean a debit,
-    // compared ignoring case.
-    debitValues: z.array(z.string().trim().min(1).max(40)).min(1).max(20).nullable(),
-  })
+// The fields alone, for validating one of them (a form's read settings) without the whole profile.
+export const importProfileFields = z.object({
+  name: z.string().trim().min(1).max(100),
+  skipLines: z.int().min(0).max(100).default(0),
+  // Null: detected per file.
+  delimiter: z.enum(delimiters).nullable().default(null),
+  // A WHATWG label, e.g. a windows-125x code page.
+  encoding: z.string().max(40).refine(isKnownEncoding).default("utf-8"),
+  decimalSeparator: z.enum([".", ","]),
+  dateFormat: z.enum(dateFormats),
+  // Field → header in the file.
+  columns: z.strictObject({
+    bookingDate: headerName,
+    transactionDate: headerName.optional(),
+    amount: headerName,
+    debitCredit: headerName.optional(),
+    currency: headerName.optional(),
+    originalAmount: headerName.optional(),
+    originalCurrency: headerName.optional(),
+    counterparty: headerName.optional(),
+    counterpartyIban: headerName.optional(),
+    description: headerName.optional(),
+    transactionId: headerName.optional(),
+    transactionType: headerName.optional(),
+    ownIban: headerName.optional(),
+  }),
+  // With an unsigned amount and a debit/credit column: the indicator values that mean a debit,
+  // compared ignoring case.
+  debitValues: z.array(z.string().trim().min(1).max(40)).min(1).max(20).nullable(),
+});
+
+export const importProfileSchema = importProfileFields
   .refine(
     (profile) => (profile.columns.debitCredit === undefined) === (profile.debitValues === null),
     {

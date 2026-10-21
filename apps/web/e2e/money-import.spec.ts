@@ -5,12 +5,11 @@ import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { expect, test } from "./test";
 
-const email = "e2e-import@example.test";
+const fixtures = path.join(import.meta.dirname, "../../../packages/core/test/fixtures/csv");
 // Fictional: a preamble line, semicolons, unsigned amounts with a D/C column, decimal commas.
-const statement = path.join(
-  import.meta.dirname,
-  "../../../packages/core/test/fixtures/csv/example-bank-debit-credit.csv",
-);
+const statement = path.join(fixtures, "example-bank-debit-credit.csv");
+// Fictional: signed amounts, commas, a transaction ID column, no preamble.
+const signedStatement = path.join(fixtures, "example-bank-signed.csv");
 
 // SPEC-money success criterion 6: every page works at 360px.
 test.use({ viewport: { width: 360, height: 740 } });
@@ -18,18 +17,7 @@ test.use({ viewport: { width: 360, height: 740 } });
 test("maps an unknown format once, imports it, and matches it on the next upload", async ({
   page,
 }) => {
-  await db().$client.query("delete from users where email = $1", [email]);
-  const password = randomBytes(18).toString("base64");
-  await auth().api.createUser({ body: { email, password, name: "Import Tester" } });
-
-  // Its own address, so the other spec files' sign-ins don't count towards its limit
-  // (198.51.100.0/24 is TEST-NET-2, RFC 5737).
-  await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.21" });
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/money");
+  await signIn(page, "e2e-import@example.test", "198.51.100.21");
 
   await page.getByRole("link", { name: "Import a bank statement" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(statement);
@@ -101,6 +89,95 @@ test("maps an unknown format once, imports it, and matches it on the next upload
   await expect(page.getByText("Read with the profile Example Bank (D/C).")).toBeVisible();
   await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
 });
+
+test("corrects how the file is read, picks the account, and lists rows it can't read", async ({
+  page,
+}) => {
+  await signIn(page, "e2e-import-signed@example.test", "198.51.100.23");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(signedStatement);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByLabel("Lines above the header")).toHaveValue("0");
+
+  // A wrong number of lines to skip reads the first transaction as the header.
+  await page.getByLabel("Lines above the header").fill("1");
+  await page.getByRole("button", { name: "Read the file again" }).click();
+  const headers = page.getByRole("table").getByRole("columnheader");
+  await expect(headers.first()).toHaveText("T1001");
+
+  // A refused save keeps what the user set.
+  await page.getByLabel("Profile name").fill("Example Bank (signed)");
+  await page.getByLabel("Booking date").selectOption("02/03/2026");
+  await page.getByLabel("Amount", { exact: true }).selectOption("-42.15");
+  await page.getByLabel("Debit values").fill("D");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(
+    "A debit/credit column needs its debit values, such as D, and debit values need the column.",
+  );
+  await expect(page.getByLabel("Lines above the header")).toHaveValue("1");
+  await expect(page.getByLabel("Booking date")).toHaveValue("02/03/2026");
+
+  await page.getByLabel("Lines above the header").fill("0");
+  await page.getByRole("button", { name: "Read the file again" }).click();
+  await expect(headers.first()).toHaveText("Transaction ID");
+  await page.getByLabel("Debit values").fill("");
+  for (const [field, header] of [
+    ["Booking date", "Posted"],
+    ["Amount", "Amount"],
+    ["Counterparty", "Payee"],
+    ["Transaction ID", "Transaction ID"],
+  ] as const) {
+    await page.getByLabel(field, { exact: true }).selectOption(header);
+  }
+  // The wrong date format: every row fails.
+  await page.getByLabel("Date format").selectOption("YYYY-MM-DD");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+
+  // The profile maps no own IBAN, so the user picks the account.
+  await expect(page.getByText("This file doesn't say which account it's for.")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(page.getByText("Account: Cash")).toBeVisible();
+  await expectSummary(page, { "Rows in the file": 5, New: 0, "Can't be read": 5 });
+  const failed = page.getByRole("list", { name: /can't be read/ }).getByRole("listitem");
+  await expect(failed).toHaveCount(5);
+  await expect(failed.first()).toHaveText("Row 1: the date isn't in the profile's date format");
+  await expect(page.getByRole("button", { name: /^Import/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Edit profile" }).click();
+  await page.getByLabel("Date format").selectOption("DD/MM/YYYY");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { New: 5, "Can't be read": 0 });
+  await page.getByRole("button", { name: "Import 5 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 5 transactions into Cash.");
+
+  // Picked by hand rather than found by its columns.
+  await page.getByRole("button", { name: "Import another file" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(signedStatement);
+  await page.getByLabel("Import profile").selectOption("Example Bank (signed)");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Read with the profile Example Bank (signed).")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { New: 0, "Already imported, skipped": 5 });
+});
+
+// A fresh user, signed in from their own address, so the other spec files' sign-ins don't count
+// towards its limit (198.51.100.0/24 is TEST-NET-2, RFC 5737).
+async function signIn(page: Page, email: string, address: string) {
+  await db().$client.query("delete from users where email = $1", [email]);
+  const password = randomBytes(18).toString("base64");
+  await auth().api.createUser({ body: { email, password, name: "Import Tester" } });
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": address });
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL("/money");
+}
 
 async function expectSummary(page: Page, figures: Record<string, number>) {
   for (const [term, value] of Object.entries(figures)) {

@@ -16,6 +16,7 @@ import {
   type PreviewView,
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
+import { failureReasons, tooLargeMessage } from "./messages";
 
 type ProfileOption = { id: string; name: string };
 
@@ -33,7 +34,7 @@ const actions = {
 async function run(state: ImportState, formData: FormData): Promise<ImportState> {
   const intent = String(formData.get("intent"));
   if (intent === "restart") return { step: "upload" };
-  return intent in actions ? actions[intent as keyof typeof actions](formData) : state;
+  return Object.hasOwn(actions, intent) ? actions[intent as keyof typeof actions](formData) : state;
 }
 
 export function ImportWizard({
@@ -93,11 +94,7 @@ export function ImportWizard({
               ))}
             </select>
           </p>
-          {tooLarge && (
-            <p role="alert">
-              That file is over {maxBytes / 1024 / 1024} MB. Export a shorter period.
-            </p>
-          )}
+          {tooLarge && <p role="alert">{tooLargeMessage(maxBytes)}</p>}
           {state.error && <p role="alert">{state.error}</p>}
           <button type="submit" name="intent" value="start" disabled={pending}>
             Continue
@@ -183,7 +180,7 @@ function MappingForm({
             name="skipLines"
             type="number"
             min={0}
-            max={99}
+            max={100}
             defaultValue={value("skipLines")}
             aria-describedby="profile-skip-lines-hint"
           />
@@ -219,7 +216,8 @@ function MappingForm({
             utf-8 for most banks; older ones may use a code page such as windows-1252.
           </small>
         </p>
-        <button type="submit" name="intent" value="reread" disabled={pending}>
+        {/* Before any column is mapped: the headers to map may be the wrong ones. */}
+        <button type="submit" name="intent" value="reread" disabled={pending} formNoValidate>
           Read the file again
         </button>
       </fieldset>
@@ -388,23 +386,6 @@ function PreviewForm({ state, pending, onSubmit }: StepProps<"preview">) {
   );
 }
 
-const failureReasons: Record<
-  Extract<PreviewView, { ok: true }>["failed"][number]["reason"],
-  string
-> = {
-  "invalid-date": "the date isn't in the profile's date format",
-  "invalid-amount": "the amount isn't a number with the profile's decimal separator",
-  "invalid-debit-credit": "the debit/credit indicator is empty",
-  "invalid-currency": "the currency isn't a three-letter code",
-  "invalid-original-amount": "the original amount isn't a number",
-  "invalid-own-iban": "the account IBAN isn't valid",
-  "duplicate-transaction-id": "another row has the same transaction ID",
-  "currency-mismatch": "the row's currency isn't the account's",
-};
-
-// A broken profile fails every row; the first ones say why.
-const shownFailures = 50;
-
 function PreviewBody({
   preview,
   accountId,
@@ -443,6 +424,13 @@ function PreviewBody({
         return (
           <>
             <p>This file doesn&apos;t say which account it&apos;s for.</p>
+            {preview.accounts.length === 0 && (
+              <p>
+                You have no account to import into.{" "}
+                <Link href="/money/accounts">Create one on the Accounts page</Link>, then start
+                over.
+              </p>
+            )}
             <p>
               <label htmlFor="import-account">Account</label>
               <br />
@@ -467,7 +455,7 @@ function PreviewBody({
     }
   }
 
-  const { failed } = preview;
+  const { failed, rowsFailed } = preview;
   return (
     <>
       <input type="hidden" name="accountId" value={accountId ?? ""} />
@@ -480,7 +468,7 @@ function PreviewBody({
         <dt>Already imported, skipped</dt>
         <dd>{preview.rowsDuplicate}</dd>
         <dt>Can&apos;t be read</dt>
-        <dd>{failed.length}</dd>
+        <dd>{rowsFailed}</dd>
       </dl>
       {preview.debitCredit && (
         <>
@@ -494,17 +482,17 @@ function PreviewBody({
           </ul>
         </>
       )}
-      {failed.length > 0 && (
+      {rowsFailed > 0 && (
         <>
           <p id="failed-rows">These rows can&apos;t be read and won&apos;t be imported:</p>
           <ul aria-labelledby="failed-rows">
-            {failed.slice(0, shownFailures).map(({ row, reason }) => (
+            {failed.map(({ row, reason }) => (
               <li key={row}>
                 Row {row}: {failureReasons[reason]}
               </li>
             ))}
           </ul>
-          {failed.length > shownFailures && <p>And {failed.length - shownFailures} more.</p>}
+          {rowsFailed > failed.length && <p>And {rowsFailed - failed.length} more.</p>}
         </>
       )}
       {preview.rowsNew > 0 ? (

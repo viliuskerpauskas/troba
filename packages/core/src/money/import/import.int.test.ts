@@ -11,6 +11,7 @@ import { ensureMoneyDefaults } from "../defaults";
 import { listTransactions } from "../transactions";
 import {
   commitImport,
+  createImportAccount,
   maxImportFileBytes,
   previewImport,
   type CommitImportResult,
@@ -643,6 +644,57 @@ describe("import", () => {
           rowsFailed: 0,
         },
       ]);
+    });
+  });
+
+  describe("createImportAccount", () => {
+    it("creates the bank account the file names, which the preview then finds", async () => {
+      const userId = await createUser();
+
+      const result = await createImportAccount(db, userId, {
+        profile: signedProfile,
+        bytes: signedFile,
+        name: "Example Bank current",
+      });
+
+      expect(result).toMatchObject({
+        ok: true,
+        account: { name: "Example Bank current", type: "bank", currency: "EUR", iban: ownIban },
+      });
+      expect(await previewImport(db, userId, signedInput())).toMatchObject({
+        ok: true,
+        account: { name: "Example Bank current" },
+        rowsNew: 5,
+      });
+    });
+
+    it("gives the account the file names when it already exists, creating none", async () => {
+      const userId = await createUser();
+      const existing = await createBankAccount(userId, ownIban);
+
+      const result = await createImportAccount(db, userId, {
+        profile: signedProfile,
+        bytes: signedFile,
+        name: "Another",
+      });
+
+      expect(result).toEqual({ ok: true, account: existing });
+      expect(await listAccounts(db, userId)).toHaveLength(2);
+    });
+
+    it("creates nothing for a file that names no account", async () => {
+      const userId = await createUser();
+      const columns = { ...signedProfile.columns };
+      delete columns.ownIban;
+
+      const result = await createImportAccount(db, userId, {
+        profile: { ...signedProfile, columns },
+        bytes: signedFile,
+        name: "Example Bank current",
+      });
+
+      expect(result).toEqual({ ok: false, reason: "no-account-in-file" });
+      expect(await listAccounts(db, userId)).toHaveLength(1);
     });
   });
 });

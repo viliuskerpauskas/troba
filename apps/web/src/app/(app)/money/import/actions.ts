@@ -3,7 +3,7 @@
 import {
   assertNever,
   commitImport,
-  createAccount,
+  createImportAccount,
   getImportProfile,
   isCsvUpload,
   listAccounts,
@@ -14,10 +14,11 @@ import {
   saveImportProfile,
   type Account,
   type Delimiter,
-  type ImportProfile,
+  type ImportInput,
   type ImportRefusal,
   type ImportRowFailure,
   type PreviewImportResult,
+  type ReadCsvOptions,
   type SavedImportProfile,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
@@ -25,9 +26,17 @@ import { z } from "zod";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import {
-  formValues,
+  notCsvMessage,
+  problemMessages,
+  readErrors,
+  startAgainMessage,
+  tooLargeMessage,
+} from "./messages";
+import {
+  echoFormValues,
   profileFormValues,
   profileFromForm,
+  readOptionsFromForm,
   type ProfileFormValues,
 } from "./profile-form";
 
@@ -78,6 +87,9 @@ export type PreviewView =
       rowsParsed: number;
       rowsNew: number;
       rowsDuplicate: number;
+      rowsFailed: number;
+      // The first of the failed rows: a profile that doesn't fit fails every row, and the first
+      // ones say why.
       failed: ImportRowFailure[];
       debitCredit: { value: string; debit: boolean; rows: number }[] | null;
     }
@@ -87,13 +99,13 @@ export type PreviewView =
   | { ok: false; reason: "account-required"; accounts: { id: string; name: string }[] }
   | { ok: false; reason: "refused"; message: string };
 
+const shownFailures = 50;
+
 const Id = z.uuid();
 const OptionalId = z.union([z.uuid(), z.literal("")]).transform((id) => id || null);
 const AccountName = z.string().trim().min(1).max(100);
 
-const tooLarge = `That file is over ${maxImportFileBytes / 1024 / 1024} MB. Export a shorter period.`;
-const notCsv = "That isn't a CSV file. Export your statement from your bank as CSV.";
-const startAgain = "Something changed since the last step. Upload the file again.";
+const tooLarge = tooLargeMessage(maxImportFileBytes);
 
 type Upload = { filename: string; bytes: Uint8Array };
 
@@ -104,7 +116,7 @@ async function readUpload(formData: FormData): Promise<Upload | { error: string 
   if (!file.success || file.data.size === 0) return { error: "Choose a CSV file to import." };
   if (file.data.size > maxImportFileBytes) return { error: tooLarge };
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  if (!isCsvUpload({ type: file.data.type, bytes })) return { error: notCsv };
+  if (!isCsvUpload({ type: file.data.type, bytes })) return { error: notCsvMessage };
   return { filename: file.data.name.slice(0, 200), bytes };
 }
 
@@ -113,17 +125,17 @@ export async function startImportAction(formData: FormData): Promise<ImportState
   const upload = await readUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
   const profileId = OptionalId.safeParse(formData.get("profileId") ?? "");
-  if (!profileId.success) return { step: "upload", error: startAgain };
+  if (!profileId.success) return { step: "upload", error: startAgainMessage };
 
   const profile = profileId.data
     ? await getImportProfile(db(), userId, profileId.data)
     : await matchImportProfile(db(), userId, upload.bytes);
-  if (profileId.data && !profile) return { step: "upload", error: startAgain };
+  if (profileId.data && !profile) return { step: "upload", error: startAgainMessage };
   if (profile) return previewState(userId, profile, upload, null);
 
   // An unknown format: the mapping step, starting from what the file itself shows.
   const values = {
-    ...formValues(new FormData()),
+    ...echoFormValues(new FormData()),
     name: upload.filename.replace(/\.csv$/i, "").slice(0, 100),
     delimiter: "detect",
     encoding: "utf-8",
@@ -138,14 +150,13 @@ export async function rereadMappingAction(formData: FormData): Promise<ImportSta
   await requireMoneyUser();
   const upload = await readUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
-  const profileId = OptionalId.safeParse(formData.get("editing") ?? "");
-  const values = formValues(formData);
-  const skipLines = values.skipLines?.trim();
-  return mappingState(upload, values, profileId.success ? profileId.data : null, {
-    ...readSettings(values),
-    // Blank or not a count: guessed again.
-    skipLines: /^\d{1,2}$/.test(skipLines ?? "") ? Number(skipLines) : undefined,
-  });
+  const editing = OptionalId.safeParse(formData.get("editing") ?? "");
+  return mappingState(
+    upload,
+    echoFormValues(formData),
+    editing.success ? editing.data : null,
+    readOptionsFromForm(formData),
+  );
 }
 
 export async function editProfileAction(formData: FormData): Promise<ImportState> {
@@ -154,17 +165,15 @@ export async function editProfileAction(formData: FormData): Promise<ImportState
   if ("error" in upload) return { step: "upload", error: upload.error };
   const profileId = Id.safeParse(formData.get("profileId"));
   const profile = profileId.success ? await getImportProfile(db(), userId, profileId.data) : null;
-  if (!profile) return { step: "upload", error: startAgain };
+  if (!profile) return { step: "upload", error: startAgainMessage };
   return mappingState(upload, profileFormValues(profile), profile.id, profile);
 }
 
 const saveErrors = {
+  ...readErrors,
   "file-too-large": tooLarge,
-  "not-found": startAgain,
-  "unknown-encoding": "That encoding isn't one troba knows. Try utf-8 or windows-1252.",
-  "invalid-encoding": "The file doesn't read as that encoding. Try another, such as windows-1252.",
-  "unterminated-quote":
-    "The file has a quote that never closes. Check the skip lines and delimiter.",
+  "not-found": startAgainMessage,
+  "too-many-profiles": "You have too many import profiles. Edit one of them instead.",
 } as const;
 
 export async function saveProfileAction(formData: FormData): Promise<ImportState> {
@@ -172,24 +181,25 @@ export async function saveProfileAction(formData: FormData): Promise<ImportState
   const upload = await readUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
   const editing = OptionalId.safeParse(formData.get("editing") ?? "");
-  const values = formValues(formData);
   const profileId = editing.success ? editing.data : null;
-  const profile = profileFromForm(formData);
-  if (!profile) {
-    const mapping = mappingState(upload, values, profileId, readSettings(values));
-    return { ...mapping, error: mappingError(values) };
+  const values = echoFormValues(formData);
+  const read = profileFromForm(formData);
+  if (!read.ok) {
+    // Read as the user last set it, so their corrections and column choices stay.
+    const mapping = mappingState(upload, values, profileId, readOptionsFromForm(formData));
+    return { ...mapping, error: problemMessages[read.problem] };
   }
 
   const saved = await saveImportProfile(db(), userId, {
     profileId,
-    profile,
+    profile: read.profile,
     bytes: upload.bytes,
   });
   if (!saved.ok) {
-    const mapping = mappingState(upload, values, profileId, profile);
+    const mapping = mappingState(upload, values, profileId, read.profile);
     const error =
       saved.reason === "missing-columns"
-        ? `The file has no column named ${saved.columns.join(", ")}. Check the skip lines.`
+        ? `The file has no column named ${saved.columns.join(", ")}. Check the lines above the header.`
         : saveErrors[saved.reason];
     return { ...mapping, error };
   }
@@ -198,60 +208,39 @@ export async function saveProfileAction(formData: FormData): Promise<ImportState
 
 export async function previewImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const step = await previewStep(userId, formData);
-  if ("error" in step) return { step: "upload", error: step.error };
-  return previewState(userId, step.profile, step.upload, step.accountId);
+  const input = await readPreviewInput(userId, formData);
+  if ("error" in input) return { step: "upload", error: input.error };
+  return previewState(userId, input.profile, input.upload, input.accountId);
 }
 
-// The file named an account the user doesn't have: create it with the file's IBAN and currency,
-// read on the server again, never taken from the form.
+// The preview offered a bank account for the file's own IBAN.
 export async function createImportAccountAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const step = await previewStep(userId, formData);
-  if ("error" in step) return { step: "upload", error: step.error };
-  const preview = await previewImport(db(), userId, {
-    profile: step.profile,
-    profileId: step.profile.id,
-    filename: step.upload.filename,
-    bytes: step.upload.bytes,
-  });
-  if (preview.ok || preview.reason !== "unknown-account") {
-    return previewState(userId, step.profile, step.upload, null);
-  }
+  const input = await readPreviewInput(userId, formData);
+  if ("error" in input) return { step: "upload", error: input.error };
   const name = AccountName.safeParse(formData.get("accountName"));
   if (!name.success) {
-    const state = await previewState(userId, step.profile, step.upload, null);
+    const state = await previewState(userId, input.profile, input.upload, null);
     return { ...state, error: "Enter a name for the account, up to 100 characters." };
   }
 
-  const created = await createAccount(db(), userId, {
+  const created = await createImportAccount(db(), userId, {
+    profile: input.profile,
+    bytes: input.upload.bytes,
     name: name.data,
-    type: "bank",
-    currency: preview.currency,
-    iban: preview.iban,
   });
-  // iban-taken: another request created it first, and the preview now finds it.
-  if (!created.ok && created.reason !== "iban-taken") {
-    const state = await previewState(userId, step.profile, step.upload, null);
-    return { ...state, error: "That account couldn't be created. Create it on the Accounts page." };
-  }
-  revalidatePath("/money/accounts");
-  return previewState(userId, step.profile, step.upload, null);
+  if (created.ok) revalidatePath("/money/accounts");
+  // Refused or not: the preview shows where the file stands now.
+  return previewState(userId, input.profile, input.upload, null);
 }
 
 export async function commitImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const step = await previewStep(userId, formData);
-  if ("error" in step) return { step: "upload", error: step.error };
-  const result = await commitImport(db(), userId, {
-    profile: step.profile,
-    profileId: step.profile.id,
-    accountId: step.accountId,
-    filename: step.upload.filename,
-    bytes: step.upload.bytes,
-  });
+  const input = await readPreviewInput(userId, formData);
+  if ("error" in input) return { step: "upload", error: input.error };
+  const result = await commitImport(db(), userId, importInput(input));
   // The file was refused after the preview accepted it: show the preview again, which says why.
-  if (!result.ok) return previewState(userId, step.profile, step.upload, step.accountId);
+  if (!result.ok) return previewState(userId, input.profile, input.upload, input.accountId);
 
   revalidatePath("/money", "layout");
   return {
@@ -263,22 +252,26 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   };
 }
 
-// What preview, account creation and commit share: the file, its saved profile and the account
-// picked, if any.
-async function previewStep(
+type PreviewInput = { upload: Upload; profile: SavedImportProfile; accountId: string | null };
+
+// What preview, account creation and commit are sent: the file, its saved profile and the
+// account picked, if any.
+async function readPreviewInput(
   userId: string,
   formData: FormData,
-): Promise<
-  { upload: Upload; profile: SavedImportProfile; accountId: string | null } | { error: string }
-> {
+): Promise<PreviewInput | { error: string }> {
   const upload = await readUpload(formData);
   if ("error" in upload) return upload;
   const profileId = Id.safeParse(formData.get("profileId"));
   const accountId = OptionalId.safeParse(formData.get("accountId") ?? "");
-  if (!profileId.success || !accountId.success) return { error: startAgain };
+  if (!profileId.success || !accountId.success) return { error: startAgainMessage };
   const profile = await getImportProfile(db(), userId, profileId.data);
-  if (!profile) return { error: startAgain };
+  if (!profile) return { error: startAgainMessage };
   return { upload, profile, accountId: accountId.data };
+}
+
+function importInput({ upload, profile, accountId }: PreviewInput): ImportInput {
+  return { profile, profileId: profile.id, accountId, ...upload };
 }
 
 async function previewState(
@@ -287,13 +280,7 @@ async function previewState(
   upload: Upload,
   accountId: string | null,
 ): Promise<Extract<ImportState, { step: "preview" }>> {
-  const result = await previewImport(db(), userId, {
-    profile,
-    profileId: profile.id,
-    accountId,
-    filename: upload.filename,
-    bytes: upload.bytes,
-  });
+  const result = await previewImport(db(), userId, importInput({ upload, profile, accountId }));
   return {
     step: "preview",
     profile: { id: profile.id, name: profile.name },
@@ -311,7 +298,8 @@ async function previewView(userId: string, result: PreviewImportResult): Promise
       rowsParsed,
       rowsNew,
       rowsDuplicate,
-      failed,
+      rowsFailed: failed.length,
+      failed: failed.slice(0, shownFailures),
       debitCredit,
     };
   }
@@ -342,11 +330,11 @@ function refusalMessage(
     case "file-too-large":
       return tooLarge;
     case "profile-not-found":
-      return startAgain;
+      return startAgainMessage;
     case "unknown-encoding":
     case "invalid-encoding":
     case "unterminated-quote":
-      return `${saveErrors[refusal.reason]} Edit the profile to fix it.`;
+      return `${readErrors[refusal.reason]} Edit the profile to fix it.`;
     case "missing-columns":
       return `This file has no column named ${refusal.columns.join(", ")}, which the profile needs. Edit the profile, or pick another.`;
     case "multiple-own-ibans":
@@ -358,45 +346,17 @@ function refusalMessage(
   }
 }
 
-// Which part of the mapping form is wrong, in the order the user fills it.
-function mappingError(values: ProfileFormValues): string {
-  if (!values.name?.trim()) return "Name the profile, such as the bank's name.";
-  if (!/^\d{1,3}$/.test(values.skipLines?.trim() ?? "")) {
-    return "Enter how many lines to skip above the header, 0 or more.";
-  }
-  if (!values["column.bookingDate"] || !values["column.amount"]) {
-    return "Map the booking date and the amount: every profile needs both.";
-  }
-  if (Boolean(values["column.debitCredit"]) !== Boolean(values.debitValues?.trim())) {
-    return "A debit/credit column needs its debit values, such as D, and debit values need the column.";
-  }
-  if (Boolean(values["column.originalAmount"]) !== Boolean(values["column.originalCurrency"])) {
-    return "Map the original amount and the original currency together, or neither.";
-  }
-  return "Check the profile: the encoding, date format or a column isn't valid.";
-}
-
-// How to read the file while the form isn't a valid profile yet.
-function readSettings(values: ProfileFormValues) {
-  const { delimiter } = values;
-  return {
-    delimiter:
-      delimiter === ";" || delimiter === "," ? delimiter : delimiter === "tab" ? "\t" : null,
-    encoding: values.encoding?.trim().toLowerCase() || "utf-8",
-  } satisfies Partial<ImportProfile>;
-}
-
 const sampleRowCount = 5;
 
 function mappingState(
   upload: Upload,
   values: ProfileFormValues,
   profileId: string | null,
-  settings: Partial<Pick<ImportProfile, "skipLines" | "delimiter" | "encoding">>,
+  options: ReadCsvOptions,
 ): Extract<ImportState, { step: "mapping" }> {
-  const table = readCsv(upload.bytes, settings);
+  const table = readCsv(upload.bytes, options);
   if (!table.ok) {
-    return { step: "mapping", table: null, values, profileId, error: saveErrors[table.reason] };
+    return { step: "mapping", table: null, values, profileId, error: readErrors[table.reason] };
   }
   return {
     step: "mapping",
@@ -406,7 +366,7 @@ function mappingState(
       skipLines: table.skipLines,
       delimiter: table.delimiter,
     },
-    // The skip lines the file was read with: guessed on the first read.
+    // The skip lines the file was read with: guessed when the form gave none.
     values: { ...values, skipLines: String(table.skipLines) },
     profileId,
   };
