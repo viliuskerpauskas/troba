@@ -86,7 +86,8 @@ function joinLines(command, shell) {
 // Splits a command into a list of commands, each a list of words ({ text, quoted, bare }, where
 // `quoted` means some of the word was quoted and `bare` that it starts unquoted), with "("
 // and ")" kept as markers so a `cd` inside a subshell stays inside it. Commands end at unquoted
-// newlines, `;`, `|`, `&`, `(` and `)`. Bash escapes with a backslash and PowerShell with a
+// newlines, `;`, `|`, `&`, `(` and `)`, except the `&` and `|` of `>&`, `<&`, `>|` and `&>`,
+// which stay in their redirection word. Bash escapes with a backslash and PowerShell with a
 // backtick; in PowerShell a backslash is just a character, and '' inside single quotes is a
 // quote. A `#` that starts a word comments out the rest of the line, as does PowerShell's
 // `<# … #>` block. A `$(…)` inside double quotes, and a bash `…` in backticks, quoted or not,

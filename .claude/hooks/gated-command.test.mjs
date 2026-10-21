@@ -320,9 +320,16 @@ describe("gatedCommands", () => {
         { kind: "push", cwd: null, branches: ["feat/other"] },
       ]);
     }
-    expect(gatedCommands("git status 2>&1 && git push origin feat/other")).toEqual([
-      { kind: "push", cwd: null, branches: ["feat/other"] },
-    ]);
+    // The `|` and `&` that follow a whole redirection still split the commands.
+    for (const command of [
+      "git status 2>&1 && git push origin feat/other",
+      "foo 2>&1|git push origin feat/other",
+      "cmd >file& git push origin feat/other",
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "push", cwd: null, branches: ["feat/other"] },
+      ]);
+    }
   });
 
   it("reads @ as HEAD, and calls a push target it can't name unclear", () => {
