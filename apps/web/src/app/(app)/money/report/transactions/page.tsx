@@ -6,7 +6,8 @@ import { z } from "zod";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../../format";
-import { categoryParam, parsePage, parseReportMonth } from "../params";
+import { categoryParam, parsePage } from "../../params";
+import { parseReportMonth } from "../params";
 
 export const metadata: Metadata = { title: "Spending in a category · troba" };
 

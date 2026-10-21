@@ -87,7 +87,13 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       </form>
 
       {transactions.length === 0 ? (
-        <p>{filtered ? "No transactions match these filters." : "No transactions yet."}</p>
+        <p>
+          {page > 1
+            ? "No more transactions."
+            : filtered
+              ? "No transactions match these filters."
+              : "No transactions yet."}
+        </p>
       ) : (
         // A list, not a table: four columns don't fit a phone.
         <ol aria-label="Transactions, newest first">

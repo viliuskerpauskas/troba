@@ -101,11 +101,25 @@ test("filters, searches and pages through the list", async ({ page }) => {
      where u.email = $1`,
     [filterEmail],
   );
+  // A receipt on the GROCERY MART one, as attaching one will record it (no file is needed).
+  await db().$client.query(
+    `insert into money_attachments (user_id, transaction_id, filename, mime, size_bytes,
+       storage_path)
+     select t.user_id, t.id, 'receipt.jpg', 'image/jpeg', 1000, t.user_id || '/' || t.id
+     from money_transactions t join users u on u.id = t.user_id
+     where u.email = $1 and t.counterparty = 'GROCERY MART'`,
+    [filterEmail],
+  );
 
   await page.goto("/money/transactions");
   const list = page.getByRole("list", { name: "Transactions, newest first" });
   await expect(list.getByRole("listitem")).toHaveCount(100);
   await expect(list.getByRole("listitem").first()).toContainText("GROCERY MART");
+  await expect(list.getByRole("listitem").first()).toContainText("Food · -€12.50 · Receipt");
+  await expect(list.getByRole("listitem").filter({ hasText: "Receipt" })).toHaveCount(1);
+  await page.goto("/money/transactions?page=999");
+  await expect(page.getByText("No more transactions.")).toBeVisible();
+  await page.goto("/money/transactions");
   await expect(page.getByRole("link", { name: "Newer" })).toHaveCount(0);
   await page.getByRole("link", { name: "Older" }).click();
   await expect(list.getByRole("listitem")).toHaveCount(2);

@@ -1,6 +1,6 @@
 import { isMonth, type TransactionFilter } from "@troba/core";
 import { z } from "zod";
-import { categoryParam, parsePage } from "../report/params";
+import { categoryParam, parsePage } from "../params";
 
 // The list's query parameters. The form can only send well-formed values, so a malformed one is
 // an edited URL: it is left out rather than explained. Ids that aren't the user's match nothing,
@@ -18,7 +18,7 @@ const querySchema = z.object({
   category: categoryParam.optional().catch(undefined),
   q: z
     .string()
-    .transform((text) => text.trim().slice(0, searchMaxLength) || undefined)
+    .transform((text) => text.slice(0, searchMaxLength).trim() || undefined)
     .optional()
     .catch(undefined),
 });

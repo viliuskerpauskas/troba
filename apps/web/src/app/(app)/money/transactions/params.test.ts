@@ -45,6 +45,8 @@ describe("transaction list parameters", () => {
 
   it("keeps the search to 100 characters", () => {
     expect(parseListQuery({ q: "a".repeat(150) }).search).toBe("a".repeat(100));
+    // The cut comes first, so it can't leave a space at the end.
+    expect(parseListQuery({ q: `${"a".repeat(99)} b` }).search).toBe("a".repeat(99));
   });
 
   it("links to a page of the same filters, leaving out the empty ones and page 1", () => {
