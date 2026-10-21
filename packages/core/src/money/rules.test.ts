@@ -1,11 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { matchingRule, type RuleMatcher } from "./rules";
+import { matchingRule, ruleDraftFrom, type RuleMatcher } from "./rules";
 
 const rule = (id: string, field: RuleMatcher["field"], pattern: string): RuleMatcher => ({
   id,
   field,
   pattern,
   categoryId: `category-${id}`,
+});
+
+describe("a rule from a transaction", () => {
+  it("looks for the counterparty", () => {
+    expect(ruleDraftFrom({ counterparty: "GROCERY MART", description: "Card purchase" })).toEqual({
+      field: "counterparty",
+      pattern: "GROCERY MART",
+    });
+  });
+
+  it("looks for the description when there's no counterparty", () => {
+    expect(ruleDraftFrom({ counterparty: null, description: "Monthly fee" })).toEqual({
+      field: "description",
+      pattern: "Monthly fee",
+    });
+  });
+
+  it("starts empty when there's neither", () => {
+    expect(ruleDraftFrom({ counterparty: null, description: null })).toEqual({});
+  });
 });
 
 describe("matching rules", () => {

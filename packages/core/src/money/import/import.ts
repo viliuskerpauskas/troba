@@ -1,7 +1,7 @@
 import { schema, type Db, type DbTransaction } from "@troba/db";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { accountColumns, defaultCurrency, type Account } from "../accounts";
-import { listRules, matchingRule, type RuleMatcher } from "../rules";
+import { listRules, ruleCategory } from "../rules";
 import { readCsv } from "./csv";
 import {
   parseRows,
@@ -135,6 +135,7 @@ export async function commitImport(
             counterpartyIban: row.counterpartyIban,
             description: row.description,
             bankTxType: row.bankTxType,
+            // User rules (SPEC-money M5) categorize the rows transfer detection left.
             ...(transfer(row) ?? ruleCategory(rules, row)),
             source: "csv_import" as const,
             importId,
@@ -183,12 +184,6 @@ async function transferDetection(tx: DbTransaction, userId: string) {
     transfers && row.counterpartyIban && ownIbans.has(row.counterpartyIban)
       ? { categoryId: transfers.id, categorySource: "transfer" as const }
       : null;
-}
-
-// User rules (SPEC-money M5) categorize the rows transfer detection left.
-function ruleCategory(rules: readonly RuleMatcher[], row: ParsedRow) {
-  const rule = matchingRule(rules, row);
-  return rule ? { categoryId: rule.categoryId, categorySource: "rule" as const } : {};
 }
 
 // The preview without its duplicate counts, plus the rows that could be saved.

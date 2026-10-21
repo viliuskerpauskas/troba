@@ -7,6 +7,7 @@ import {
   moveRule,
   maxRules,
   ruleFields,
+  ruleMoveDirections,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -25,7 +26,7 @@ const NewRule = z.object({
 });
 
 const RuleId = z.uuid();
-const Direction = z.enum(["up", "down"]);
+const Direction = z.enum(ruleMoveDirections);
 
 // Rules change categories, which the transaction list and the report show.
 function revalidateRules() {

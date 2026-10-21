@@ -1,5 +1,6 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createAccount } from "./accounts";
 import { createCategory } from "./categories";
@@ -248,6 +249,33 @@ describe("rules", () => {
     expect(
       await createRule(db, userId, { field: "counterparty", pattern: "   ", categoryId: food.id }),
     ).toEqual({ ok: false, reason: "empty-pattern" });
+  });
+
+  it("keeps the cap and distinct positions when rules are created at once", async () => {
+    const userId = await createUser();
+    const food = await createCategory(db, userId, { name: "Food" });
+    await db.insert(schema.moneyRules).values(
+      Array.from({ length: maxRules - 5 }, (_, i) => ({
+        userId,
+        field: "counterparty" as const,
+        pattern: `SHOP ${i}`,
+        categoryId: food.id,
+        position: i + 1,
+      })),
+    );
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        createRule(db, userId, { field: "counterparty", pattern: `NEW ${i}`, categoryId: food.id }),
+      ),
+    );
+
+    expect(results.filter((result) => result.ok)).toHaveLength(5);
+    const positions = await db
+      .select({ position: schema.moneyRules.position })
+      .from(schema.moneyRules)
+      .where(eq(schema.moneyRules.userId, userId));
+    expect(new Set(positions.map((row) => row.position)).size).toBe(maxRules);
   });
 
   it("refuses a rule past the cap", async () => {

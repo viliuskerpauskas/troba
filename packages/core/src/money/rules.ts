@@ -21,37 +21,66 @@ export type Rule = RuleMatcher & { categoryName: string };
 // Rules are written by hand, so a user never needs more; the cap bounds every read of them.
 export const maxRules = 500;
 
+export const ruleMoveDirections = ["up", "down"] as const;
+export type RuleMoveDirection = (typeof ruleMoveDirections)[number];
+
 // Rules in their order; the first whose field contains its pattern, or null.
-export function matchingRule<R extends RuleMatcher>(rules: readonly R[], target: RuleTarget) {
+export function matchingRule(
+  rules: readonly RuleMatcher[],
+  target: RuleTarget,
+): RuleMatcher | null {
   return (
     rules.find((rule) => target[rule.field]?.toLowerCase().includes(rule.pattern.toLowerCase())) ??
     null
   );
 }
 
-const ruleColumns = {
+// The category the first matching rule gives, as a transaction's columns; nothing when none match.
+export function ruleCategory(rules: readonly RuleMatcher[], target: RuleTarget) {
+  const rule = matchingRule(rules, target);
+  return rule ? { categoryId: rule.categoryId, categorySource: "rule" as const } : {};
+}
+
+export type NewRule = { field: RuleField; pattern: string; categoryId: string };
+
+// "Create rule from this" on a transaction (SPEC-money M5): its counterparty, or its description
+// when it has none.
+export function ruleDraftFrom(target: RuleTarget): Partial<Omit<NewRule, "categoryId">> {
+  if (target.counterparty) return { field: "counterparty", pattern: target.counterparty };
+  if (target.description) return { field: "description", pattern: target.description };
+  return {};
+}
+
+const matcherColumns = {
   id: moneyRules.id,
   field: moneyRules.field,
   pattern: moneyRules.pattern,
   categoryId: moneyRules.categoryId,
-  categoryName: moneyCategories.name,
 };
+
+// First match wins, so every read of the rules agrees on this order.
+const ruleOrder = [asc(moneyRules.position), asc(moneyRules.createdAt), asc(moneyRules.id)];
 
 // The user's rules in order, with their category names. Served by money_rules_user_id_position_idx.
 export async function listRules(db: Db | DbTransaction, userId: string): Promise<Rule[]> {
   return db
-    .select(ruleColumns)
+    .select({ ...matcherColumns, categoryName: moneyCategories.name })
     .from(moneyRules)
     .innerJoin(
       moneyCategories,
       and(eq(moneyCategories.id, moneyRules.categoryId), eq(moneyCategories.userId, userId)),
     )
     .where(eq(moneyRules.userId, userId))
-    .orderBy(asc(moneyRules.position), asc(moneyRules.createdAt), asc(moneyRules.id))
+    .orderBy(...ruleOrder)
     .limit(maxRules);
 }
 
-export type NewRule = { field: RuleField; pattern: string; categoryId: string };
+// Serializes changes to one user's rule order until the transaction ends. Row locks can't do it:
+// a create counts rows and takes the last position, and a row that doesn't exist yet can't be
+// locked, so two creates at once could pass the cap or share a position.
+async function lockRules(tx: DbTransaction, userId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`money_rules:${userId}`}))`);
+}
 
 export type CreateRuleResult =
   | { ok: true; rule: Rule }
@@ -73,11 +102,12 @@ export async function createRule(
       .where(and(eq(moneyCategories.id, input.categoryId), eq(moneyCategories.userId, userId)));
     if (!category) return { ok: false, reason: "category-not-found" };
 
-    const [current] = await tx
-      .select({ rules: count(), lastPosition: max(moneyRules.position) })
+    await lockRules(tx, userId);
+    const [existing] = await tx
+      .select({ ruleCount: count(), lastPosition: max(moneyRules.position) })
       .from(moneyRules)
       .where(eq(moneyRules.userId, userId));
-    if (current!.rules >= maxRules) return { ok: false, reason: "too-many-rules" };
+    if (existing!.ruleCount >= maxRules) return { ok: false, reason: "too-many-rules" };
 
     const [created] = await tx
       .insert(moneyRules)
@@ -86,34 +116,29 @@ export async function createRule(
         field: input.field,
         pattern,
         categoryId: input.categoryId,
-        position: (current!.lastPosition ?? 0) + 1,
+        position: (existing!.lastPosition ?? 0) + 1,
       })
-      .returning({
-        id: moneyRules.id,
-        field: moneyRules.field,
-        pattern: moneyRules.pattern,
-        categoryId: moneyRules.categoryId,
-      });
+      .returning(matcherColumns);
     return { ok: true, rule: { ...created!, categoryName: category.name } };
   });
 }
 
 // Swaps the rule with its neighbour in the order; a rule already at that end stays. Returns
 // whether the user has a rule with that id. Positions are renumbered from 1, so gaps left by
-// deletes and ties left by concurrent creates go away; only rows whose position changes are written.
+// deletes go away; only rows whose position changes are written.
 export async function moveRule(
   db: Db,
   userId: string,
-  input: { ruleId: string; direction: "up" | "down" },
+  input: { ruleId: string; direction: RuleMoveDirection },
 ): Promise<boolean> {
   return db.transaction(async (tx) => {
+    await lockRules(tx, userId);
     const rules = await tx
       .select({ id: moneyRules.id, position: moneyRules.position })
       .from(moneyRules)
       .where(eq(moneyRules.userId, userId))
-      .orderBy(asc(moneyRules.position), asc(moneyRules.createdAt), asc(moneyRules.id))
-      .limit(maxRules)
-      .for("update");
+      .orderBy(...ruleOrder)
+      .limit(maxRules);
     const index = rules.findIndex((rule) => rule.id === input.ruleId);
     if (index === -1) return false;
 
@@ -150,9 +175,10 @@ export async function deleteRule(
 const applyBatchSize = 5000;
 
 // Gives every uncategorized transaction of the user the category of its first matching rule.
-// Returns how many were categorized. Pages are keyed on (booked_on, id), which
-// money_transactions_user_id_booked_on_idx serves; a row a rule doesn't match stays uncategorized,
-// so paging by offset or by "still uncategorized" would skip or reread rows.
+// Returns how many were categorized. Pages are keyed on (booked_on, id): a row a rule doesn't
+// match stays uncategorized, so paging by offset or by "still uncategorized" would skip or reread
+// rows. money_transactions_user_id_booked_on_idx serves user_id and booked_on >=; the id tie-break
+// and category_id is null are filtered within the user's rows.
 export async function applyRulesToUncategorized(db: Db, userId: string): Promise<number> {
   return db.transaction(async (tx) => {
     const rules = await listRules(tx, userId);

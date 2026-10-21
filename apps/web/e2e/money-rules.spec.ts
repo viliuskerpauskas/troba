@@ -71,4 +71,28 @@ test("creates a rule from an uncategorized transaction and applies it, keeping a
     /GROCERY MART\s+Food · -€12.50/,
     /GROCERY MART EXPRESS\s+Shopping · -€12.50/,
   ]);
+
+  // Reordering and deleting.
+  await page.goto("/money/rules");
+  await create.getByLabel("When").selectOption("description");
+  await create.getByLabel("contains (any case)").fill("Card purchase");
+  await create.getByLabel("Category").selectOption("Shopping");
+  await create.getByRole("button", { name: "Add rule" }).click();
+  await expect(rules.getByRole("listitem")).toHaveText([
+    /Counterparty contains “GROCERY MART” → Food/,
+    /Description contains “Card purchase” → Shopping/,
+  ]);
+
+  await rules
+    .getByRole("button", { name: "Move up: Description contains “Card purchase”" })
+    .click();
+  await expect(rules.getByRole("listitem")).toHaveText([
+    /Description contains “Card purchase” → Shopping/,
+    /Counterparty contains “GROCERY MART” → Food/,
+  ]);
+
+  await rules.getByRole("button", { name: "Delete: Counterparty contains “GROCERY MART”" }).click();
+  await expect(rules.getByRole("listitem")).toHaveText([
+    /Description contains “Card purchase” → Shopping/,
+  ]);
 });

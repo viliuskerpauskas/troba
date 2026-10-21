@@ -534,7 +534,7 @@ describe("import", () => {
       });
     });
 
-    it("leaves a re-imported row's category set by hand alone", async () => {
+    it("doesn't re-categorize saved rows when their file is imported again", async () => {
       const userId = await createUser();
       await createBankAccount(userId, ownIban);
       const categories = await listCategories(db, userId);

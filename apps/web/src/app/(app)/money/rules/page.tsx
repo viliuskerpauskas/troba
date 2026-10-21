@@ -1,10 +1,10 @@
-import { getTransaction, listCategories, listRules, type Transaction } from "@troba/core";
+import { getTransaction, listCategories, listRules, ruleDraftFrom } from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { z } from "zod";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
-import { deleteRuleAction, moveRuleAction, type RuleValues } from "./actions";
+import { deleteRuleAction, moveRuleAction } from "./actions";
 import { fieldLabels } from "./fields";
 import { ApplyRules, NewRuleForm } from "./rule-forms";
 
@@ -13,17 +13,6 @@ export const metadata: Metadata = { title: "Rules · troba" };
 // "Create rule from this" links here with the transaction's id, not its text, so the
 // counterparty stays out of URLs and logs.
 const fromSchema = z.uuid();
-
-// Pre-filled with the counterparty (SPEC-money M5), or the description when there is none.
-function ruleFrom(transaction: Transaction | null): RuleValues {
-  if (transaction?.counterparty) {
-    return { field: "counterparty", pattern: transaction.counterparty };
-  }
-  if (transaction?.description) {
-    return { field: "description", pattern: transaction.description };
-  }
-  return {};
-}
 
 export default async function RulesPage({ searchParams }: PageProps<"/money/rules">) {
   const { userId } = await requireMoneyUser();
@@ -99,7 +88,10 @@ export default async function RulesPage({ searchParams }: PageProps<"/money/rule
             .
           </p>
         )}
-        <NewRuleForm categories={categories} initial={ruleFrom(transaction)} />
+        <NewRuleForm
+          categories={categories}
+          initial={transaction ? ruleDraftFrom(transaction) : {}}
+        />
       </section>
     </main>
   );
