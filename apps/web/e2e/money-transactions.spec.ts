@@ -69,6 +69,90 @@ test("adds, edits and deletes a manual transaction on a phone-sized screen", asy
   await expect(page.getByText("No transactions yet.")).toBeVisible();
 });
 
+test("filters, searches and pages through the list", async ({ page }) => {
+  const filterEmail = "e2e-transaction-filters@example.test";
+  await db().$client.query("delete from users where email = $1", [filterEmail]);
+  const password = randomBytes(18).toString("base64");
+  await auth().api.createUser({ body: { email: filterEmail, password, name: "Filters Tester" } });
+
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.18" });
+  await page.goto("/sign-in");
+  await page.getByLabel("Email").fill(filterEmail);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  // The money home creates the Cash account and default categories.
+  await expect(page).toHaveURL("/money");
+
+  // 101 uncategorized September expenses and one October GROCERY MART expense in Food.
+  await db().$client.query(
+    `insert into money_transactions (user_id, account_id, booked_on, amount_cents, currency,
+       description, source)
+     select u.id, a.id, date '2026-09-01' + (n % 30), -100, 'EUR', 'Expense ' || n, 'manual'
+     from users u join money_accounts a on a.user_id = u.id, generate_series(1, 101) n
+     where u.email = $1`,
+    [filterEmail],
+  );
+  await db().$client.query(
+    `insert into money_transactions (user_id, account_id, booked_on, amount_cents, currency,
+       counterparty, category_id, category_source, source)
+     select u.id, a.id, date '2026-10-03', -1250, 'EUR', 'GROCERY MART', c.id, 'manual', 'manual'
+     from users u join money_accounts a on a.user_id = u.id
+       join money_categories c on c.user_id = u.id and c.name = 'Food'
+     where u.email = $1`,
+    [filterEmail],
+  );
+  // A receipt on the GROCERY MART one, as attaching one will record it (no file is needed).
+  await db().$client.query(
+    `insert into money_attachments (user_id, transaction_id, filename, mime, size_bytes,
+       storage_path)
+     select t.user_id, t.id, 'receipt.jpg', 'image/jpeg', 1000, t.user_id || '/' || t.id
+     from money_transactions t join users u on u.id = t.user_id
+     where u.email = $1 and t.counterparty = 'GROCERY MART'`,
+    [filterEmail],
+  );
+
+  await page.goto("/money/transactions");
+  const list = page.getByRole("list", { name: "Transactions, newest first" });
+  await expect(list.getByRole("listitem")).toHaveCount(100);
+  await expect(list.getByRole("listitem").first()).toContainText("GROCERY MART");
+  await expect(list.getByRole("listitem").first()).toContainText("Food · -€12.50 · Receipt");
+  await expect(list.getByRole("listitem").filter({ hasText: "Receipt" })).toHaveCount(1);
+  await page.goto("/money/transactions?page=999");
+  await expect(page.getByText("No more transactions.")).toBeVisible();
+  await page.goto("/money/transactions");
+  await expect(page.getByRole("link", { name: "Newer" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Older" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByRole("link", { name: "Older" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Newer" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(100);
+
+  await page.getByLabel("Search").fill("grocery");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(page).toHaveURL(/q=grocery/);
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await expect(list.getByRole("listitem")).toContainText("Food · -€12.50");
+  await expect(page.getByLabel("Search")).toHaveValue("grocery");
+
+  await page.getByLabel("Search").fill("");
+  await page.getByLabel("Category").selectOption("Uncategorized");
+  await page.getByLabel("Month").fill("2026-10");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(page.getByText("No transactions match these filters.")).toBeVisible();
+
+  await page.getByLabel("Month").fill("2026-09");
+  await page.getByRole("button", { name: "Filter" }).click();
+  await expect(list.getByRole("listitem")).toHaveCount(100);
+  await page.getByRole("link", { name: "Older" }).click();
+  await expect(page).toHaveURL(/category=uncategorized.*page=2/);
+  await expect(list.getByRole("listitem")).toHaveCount(1);
+  await expectNoSideways(page);
+
+  await page.getByRole("link", { name: "Clear filters" }).click();
+  await expect(page).toHaveURL("/money/transactions");
+  await expect(list.getByRole("listitem")).toHaveCount(100);
+});
+
 async function expectNoSideways(page: import("@playwright/test").Page) {
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(360);
