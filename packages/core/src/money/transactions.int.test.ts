@@ -412,6 +412,102 @@ describe("transactions", () => {
       expect.objectContaining({ id: bobsOwn.id, accountId: bob.cashId, categoryId: null }),
     ]);
   });
+
+  describe("list filters", () => {
+    const descriptions = (listed: { description: string | null }[]) =>
+      listed.map((t) => t.description);
+
+    it("filters by account", async () => {
+      const { userId, cashId } = await createUser();
+      const card = await createAccount(db, userId, {
+        name: "Card",
+        type: "other",
+        currency: "EUR",
+      });
+      if (!card.ok) throw new Error(card.reason);
+      const expense = { bookedOn: "2026-10-05", amountCents: 100n, direction: "expense" } as const;
+      await createOk(userId, { ...expense, accountId: cashId, description: "cash" });
+      await createOk(userId, { ...expense, accountId: card.account.id, description: "card" });
+
+      expect(
+        descriptions(await listTransactions(db, userId, { accountId: card.account.id })),
+      ).toEqual(["card"]);
+    });
+
+    it("searches counterparty and description, ignoring case, with % and _ taken literally", async () => {
+      const { userId, cashId } = await createUser();
+      const add = (counterparty: string | null, description: string) =>
+        createOk(userId, {
+          accountId: cashId,
+          bookedOn: "2026-10-05",
+          amountCents: 100n,
+          direction: "expense",
+          counterparty,
+          description,
+        });
+      await add("GROCERY MART", "weekly shop");
+      await add(null, "groceries for the party");
+      await add("CAFE EXAMPLE", "coffee");
+      await add("BOOK SHOP", "50% off");
+      await add("BOOK SHOP", "500 off");
+      await add(null, String.raw`C:\temp`);
+
+      const search = async (text: string) =>
+        descriptions(await listTransactions(db, userId, { search: text })).sort();
+      expect(await search("grocer")).toEqual(["groceries for the party", "weekly shop"]);
+      expect(await search("  Coffee ")).toEqual(["coffee"]);
+      expect(await search("50%")).toEqual(["50% off"]);
+      expect(await search("5_0")).toEqual([]);
+      expect(await search(String.raw`:\t`)).toEqual([String.raw`C:\temp`]);
+      expect(await search(String.raw`\\`)).toEqual([]);
+      expect(await search("")).toHaveLength(6);
+    });
+
+    it("says which transactions have a receipt attached", async () => {
+      const { userId, cashId } = await createUser();
+      const expense = { accountId: cashId, amountCents: 100n, direction: "expense" } as const;
+      const withReceipt = await createOk(userId, { ...expense, bookedOn: "2026-10-06" });
+      await createOk(userId, { ...expense, bookedOn: "2026-10-05" });
+      await db.insert(schema.moneyAttachments).values(
+        [1, 2].map((n) => ({
+          userId,
+          transactionId: withReceipt.id,
+          filename: `receipt-${n}.jpg`,
+          mime: "image/jpeg",
+          sizeBytes: 1000,
+          storagePath: `${userId}/receipt-${n}-${withReceipt.id}`,
+        })),
+      );
+
+      expect((await listTransactions(db, userId)).map((t) => t.hasReceipt)).toEqual([true, false]);
+      expect(await getTransaction(db, userId, withReceipt.id)).toMatchObject({ hasReceipt: true });
+    });
+
+    it("never returns another user's rows, even given their account and category", async () => {
+      const alice = await createUser();
+      const bob = await createUser();
+      const shop = {
+        bookedOn: "2026-10-05",
+        amountCents: 100n,
+        direction: "expense",
+        counterparty: "GROCERY MART",
+      } as const;
+      await createOk(alice.userId, {
+        ...shop,
+        accountId: alice.cashId,
+        categoryId: alice.category("Food"),
+      });
+      await createOk(alice.userId, { ...shop, accountId: alice.cashId });
+      const bobsOwn = await createOk(bob.userId, { ...shop, accountId: bob.cashId });
+
+      const bobLists = (filter: Parameters<typeof listTransactions>[2]) =>
+        listTransactions(db, bob.userId, filter);
+      expect(await bobLists({ accountId: alice.cashId })).toEqual([]);
+      expect(await bobLists({ category: alice.category("Food") })).toEqual([]);
+      expect(await bobLists({ search: "grocery", month: "2026-10" })).toEqual([bobsOwn]);
+      expect(await bobLists({ category: "uncategorized" })).toEqual([bobsOwn]);
+    });
+  });
 });
 
 // An imported transaction, as the CSV import will write it.

@@ -1,11 +1,11 @@
 import { schema, type Db } from "@troba/db";
-import { and, desc, eq, gte, isNull, lt, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import { monthRange } from "./month";
 
 // Transactions (SPEC-money M2, M8). Manual ones are entered by hand and fully editable; imported
 // ones (csv_import) keep what the bank reported, so only their category and note change.
 
-const { moneyAccounts, moneyCategories, moneyTransactions } = schema;
+const { moneyAccounts, moneyAttachments, moneyCategories, moneyTransactions } = schema;
 
 export const transactionDirections = ["expense", "income"] as const;
 export type Direction = (typeof transactionDirections)[number];
@@ -26,6 +26,8 @@ export type Transaction = {
   categorySource: (typeof schema.categorySources)[number] | null;
   note: string | null;
   source: (typeof schema.transactionSources)[number];
+  // At least one receipt attached (SPEC-money M6).
+  hasReceipt: boolean;
 };
 
 // What the bank would report: fixed on imported transactions.
@@ -65,6 +67,11 @@ const transactionColumns = {
   categorySource: moneyTransactions.categorySource,
   note: moneyTransactions.note,
   source: moneyTransactions.source,
+  hasReceipt: sql<boolean>`exists (
+    select 1 from ${moneyAttachments}
+    where ${moneyAttachments.transactionId} = ${moneyTransactions.id}
+      and ${moneyAttachments.userId} = ${moneyTransactions.userId}
+  )`,
 };
 
 // Transactions with their account and category names, in one query.
@@ -261,6 +268,9 @@ export async function deleteTransaction(
 
 export type TransactionFilter = {
   month?: string; // YYYY-MM
+  accountId?: string;
+  // Text in the counterparty or description, ignoring case.
+  search?: string;
   // A category id, or the transactions without one.
   category?: string | "uncategorized";
   // With expensesOnly, what makes up a monthly report row (report.ts).
@@ -273,6 +283,18 @@ function filterWhere(filter: TransactionFilter): SQL | undefined {
   if (filter.month) {
     const [from, to] = monthRange(filter.month);
     conditions.push(gte(moneyTransactions.bookedOn, from), lt(moneyTransactions.bookedOn, to));
+  }
+  if (filter.accountId) conditions.push(eq(moneyTransactions.accountId, filter.accountId));
+  const search = optionalText(filter.search);
+  if (search) {
+    // LIKE's wildcards and its escape character, backslash, are matched as typed.
+    const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+    conditions.push(
+      or(
+        ilike(moneyTransactions.counterparty, pattern),
+        ilike(moneyTransactions.description, pattern),
+      )!,
+    );
   }
   if (filter.category === "uncategorized") conditions.push(isNull(moneyTransactions.categoryId));
   else if (filter.category) conditions.push(eq(moneyTransactions.categoryId, filter.category));
