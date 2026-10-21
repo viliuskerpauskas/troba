@@ -23,7 +23,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "unit",
-          include: sources.map((dir) => `${dir}/*.test.{ts,tsx}`),
+          include: [...sources.map((dir) => `${dir}/*.test.{ts,tsx}`), ".claude/hooks/*.test.mjs"],
           exclude: sources.map((dir) => `${dir}/*.int.test.{ts,tsx}`),
         },
       },
