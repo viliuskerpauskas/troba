@@ -16,4 +16,5 @@ export * from "./money/import/profiles";
 export * from "./money/import/upload";
 export * from "./money/month";
 export * from "./money/report";
+export * from "./money/rules";
 export * from "./money/transactions";

@@ -8,7 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { archiveAccount, createAccount, listAccounts } from "../accounts";
 import { deleteCategory, listCategories, renameCategory } from "../categories";
 import { ensureMoneyDefaults } from "../defaults";
-import { listTransactions } from "../transactions";
+import { createRule } from "../rules";
+import { listTransactions, updateTransaction } from "../transactions";
 import {
   commitImport,
   createImportAccount,
@@ -487,6 +488,75 @@ describe("import", () => {
     expect(await previewImport(db, userId, signedInput({ accountId: cash!.id }))).toEqual({
       ok: false,
       reason: "account-mismatch",
+    });
+  });
+
+  describe("rules", () => {
+    it("categorizes new rows by the first matching rule, after transfer detection", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      await createBankAccount(userId, "GB82WEST12345698765432");
+      const categories = await listCategories(db, userId);
+      const named = (name: string) => categories.find((c) => c.name === name)!.id;
+      for (const [field, pattern, category] of [
+        ["description", "card purchase", "Food"],
+        ["counterparty", "grocery", "Shopping"],
+        // Row T1002 is a transfer to another of the user's accounts: that wins.
+        ["counterparty", "ACME", "Income"],
+      ] as const) {
+        const rule = await createRule(db, userId, {
+          field,
+          pattern,
+          categoryId: named(category),
+        });
+        if (!rule.ok) throw new Error(`createRule failed: ${rule.reason}`);
+      }
+
+      await commitImport(db, userId, signedInput());
+
+      const saved = await listTransactions(db, userId);
+      const byCounterparty = (counterparty: string) =>
+        saved.find((t) => t.counterparty === counterparty);
+      expect(byCounterparty("GROCERY MART")).toMatchObject({
+        categoryName: "Food",
+        categorySource: "rule",
+      });
+      expect(byCounterparty('CAFE "SUNNY"')).toMatchObject({
+        categoryName: "Food",
+        categorySource: "rule",
+      });
+      expect(byCounterparty("ACME LTD")).toMatchObject({
+        categoryName: "Transfers",
+        categorySource: "transfer",
+      });
+      expect(byCounterparty("STREAMING CO")).toMatchObject({
+        categoryId: null,
+        categorySource: null,
+      });
+    });
+
+    it("doesn't re-categorize saved rows when their file is imported again", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      const categories = await listCategories(db, userId);
+      const food = categories.find((c) => c.name === "Food")!;
+      const shopping = categories.find((c) => c.name === "Shopping")!;
+      await commitImport(db, userId, signedInput());
+      const grocery = (await listTransactions(db, userId)).find(
+        (t) => t.counterparty === "GROCERY MART",
+      )!;
+      await updateTransaction(db, userId, {
+        transactionId: grocery.id,
+        categoryId: shopping.id,
+        note: null,
+      });
+      await createRule(db, userId, { field: "counterparty", pattern: "MART", categoryId: food.id });
+
+      await commitImport(db, userId, signedInput());
+
+      expect(
+        (await listTransactions(db, userId)).find((t) => t.counterparty === "GROCERY MART"),
+      ).toMatchObject({ categoryId: shopping.id, categorySource: "manual" });
     });
   });
 

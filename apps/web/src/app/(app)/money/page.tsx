@@ -25,6 +25,9 @@ export default async function MoneyPage() {
       <p>
         <Link href="/money/categories">Categories</Link>
       </p>
+      <p>
+        <Link href="/money/rules">Rules</Link>
+      </p>
     </main>
   );
 }
