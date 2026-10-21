@@ -67,9 +67,10 @@ test("creates a rule from an uncategorized transaction and applies it, keeping a
   );
 
   await page.goto("/money/transactions");
+  // A list item's text has no space where its line breaks.
   await expect(list.getByRole("listitem")).toHaveText([
-    /GROCERY MART\s+Food · -€12.50/,
-    /GROCERY MART EXPRESS\s+Shopping · -€12.50/,
+    /GROCERY MARTFood · -€12.50/,
+    /GROCERY MART EXPRESSShopping · -€12.50/,
   ]);
 
   // Reordering and deleting.
