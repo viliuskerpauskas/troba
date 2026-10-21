@@ -24,7 +24,7 @@ export default async function CategoriesPage() {
               <li key={category.id}>
                 <RenameCategoryForm categoryId={category.id} name={category.name} />
                 {category.excludedFromSpending ? (
-                  // Imports assign it to moves between the user's own accounts; core refuses too.
+                  // Core refuses the delete too; hiding the button only spares a dead control.
                   <p>
                     Not counted as spending: moving money between your own accounts. It can&apos;t
                     be deleted, since imports put those moves here.

@@ -42,7 +42,7 @@ No bank-specific code ships in the repo. A user teaches troba their bank's forma
 
 **M4. Categories**
 - Each new user gets a default set: Food, Transport, Bills, Housing, Health, Shopping, Entertainment, Income, Transfers, Other.
-- A user can add, rename and delete categories. Deleting one moves its transactions to *uncategorized* after confirmation.
+- A user can add, rename and delete categories (except deleting `Transfers`, below). Deleting one moves its transactions to *uncategorized* after confirmation.
 - Flat list only in v1 (no subcategories).
 - The `Transfers` category is excluded from spending totals, so moving money between your own accounts doesn't count as spending.
 - `Transfers` can be renamed but not deleted, since imports assign it (M3). It is the only category excluded from spending: new categories never are.

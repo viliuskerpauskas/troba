@@ -96,9 +96,10 @@ export async function deleteCategory(
           eq(moneyTransactions.categoryId, input.categoryId),
         ),
       );
-    await tx
+    const deleted = await tx
       .delete(moneyCategories)
-      .where(and(eq(moneyCategories.id, input.categoryId), eq(moneyCategories.userId, userId)));
-    return true;
+      .where(and(eq(moneyCategories.id, input.categoryId), eq(moneyCategories.userId, userId)))
+      .returning({ id: moneyCategories.id });
+    return deleted.length > 0;
   });
 }

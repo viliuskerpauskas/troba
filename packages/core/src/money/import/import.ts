@@ -162,7 +162,8 @@ export async function commitImport(
 
 // Money moved between the user's own accounts is a transfer, not spending: a row whose
 // counterparty IBAN is one of theirs goes to Transfers, before user rules run. Transfers is found
-// by its flag, which survives a rename; with no such category the row stays uncategorized (T74).
+// by its flag, which survives a rename. It can't be deleted (SPEC-money M4), but a user who deleted
+// it before that rule has none, and their rows stay uncategorized.
 async function transferDetection(tx: DbTransaction, userId: string) {
   const owned = await tx
     .select({ iban: moneyAccounts.iban })
