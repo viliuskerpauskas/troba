@@ -11,6 +11,7 @@ import { auth, passwordLength } from "./auth";
 import { clientIp } from "./client-ip";
 import { db } from "./db";
 import { uploadsDir } from "./env";
+import { describeIpAddress } from "./ip-address";
 import { describeDevice } from "./user-agent";
 
 // Account settings (SPEC-identity I3, I4). Each function acts as the user whose session cookie
@@ -28,8 +29,7 @@ export class NotSignedInError extends Error {
 export type SessionSummary = {
   id: string;
   device: string;
-  // So the user can spot a session they don't recognise. Null when Better Auth couldn't tell
-  // (it stores ""). IPv6 addresses are stored as their /64 prefix.
+  // So the user can spot a session they don't recognise; see describeIpAddress.
   ipAddress: string | null;
   lastActive: Date;
   current: boolean;
@@ -124,7 +124,7 @@ export async function listSessions(requestHeaders: Headers): Promise<SessionSumm
   return sessions.map((session) => ({
     id: session.id,
     device: describeDevice(session.userAgent),
-    ipAddress: session.ipAddress || null,
+    ipAddress: describeIpAddress(session.ipAddress),
     // Better Auth refreshes a session at most once a day (updateAge), so this is day-accurate.
     lastActive: session.updatedAt,
     current: session.id === current.id,
