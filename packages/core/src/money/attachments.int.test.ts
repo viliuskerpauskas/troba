@@ -284,7 +284,7 @@ describe("attachments", () => {
     expect(await getTransaction(db, userId, transactionId)).not.toBeNull();
   });
 
-  it("refuses a user id that isn't a uuid before touching any file", async () => {
+  it("refuses a user id that isn't a uuid", async () => {
     const { transactionId } = await createUser();
     const input = { userId: "..", uploadsDir, transactionId, filename: "r.jpg", bytes: jpeg };
 
@@ -293,13 +293,101 @@ describe("attachments", () => {
 
   it("leaves no file behind when the row can't be written", async () => {
     const { userId, transactionId } = await createUser();
-
-    // Postgres text can't hold NUL, so the insert fails after the file was written.
-    const input = { userId, uploadsDir, transactionId, filename: "r\0.jpg", bytes: jpeg };
-    await expect(addAttachment(db, input)).rejects.toThrow();
+    // A real failure after the file was written: Postgres refuses this one row.
+    await db.$client.query(`
+      create function refuse_attachment() returns trigger language plpgsql as $$
+      begin raise exception 'refused for the test'; end $$;
+      create trigger refuse_attachment before insert on money_attachments
+      for each row when (new.filename = 'refused.jpg') execute function refuse_attachment();
+    `);
+    try {
+      const input = { userId, uploadsDir, transactionId, filename: "refused.jpg", bytes: jpeg };
+      await expect(addAttachment(db, input)).rejects.toThrow();
+    } finally {
+      await db.$client.query(`
+        drop trigger refuse_attachment on money_attachments;
+        drop function refuse_attachment();
+      `);
+    }
 
     expect(await readdir(path.join(uploadsDir, userId))).toEqual([]);
     expect(await listAttachments(db, userId, transactionId)).toEqual([]);
+  });
+
+  it.each([
+    ["control characters", "r\0e\u0007ceipt\n.jpg", "receipt.jpg"],
+    ["surrounding spaces", "  receipt.jpg  ", "receipt.jpg"],
+    ["no usable name", " \t ", "receipt"],
+    // Cut by characters, so an emoji isn't split in half.
+    ["a long name", `${"a".repeat(199)}🧾.jpg`, `${"a".repeat(199)}🧾`],
+  ])("cleans up a filename with %s", async (_name, filename, stored) => {
+    const { userId, transactionId } = await createUser();
+
+    const result = await addAttachment(db, {
+      userId,
+      uploadsDir,
+      transactionId,
+      filename,
+      bytes: jpeg,
+    });
+
+    expect(result).toMatchObject({ ok: true, attachment: { filename: stored } });
+  });
+
+  it("holds the per-transaction limit when uploads arrive at once", async () => {
+    const { userId, transactionId } = await createUser();
+    const attach = () =>
+      addAttachment(db, { userId, uploadsDir, transactionId, filename: "r.png", bytes: png });
+    for (let i = 0; i < maxAttachmentsPerTransaction - 1; i++) await attach();
+    // Five open connections, so the uploads below really run at once rather than one finishing
+    // while the next connects; larger files keep each between its count and its insert longer.
+    await Promise.all(Array.from({ length: 5 }, () => db.$client.query("select pg_sleep(0.05)")));
+    const photo = new Uint8Array(4 * 1024 * 1024);
+    photo.set(png);
+    const attachPhoto = () =>
+      addAttachment(db, { userId, uploadsDir, transactionId, filename: "p.png", bytes: photo });
+
+    const results = await Promise.all(Array.from({ length: 5 }, attachPhoto));
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toEqual(
+      Array.from({ length: 4 }, () => ({ ok: false, reason: "limit-reached" })),
+    );
+    expect(await listAttachments(db, userId, transactionId)).toHaveLength(
+      maxAttachmentsPerTransaction,
+    );
+    expect(await readdir(path.join(uploadsDir, userId))).toHaveLength(maxAttachmentsPerTransaction);
+  });
+
+  it("leaves no file behind when an upload races the transaction's deletion", async () => {
+    const { userId } = await createUser();
+    const [cash] = await listAccounts(db, userId);
+    const folder = path.join(uploadsDir, userId);
+
+    for (let round = 0; round < 20; round++) {
+      const created = await createTransaction(db, userId, {
+        accountId: cash!.id,
+        bookedOn: "2026-10-05",
+        amountCents: 100n,
+        direction: "expense",
+      });
+      if (!created.ok) throw new Error(created.reason);
+      const transactionId = created.transaction.id;
+      const attach = () =>
+        addAttachment(db, { userId, uploadsDir, transactionId, filename: "r.png", bytes: png });
+
+      const [deleted, ...added] = await Promise.all([
+        deleteTransaction(db, userId, { transactionId, uploadsDir }),
+        attach(),
+        attach(),
+      ]);
+
+      expect(deleted).toBe(true);
+      for (const result of added) {
+        if (!result.ok) expect(result).toEqual({ ok: false, reason: "transaction-not-found" });
+      }
+      expect(existsSync(folder) ? await readdir(folder) : []).toEqual([]);
+    }
   });
 
   it("treats an attachment whose file is gone as removed, and won't serve it", async () => {

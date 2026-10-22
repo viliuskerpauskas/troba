@@ -106,6 +106,19 @@ function filePath(uploadsDir: string, userId: string, storagePath: string): stri
   return file;
 }
 
+const maxFilenameLength = 200;
+
+// The client's filename is metadata, so it's cleaned rather than refused: phones name photos, and
+// a file picked from elsewhere may have no usable name. Control characters go (Postgres text
+// can't hold NUL), and a long name is cut by characters, so no emoji is split in half.
+function cleanFilename(filename: string): string {
+  const cleaned = Array.from(filename.replace(/\p{Cc}/gu, "").trim())
+    .slice(0, maxFilenameLength)
+    .join("")
+    .trim();
+  return cleaned || "receipt";
+}
+
 export async function addAttachment(
   db: Db,
   input: {
@@ -123,7 +136,8 @@ export async function addAttachment(
   const storagePath = `${userId}/${randomUUID()}`;
   const file = filePath(uploadsDir, userId, storagePath);
 
-  let written = false;
+  // Set before the write: a write that fails partway can leave a file too.
+  let writing = false;
   try {
     return await db.transaction(async (tx) => {
       // Locked, so the count holds until the insert commits, and a deleteTransaction running at
@@ -143,14 +157,14 @@ export async function addAttachment(
       }
 
       await mkdir(path.dirname(file), { recursive: true });
+      writing = true;
       await writeFile(file, bytes, { flag: "wx" });
-      written = true;
       const [attachment] = await tx
         .insert(moneyAttachments)
         .values({
           userId,
           transactionId,
-          filename: input.filename,
+          filename: cleanFilename(input.filename),
           mime,
           sizeBytes: bytes.byteLength,
           storagePath,
@@ -159,8 +173,8 @@ export async function addAttachment(
       return { ok: true, attachment: attachment! } as const;
     });
   } catch (error) {
-    // No row, so no file either.
-    if (written) await rm(file, { force: true });
+    // No row, so no file either. The original error is the one worth reporting.
+    if (writing) await rm(file, { force: true }).catch(() => {});
     throw error;
   }
 }

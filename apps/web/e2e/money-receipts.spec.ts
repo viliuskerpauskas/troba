@@ -11,7 +11,7 @@ const png = Buffer.from(
   "base64",
 );
 
-test("attaches a receipt to a transaction, views it and removes it", async ({ page }) => {
+test("attaches a receipt to a transaction, views it and removes it", async ({ page, request }) => {
   await db().$client.query("delete from users where email = $1", [email]);
   const password = randomBytes(18).toString("base64");
   await auth().api.createUser({ body: { email, password, name: "Receipts Tester" } });
@@ -53,9 +53,16 @@ test("attaches a receipt to a transaction, views it and removes it", async ({ pa
     mimeType: "image/jpeg",
     buffer: Buffer.alloc(10 * 1024 * 1024 + 1),
   });
-  await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-    "That file is over 10 MB. Take the photo at a lower resolution or attach a PDF.",
-  );
+  const tooLarge = "That file is over 10 MB. Take the photo at a lower resolution or attach a PDF.";
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(tooLarge);
+  const posts: string[] = [];
+  page.on("request", (sent) => {
+    if (sent.method() === "POST") posts.push(sent.url());
+  });
+  await page.getByRole("button", { name: "Attach" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(tooLarge);
+  await expect(page.getByText("No receipts attached.")).toBeVisible();
+  expect(posts).toEqual([]);
 
   await receipt.setInputFiles({ name: "GROCERY MART.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Attach" }).click();
@@ -73,9 +80,8 @@ test("attaches a receipt to a transaction, views it and removes it", async ({ pa
   expect(served.headers()["content-type"]).toBe("image/png");
   expect(served.headers()["x-content-type-options"]).toBe("nosniff");
   await view.close();
-  // Without the session cookie.
-  const signedOut = await page.request.get(view.url(), { headers: { cookie: "" } });
-  expect(signedOut.status()).toBe(401);
+  // The test's own request context has no session.
+  expect((await request.get(new URL(view.url()).pathname)).status()).toBe(401);
 
   const download = page.waitForEvent("download");
   await receipts.getByRole("link", { name: "Download" }).click();

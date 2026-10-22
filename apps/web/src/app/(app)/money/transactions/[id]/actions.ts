@@ -9,24 +9,13 @@ import { requireUser } from "@/server/session";
 import { receiptMessages, receiptTooLargeMessage } from "./receipt-messages";
 
 // Receipts on a transaction (SPEC-money M6). The file's type is checked by its content in core;
-// the declared type and the name are the client's and only the name is kept, as metadata.
+// the declared type and the name are the client's and only the name is kept, as metadata, which
+// core cleans up.
 
 export type AttachState = { error?: string };
 
 const Id = z.uuid();
 const tooLarge = receiptTooLargeMessage(maxAttachmentBytes);
-// Normalises rather than refuses: phones name photos, and a file picked from elsewhere may have no
-// usable name. Control characters go (Postgres text can't hold NUL), and long names are cut.
-const ReceiptFilename = z
-  .string()
-  .transform((name) =>
-    name
-      .replace(/\p{Cc}/gu, "")
-      .trim()
-      .slice(0, 200),
-  )
-  .pipe(z.string().max(200))
-  .transform((name) => name || "receipt");
 
 function revalidateTransactionPages(transactionId: string) {
   revalidatePath(`/money/transactions/${transactionId}`);
@@ -49,7 +38,8 @@ export async function attachReceiptAction(
     userId,
     uploadsDir: uploadsDir(),
     transactionId: transactionId.data,
-    filename: ReceiptFilename.parse(file.data.name),
+    // Cleaned up in core: it's metadata, never a path.
+    filename: file.data.name,
     bytes: new Uint8Array(await file.data.arrayBuffer()),
   });
   if (!result.ok) {
