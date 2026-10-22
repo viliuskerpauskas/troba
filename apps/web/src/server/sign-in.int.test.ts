@@ -103,6 +103,26 @@ describe("signInWithPassword", () => {
     });
   });
 
+  it("deletes every user's expired sessions on sign-in, keeping live ones", async () => {
+    const other = await createUser();
+    await signIn(fromIp(newIp()), other, password);
+    await modules.db
+      .db()
+      .$client.query("update sessions set expires_at = now() - interval '1 hour'");
+    const live = await createUser();
+    await signIn(fromIp(newIp()), live, password);
+    const email = await createUser();
+
+    expect(await signIn(fromIp(newIp()), email, password)).toEqual({ ok: true });
+
+    const { rows } = await modules.db
+      .db()
+      .$client.query<{ email: string }>(
+        "select u.email from sessions s join users u on u.id = s.user_id order by u.email",
+      );
+    expect(rows.map((row) => row.email)).toEqual([live, email].sort());
+  });
+
   it("starts the count again after a successful sign-in", async () => {
     const email = await createUser();
     for (let i = 0; i < 4; i++) await signIn(fromIp(newIp()), email, wrongPassword);

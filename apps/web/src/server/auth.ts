@@ -1,4 +1,4 @@
-import { recordActivity } from "@troba/core";
+import { deleteExpiredSessions, recordActivity } from "@troba/core";
 import { schema } from "@troba/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -52,12 +52,20 @@ function createAuth() {
     // Last active for the admin users list (SPEC-identity I6). A session is refreshed at most
     // once a day (updateAge), so this is day-accurate. A refresh passes null when the session was
     // deleted meanwhile (disabled, password reset); Better Auth then signs the browser out.
+    // Sign-ins and refreshes also delete every user's expired sessions, which Better Auth would
+    // otherwise keep until their browser came back.
     databaseHooks: {
       session: {
-        create: { after: (session) => recordActivity(db(), session.userId) },
+        create: {
+          after: async (session) => {
+            await recordActivity(db(), session.userId);
+            await deleteExpiredSessions(db());
+          },
+        },
         update: {
           after: async (session) => {
             if (session) await recordActivity(db(), session.userId);
+            await deleteExpiredSessions(db());
           },
         },
       },
