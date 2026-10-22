@@ -25,6 +25,20 @@ const roles = {
   user: ac.newRole({ user: [], session: [] }),
 };
 
+// Sign-ins and refreshes also delete every user's expired sessions, which Better Auth would
+// otherwise keep until their browser came back. The request doesn't depend on it, so a failure is
+// logged rather than failing the sign-in or the page; the next sign-in or refresh retries.
+async function deleteExpiredSessionsBestEffort() {
+  try {
+    await deleteExpiredSessions(db());
+  } catch (error) {
+    console.error(
+      "deleting expired sessions failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 function createAuth() {
   const { BETTER_AUTH_SECRET, BETTER_AUTH_URL } = env();
   return betterAuth({
@@ -52,20 +66,18 @@ function createAuth() {
     // Last active for the admin users list (SPEC-identity I6). A session is refreshed at most
     // once a day (updateAge), so this is day-accurate. A refresh passes null when the session was
     // deleted meanwhile (disabled, password reset); Better Auth then signs the browser out.
-    // Sign-ins and refreshes also delete every user's expired sessions, which Better Auth would
-    // otherwise keep until their browser came back.
     databaseHooks: {
       session: {
         create: {
           after: async (session) => {
             await recordActivity(db(), session.userId);
-            await deleteExpiredSessions(db());
+            await deleteExpiredSessionsBestEffort();
           },
         },
         update: {
           after: async (session) => {
             if (session) await recordActivity(db(), session.userId);
-            await deleteExpiredSessions(db());
+            await deleteExpiredSessionsBestEffort();
           },
         },
       },

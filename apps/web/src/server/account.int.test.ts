@@ -34,11 +34,14 @@ async function createUser() {
   return { id: user.id, email };
 }
 
+// TEST-NET-3 (RFC 5737), the address every test browser signs in from.
+const ipAddress = "203.0.113.7";
+
 // Signs in like a browser would and returns the request headers that browser sends afterwards.
 async function signIn(email: string, userAgent: string, withPassword = password) {
   const { headers } = await modules.auth.auth().api.signInEmail({
     body: { email, password: withPassword },
-    headers: new Headers({ "user-agent": userAgent }),
+    headers: new Headers({ "user-agent": userAgent, "x-forwarded-for": ipAddress }),
     returnHeaders: true,
   });
   const cookie = headers
@@ -205,12 +208,14 @@ describe("account", () => {
         {
           id: expect.any(String),
           device: "Firefox on Windows",
+          ipAddress,
           lastActive: expect.any(Date),
           current: true,
         },
         {
           id: expect.any(String),
           device: "Safari on iPhone",
+          ipAddress,
           lastActive: expect.any(Date),
           current: false,
         },

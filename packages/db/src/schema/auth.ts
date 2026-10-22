@@ -41,7 +41,7 @@ export const sessions = pgTable(
     updatedAt: updatedAt(),
     // Personal data, kept only while the session lives (deleteExpiredSessions in @troba/core).
     // The user agent names the device and browser in the active sessions list (SPEC-identity I4);
-    // the IP address lets a user or admin spot a session they don't recognise.
+    // the IP address, shown in that list too, lets the user spot a session they don't recognise.
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
     userId: uuid("user_id")

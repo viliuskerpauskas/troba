@@ -20,13 +20,11 @@ describe("deleteExpiredSessions", () => {
   });
 
   it("deletes every user's expired sessions and leaves live ones alone", async () => {
-    const userIds: string[] = [];
     for (const n of [1, 2]) {
       const [user] = await db
         .insert(schema.users)
         .values({ name: `User ${n}`, email: `user${n}@example.test` })
         .returning({ id: schema.users.id });
-      userIds.push(user!.id);
       await db.insert(schema.sessions).values([
         {
           userId: user!.id,
