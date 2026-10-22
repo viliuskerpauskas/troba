@@ -33,6 +33,9 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       <p>
         <Link href="/money/transactions/new">Add transaction</Link>
       </p>
+      <p>
+        <Link href="/money/import">Import a bank statement</Link>
+      </p>
 
       <form method="get" aria-label="Filter transactions">
         <p>

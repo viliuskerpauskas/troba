@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
+import { expect, test } from "./test";
 
 // Each test gets its own user, so password changes and revoked sessions can't affect other tests.
 async function createUser(email: string) {
@@ -10,10 +11,6 @@ async function createUser(email: string) {
   await auth().api.createUser({ body: { email, password, name: "Settings Tester" } });
   return { email, password };
 }
-
-test.afterAll(async () => {
-  await db().$client.end();
-});
 
 // A separate browser context is a separate device with its own cookies.
 async function signedInDevice(browser: Browser, user: { email: string; password: string }) {

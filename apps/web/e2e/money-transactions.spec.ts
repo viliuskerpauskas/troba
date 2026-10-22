@@ -1,13 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { expect, test } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
+import { expect, test } from "./test";
 
 const email = "e2e-transactions@example.test";
-
-test.afterAll(async () => {
-  await db().$client.end();
-});
 
 // SPEC-money M2: the form works on a 360px-wide phone screen.
 test.use({ viewport: { width: 360, height: 740 } });

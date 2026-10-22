@@ -1,6 +1,6 @@
 import { schema, type Db, type DbTransaction } from "@troba/db";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import { accountColumns, defaultCurrency, type Account } from "../accounts";
+import { accountColumns, createAccount, defaultCurrency, type Account } from "../accounts";
 import { listRules, ruleCategory } from "../rules";
 import { readCsv } from "./csv";
 import {
@@ -80,6 +80,58 @@ export async function previewImport(
   const existing = await existingDedupKeys(db, userId, preview.account.id, rows);
   const rowsDuplicate = rows.filter((row) => existing.has(row.dedupKey)).length;
   return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate };
+}
+
+export type CreateImportAccountInput = {
+  profile: ImportProfile;
+  bytes: Uint8Array;
+  name: string;
+};
+
+export type CreateImportAccountResult =
+  | { ok: true; account: Account }
+  // The profile maps no own-IBAN column, or the file leaves it empty: the user picks an account.
+  | { ok: false; reason: "no-account-in-file" }
+  | Exclude<
+      ImportRefusal,
+      { reason: "unknown-account" | "account-required" | "account-not-found" | "account-mismatch" }
+    >;
+
+// The preview offers a bank account for an own IBAN the user has none for: this creates it, with
+// the IBAN and currency read from the file again, never taken from the client. An account that
+// already has the IBAN (another request created it first) is the one returned.
+export async function createImportAccount(
+  db: Db,
+  userId: string,
+  input: CreateImportAccountInput,
+): Promise<CreateImportAccountResult> {
+  const file = { profile: input.profile, bytes: input.bytes, filename: "" };
+  const prepared = await prepareImport(db, userId, file);
+  if (prepared.ok) return { ok: true, account: prepared.account };
+  switch (prepared.reason) {
+    case "account-required":
+      return { ok: false, reason: "no-account-in-file" };
+    case "unknown-account": {
+      const { iban, currency } = prepared;
+      const created = await createAccount(db, userId, {
+        name: input.name,
+        type: "bank",
+        currency,
+        iban,
+      });
+      if (created.ok) return created;
+      // The IBAN was read and parsed from the file, and the account is a bank account, so only
+      // iban-taken can happen: another request created it first.
+      const again = await prepareImport(db, userId, file);
+      if (again.ok) return { ok: true, account: again.account };
+      throw new Error(`createImportAccount: ${created.reason}`);
+    }
+    case "account-not-found":
+    case "account-mismatch":
+      throw new Error(`createImportAccount: ${prepared.reason} without a picked account`);
+    default:
+      return prepared;
+  }
 }
 
 export type CommitImportResult = ({ ok: true; importId: string } & ImportPreview) | ImportRefusal;

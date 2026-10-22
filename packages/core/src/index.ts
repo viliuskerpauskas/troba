@@ -12,6 +12,8 @@ export * from "./money/iban";
 export * from "./money/import/csv";
 export * from "./money/import/import";
 export * from "./money/import/profile";
+export * from "./money/import/profiles";
+export * from "./money/import/upload";
 export * from "./money/month";
 export * from "./money/report";
 export * from "./money/rules";

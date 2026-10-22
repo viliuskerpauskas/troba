@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
+import { expect, test } from "./test";
 
 const invalidHeading = "This reset link doesn't work";
 
@@ -13,10 +14,6 @@ async function createUser(email: string) {
   await auth().api.createUser({ body: { email, password, name: "Managed User" } });
   return { email, password };
 }
-
-test.afterAll(async () => {
-  await db().$client.end();
-});
 
 // The sign-in limit counts attempts still in progress, and the other spec files share
 // loopback's limit of 5 while running alongside, so every device here gets its own address

@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
   experimental: {
     // forbidden() and unauthorized() from next/navigation, used by requireUser/requireAdmin.
     authInterrupts: true,
+    // Bank CSV uploads go through a server action: maxImportFileBytes (5 MiB) plus the form's
+    // other fields. Next.js parses the body before the action runs, so this is the hard limit;
+    // the action checks the file's own size.
+    serverActions: { bodySizeLimit: "6mb" },
   },
   // No other site may frame troba (clickjacking on the sign-in form). A full script CSP and
   // HSTS are still to come.

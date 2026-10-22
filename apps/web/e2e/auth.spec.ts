@@ -1,14 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
+import { expect, test } from "./test";
 
 const genericError = "Email or password is incorrect.";
-
-test.afterAll(async () => {
-  await db().$client.end();
-});
 
 async function signIn(page: Page, email: string, password: string) {
   await page.goto("/sign-in");

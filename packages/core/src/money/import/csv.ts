@@ -31,9 +31,38 @@ export type ReadCsvOptions = {
 export function readCsv(bytes: Uint8Array, options: ReadCsvOptions = {}): ReadCsvResult {
   const decoded = decode(bytes, options.encoding ?? "utf-8");
   if (!decoded.ok) return decoded;
+  return readText(decoded.text, options);
+}
+
+export type ReadCsvHeadersResult =
+  { ok: true; headers: string[] } | { ok: false; reason: DecodeFailure | "unterminated-quote" };
+
+// Enough for any header below a preamble; a file whose header lies further in is read whole.
+const headerBytes = 64 * 1024;
+
+// The headers readCsv would give, from the start of the file only: finding a file's import
+// profile reads it once per way the user's profiles read files. The delimiter, when detected,
+// is detected from those lines.
+export function readCsvHeaders(
+  bytes: Uint8Array,
+  options: { skipLines: number; delimiter: Delimiter | null; encoding: string },
+): ReadCsvHeadersResult {
+  if (bytes.byteLength > headerBytes) {
+    const decoded = decode(bytes.subarray(0, headerBytes), options.encoding, { partial: true });
+    if (!decoded.ok) return decoded;
+    // The last record may be cut short. A record after the header shows the header is whole;
+    // a cut inside a quoted field reads as unterminated, and the whole file is read instead.
+    const table = readText(decoded.text, options);
+    if (table.ok && table.rows.length > 0) return { ok: true, headers: table.headers };
+  }
+  const table = readCsv(bytes, options);
+  return table.ok ? { ok: true, headers: table.headers } : table;
+}
+
+function readText(text: string, options: ReadCsvOptions): ReadCsvResult {
   const { delimiter, records, unterminated } = options.delimiter
-    ? { delimiter: options.delimiter, ...splitRecords(decoded.text, options.delimiter) }
-    : sniff(decoded.text);
+    ? { delimiter: options.delimiter, ...splitRecords(text, options.delimiter) }
+    : sniff(text);
   if (unterminated) return { ok: false, reason: "unterminated-quote" };
 
   const skipLines = options.skipLines ?? guessSkipLines(records);
@@ -61,15 +90,20 @@ const utf8Bom = [0xef, 0xbb, 0xbf];
 // Fatal, so a file in the wrong encoding is refused rather than imported with replacement
 // characters in every name. A UTF-8 byte order mark settles the encoding whatever the profile
 // says: a bank that switched to UTF-8 still matches its profile.
+// partial: the bytes are the start of a file, and may end inside a character.
 function decode(
   bytes: Uint8Array,
   encoding: string,
+  { partial = false } = {},
 ): { ok: true; text: string } | { ok: false; reason: DecodeFailure } {
   const hasBom = utf8Bom.every((byte, i) => bytes[i] === byte);
   const label = hasBom ? "utf-8" : encoding;
   if (!isKnownEncoding(label)) return { ok: false, reason: "unknown-encoding" };
   try {
-    return { ok: true, text: new TextDecoder(label, { fatal: true }).decode(bytes) };
+    return {
+      ok: true,
+      text: new TextDecoder(label, { fatal: true }).decode(bytes, { stream: partial }),
+    };
   } catch {
     return { ok: false, reason: "invalid-encoding" };
   }
