@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { NextConfig } from "next";
+import { contentSecurityPolicy } from "./src/server/csp";
 
 const root = path.join(import.meta.dirname, "../..");
 
@@ -30,17 +31,29 @@ const nextConfig: NextConfig = {
     // the action checks the file's own size.
     serverActions: { bodySizeLimit: "6mb" },
   },
-  // No other site may frame troba (clickjacking on the sign-in form). A full script CSP and
-  // HSTS are still to come.
+  // No other site may frame troba (clickjacking on the sign-in form), and no injected script
+  // runs. Pages replace this CSP with one carrying a per-request nonce (src/proxy.ts).
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          {
+            key: "Content-Security-Policy",
+            value: contentSecurityPolicy({ dev: process.env.NODE_ENV === "development" }),
+          },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      {
+        // Caddy terminates TLS and sets X-Forwarded-Proto. Over plain HTTP browsers ignore HSTS,
+        // so a client sending the header itself gains nothing.
+        source: "/:path*",
+        has: [{ type: "header", key: "x-forwarded-proto", value: "https" }],
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
         ],
       },
     ];

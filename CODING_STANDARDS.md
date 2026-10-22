@@ -42,7 +42,7 @@ The documented standards Matt's code-review (`/mattpocock-skills:code-review`) c
 
 **Responses and headers**
 - Responses and logs never carry password hashes, tokens, reset links, session ids or another user's data. Errors shown to users are generic; details go to the server log.
-- Changed pages keep every security header set in `apps/web/next.config.ts`. A review of changed pages checks them on the running app with `curl -sI`.
+- Changed pages keep every security header set in `apps/web/next.config.ts`, and the per-request script CSP from `apps/web/src/proxy.ts`: no inline `<script>` or event handler without the request's nonce, and no `'unsafe-inline'` or `'unsafe-eval'` added to `script-src`. A review of changed pages checks them on the running app with `curl -sI`.
 
 **Secrets and dependencies**
 - No secrets in the diff; `.env.example` holds only local-development placeholders.
