@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
 import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { removeAttachmentFiles } from "./attachments";
 import { monthRange } from "./month";
 
 // Transactions (SPEC-money M2, M8). Manual ones are entered by hand and fully editable; imported
@@ -253,17 +254,31 @@ export async function updateTransaction(
 }
 
 // Manual or imported; a deleted imported transaction comes back if its file is imported again.
-// Its attachment rows go with it (on delete cascade). Returns whether one of the user's was deleted.
+// Its attachments go with it, rows and files. Returns whether one of the user's was deleted.
 export async function deleteTransaction(
   db: Db,
   userId: string,
-  input: { transactionId: string },
+  input: { transactionId: string; uploadsDir: string },
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(moneyTransactions)
-    .where(and(eq(moneyTransactions.id, input.transactionId), eq(moneyTransactions.userId, userId)))
-    .returning({ id: moneyTransactions.id });
-  return deleted.length > 0;
+  return db.transaction(async (tx) => {
+    const attachments = await tx
+      .delete(moneyAttachments)
+      .where(
+        and(
+          eq(moneyAttachments.transactionId, input.transactionId),
+          eq(moneyAttachments.userId, userId),
+        ),
+      )
+      .returning({ storagePath: moneyAttachments.storagePath });
+    const deleted = await tx
+      .delete(moneyTransactions)
+      .where(
+        and(eq(moneyTransactions.id, input.transactionId), eq(moneyTransactions.userId, userId)),
+      )
+      .returning({ id: moneyTransactions.id });
+    await removeAttachmentFiles(input.uploadsDir, userId, attachments);
+    return deleted.length > 0;
+  });
 }
 
 export type TransactionFilter = {
