@@ -318,7 +318,9 @@ describe("attachments", () => {
     ["control characters", "r\0e\u0007ceipt\n.jpg", "receipt.jpg"],
     ["surrounding spaces", "  receipt.jpg  ", "receipt.jpg"],
     ["no usable name", " \t ", "receipt"],
-    // Cut by characters, so an emoji isn't split in half.
+    // Would show as "xexe.png" in the list and the download name.
+    ["a bidirectional override", "x\u202egnp.exe", "xgnp.exe"],
+    // Cut by code points, so an emoji isn't split into invalid halves.
     ["a long name", `${"a".repeat(199)}🧾.jpg`, `${"a".repeat(199)}🧾`],
   ])("cleans up a filename with %s", async (_name, filename, stored) => {
     const { userId, transactionId } = await createUser();

@@ -38,7 +38,6 @@ export async function attachReceiptAction(
     userId,
     uploadsDir: uploadsDir(),
     transactionId: transactionId.data,
-    // Cleaned up in core: it's metadata, never a path.
     filename: file.data.name,
     bytes: new Uint8Array(await file.data.arrayBuffer()),
   });

@@ -108,11 +108,15 @@ function filePath(uploadsDir: string, userId: string, storagePath: string): stri
 
 const maxFilenameLength = 200;
 
+// Control characters (Postgres text can't hold NUL) and bidirectional controls, which can make
+// "x\u202egnp.exe" show as "xexe.png".
+const unwantedInFilename = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu;
+
 // The client's filename is metadata, so it's cleaned rather than refused: phones name photos, and
-// a file picked from elsewhere may have no usable name. Control characters go (Postgres text
-// can't hold NUL), and a long name is cut by characters, so no emoji is split in half.
+// a file picked from elsewhere may have no usable name. A long name is cut by code points, so no
+// character is split into invalid halves.
 function cleanFilename(filename: string): string {
-  const cleaned = Array.from(filename.replace(/\p{Cc}/gu, "").trim())
+  const cleaned = Array.from(filename.replace(unwantedInFilename, "").trim())
     .slice(0, maxFilenameLength)
     .join("")
     .trim();
@@ -158,7 +162,13 @@ export async function addAttachment(
 
       await mkdir(path.dirname(file), { recursive: true });
       writing = true;
-      await writeFile(file, bytes, { flag: "wx" });
+      try {
+        await writeFile(file, bytes, { flag: "wx" });
+      } catch (error) {
+        // "wx" refused because the file exists: it's another attachment's, so it stays.
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") writing = false;
+        throw error;
+      }
       const [attachment] = await tx
         .insert(moneyAttachments)
         .values({

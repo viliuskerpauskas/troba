@@ -62,13 +62,14 @@ test("attaches a receipt to a transaction, views it and removes it", async ({ pa
   await page.getByRole("button", { name: "Attach" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toHaveText(tooLarge);
   await expect(page.getByText("No receipts attached.")).toBeVisible();
-  expect(posts).toEqual([]);
 
   await receipt.setInputFiles({ name: "GROCERY MART.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Attach" }).click();
   const receipts = page.getByRole("list", { name: "Attached receipts" });
   await expect(receipts.getByRole("listitem")).toHaveCount(1);
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  // Only this attach was sent: a POST from the refused one would have come before it.
+  expect(posts).toHaveLength(1);
 
   const opened = page.waitForEvent("popup");
   await receipts.getByRole("link", { name: "GROCERY MART.png" }).click();
