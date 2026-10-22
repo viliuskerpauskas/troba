@@ -28,7 +28,8 @@ export class NotSignedInError extends Error {
 export type SessionSummary = {
   id: string;
   device: string;
-  // So the user can spot a session they don't recognise. Null when Better Auth couldn't tell.
+  // So the user can spot a session they don't recognise. Null when Better Auth couldn't tell
+  // (it stores ""). IPv6 addresses are stored as their /64 prefix.
   ipAddress: string | null;
   lastActive: Date;
   current: boolean;
@@ -123,7 +124,7 @@ export async function listSessions(requestHeaders: Headers): Promise<SessionSumm
   return sessions.map((session) => ({
     id: session.id,
     device: describeDevice(session.userAgent),
-    ipAddress: session.ipAddress,
+    ipAddress: session.ipAddress || null,
     // Better Auth refreshes a session at most once a day (updateAge), so this is day-accurate.
     lastActive: session.updatedAt,
     current: session.id === current.id,
