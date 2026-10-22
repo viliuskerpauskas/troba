@@ -84,9 +84,20 @@ const attachmentColumns = {
   createdAt: moneyAttachments.createdAt,
 };
 
-// storagePath is always <userId>/<uuid>, written by addAttachment; the check makes a bad row fail
-// rather than reach outside the user's folder.
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The user's own rows on one transaction.
+function attachmentsOf(userId: string, transactionId: string) {
+  return and(
+    eq(moneyAttachments.transactionId, transactionId),
+    eq(moneyAttachments.userId, userId),
+  );
+}
+
+// storagePath is always <userId>/<uuid>, written by addAttachment; the checks make a bad row or
+// user id fail rather than reach outside the user's folder.
 function filePath(uploadsDir: string, userId: string, storagePath: string): string {
+  if (!uuid.test(userId)) throw new Error("Attachment paths need the user id to be a uuid.");
   const folder = path.resolve(uploadsDir, userId);
   const file = path.resolve(uploadsDir, storagePath);
   if (path.dirname(file) !== folder) {
@@ -109,39 +120,47 @@ export async function addAttachment(
   if (bytes.byteLength > maxAttachmentBytes) return { ok: false, reason: "too-large" };
   const mime = sniffAttachmentType(bytes);
   if (!mime) return { ok: false, reason: "unsupported-type" };
-  const [transaction] = await db
-    .select({ id: moneyTransactions.id })
-    .from(moneyTransactions)
-    .where(and(eq(moneyTransactions.id, transactionId), eq(moneyTransactions.userId, userId)));
-  if (!transaction) return { ok: false, reason: "transaction-not-found" };
-  const [{ attached } = { attached: 0 }] = await db
-    .select({ attached: count() })
-    .from(moneyAttachments)
-    .where(
-      and(eq(moneyAttachments.transactionId, transactionId), eq(moneyAttachments.userId, userId)),
-    );
-  if (attached >= maxAttachmentsPerTransaction) return { ok: false, reason: "limit-reached" };
-
   const storagePath = `${userId}/${randomUUID()}`;
   const file = filePath(uploadsDir, userId, storagePath);
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, bytes, { flag: "wx" });
+
+  let written = false;
   try {
-    const [attachment] = await db
-      .insert(moneyAttachments)
-      .values({
-        userId,
-        transactionId,
-        filename: input.filename,
-        mime,
-        sizeBytes: bytes.byteLength,
-        storagePath,
-      })
-      .returning(attachmentColumns);
-    return { ok: true, attachment: attachment! };
+    return await db.transaction(async (tx) => {
+      // Locked, so the count holds until the insert commits, and a deleteTransaction running at
+      // the same time waits for this attachment and removes its file too.
+      const [transaction] = await tx
+        .select({ id: moneyTransactions.id })
+        .from(moneyTransactions)
+        .where(and(eq(moneyTransactions.id, transactionId), eq(moneyTransactions.userId, userId)))
+        .for("update");
+      if (!transaction) return { ok: false, reason: "transaction-not-found" } as const;
+      const [{ attached } = { attached: 0 }] = await tx
+        .select({ attached: count() })
+        .from(moneyAttachments)
+        .where(attachmentsOf(userId, transactionId));
+      if (attached >= maxAttachmentsPerTransaction) {
+        return { ok: false, reason: "limit-reached" } as const;
+      }
+
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, bytes, { flag: "wx" });
+      written = true;
+      const [attachment] = await tx
+        .insert(moneyAttachments)
+        .values({
+          userId,
+          transactionId,
+          filename: input.filename,
+          mime,
+          sizeBytes: bytes.byteLength,
+          storagePath,
+        })
+        .returning(attachmentColumns);
+      return { ok: true, attachment: attachment! } as const;
+    });
   } catch (error) {
-    // The transaction was deleted meanwhile, say: no row, so no file either.
-    await rm(file, { force: true });
+    // No row, so no file either.
+    if (written) await rm(file, { force: true });
     throw error;
   }
 }
@@ -155,18 +174,17 @@ export async function listAttachments(
   return db
     .select(attachmentColumns)
     .from(moneyAttachments)
-    .where(
-      and(eq(moneyAttachments.transactionId, transactionId), eq(moneyAttachments.userId, userId)),
-    )
+    .where(attachmentsOf(userId, transactionId))
     .orderBy(asc(moneyAttachments.createdAt), asc(moneyAttachments.id))
     .limit(maxAttachmentsPerTransaction);
 }
 
-// The file and its metadata, or null when the id isn't one of the user's attachments.
+// The file and its metadata, or null when the id isn't one of the user's attachments, or its file
+// is gone (a removal that failed to commit after removing it).
 export async function getAttachmentFile(
   db: Db,
   input: { userId: string; uploadsDir: string; attachmentId: string },
-): Promise<(Attachment & { bytes: Buffer }) | null> {
+): Promise<(Attachment & { bytes: Buffer<ArrayBuffer> }) | null> {
   const { userId, uploadsDir, attachmentId } = input;
   const [row] = await db
     .select({ ...attachmentColumns, storagePath: moneyAttachments.storagePath })
@@ -174,8 +192,13 @@ export async function getAttachmentFile(
     .where(and(eq(moneyAttachments.id, attachmentId), eq(moneyAttachments.userId, userId)));
   if (!row) return null;
   const { storagePath, ...attachment } = row;
-  const bytes = await readFile(filePath(uploadsDir, userId, storagePath));
-  return { ...attachment, bytes };
+  try {
+    const bytes = await readFile(filePath(uploadsDir, userId, storagePath));
+    return { ...attachment, bytes };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 // Returns whether one of the user's attachments was removed.

@@ -1,10 +1,11 @@
 "use client";
 
+import type { Attachment } from "@troba/core";
 import { useActionState, useState } from "react";
 import { attachReceiptAction, removeReceiptAction, type AttachState } from "./actions";
 import { receiptHint, receiptMessages, receiptTooLargeMessage } from "./receipt-messages";
 
-type Receipt = { id: string; filename: string; mime: string; sizeBytes: number };
+type Receipt = Pick<Attachment, "id" | "filename" | "sizeBytes">;
 
 // The types attachReceiptAction takes. Listing image types (no capture attribute) makes phones
 // offer the camera beside their photos and files; HEIC is what iPhones take.

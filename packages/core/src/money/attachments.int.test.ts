@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDb, schema, type Db } from "@troba/db";
@@ -24,13 +24,14 @@ let userCount = 0;
 
 // The first bytes of each allowed type, padded: what the content check looks at.
 const ascii = (text: string) => Uint8Array.from(text, (char) => char.charCodeAt(0));
-// An ISO base media file (HEIC, AVIF): a box size, "ftyp", then the major brand.
-const isoMedia = (brand: string) =>
-  Uint8Array.from([0, 0, 0, 0x18, ...ascii(`ftyp${brand}\0\0\0\0mif1${brand}`)]);
+// An ISO base media file (HEIC, AVIF): its ftyp box, with the box size, "ftyp", the major brand,
+// a version, then the compatible brands. boxSize can claim less than is written.
+const isoMedia = (major: string, compatible: string[], boxSize = 16 + 4 * compatible.length) =>
+  Uint8Array.from([0, 0, 0, boxSize, ...ascii(`ftyp${major}\0\0\0\0${compatible.join("")}`)]);
 const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
 const webp = ascii("RIFF\x24\x00\x00\x00WEBPVP8 ");
-const heic = isoMedia("heic");
+const heic = isoMedia("heic", ["mif1", "heic"]);
 const pdf = ascii("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n");
 
 async function createUser() {
@@ -95,6 +96,8 @@ describe("attachments", () => {
     ["receipt.webp", "image/webp", webp],
     ["IMG_0001.HEIC", "image/heic", heic],
     ["invoice.pdf", "application/pdf", pdf],
+    // A generic HEIF major brand, with HEVC among the compatible brands.
+    ["photo.heif", "image/heic", isoMedia("mif1", ["miaf", "heic"])],
     // The type comes from the content, whatever the name says.
     ["photo.pdf", "image/jpeg", jpeg],
   ])("takes %s as %s", async (filename, mime, bytes) => {
@@ -108,7 +111,13 @@ describe("attachments", () => {
   it.each([
     ["a GIF", "receipt.gif", ascii("GIF89a\x01\x00\x01\x00")],
     ["HTML named as a JPEG", "receipt.jpg", ascii("<html><script>alert(1)</script></html>")],
-    ["an AVIF, which is not HEIC", "receipt.heic", isoMedia("avif")],
+    ["an AVIF, which is not HEIC", "receipt.heic", isoMedia("avif", ["mif1", "avif"])],
+    ["a generic HEIF holding AVIF", "receipt.heif", isoMedia("mif1", ["miaf", "avif"])],
+    [
+      "a HEVC brand past the end of its box",
+      "receipt.heif",
+      isoMedia("mif1", ["miaf", "heic"], 20),
+    ],
     ["a truncated PNG signature", "receipt.png", png.subarray(0, 4)],
     ["an empty file", "receipt.jpg", new Uint8Array()],
   ])("refuses %s and stores nothing", async (_name, filename, bytes) => {
@@ -234,5 +243,82 @@ describe("attachments", () => {
     expect(
       await getAttachmentFile(db, { userId, uploadsDir, attachmentId: kept.attachment.id }),
     ).not.toBeNull();
+  });
+
+  it("refuses a stored path outside the user's folder, and touches nothing there", async () => {
+    const { userId, transactionId } = await createUser();
+    const other = await createUser();
+    const outside = path.join(uploadsDir, "outside.jpg");
+    await writeFile(outside, jpeg);
+    const othersFile = path.join(uploadsDir, other.userId, "theirs.jpg");
+    await mkdir(path.dirname(othersFile), { recursive: true });
+    await writeFile(othersFile, jpeg);
+    const rows = await db
+      .insert(schema.moneyAttachments)
+      .values(
+        ["outside.jpg", `${userId}/../outside.jpg`, `${other.userId}/theirs.jpg`].map(
+          (storagePath) => ({
+            userId,
+            transactionId,
+            filename: "receipt.jpg",
+            mime: "image/jpeg",
+            sizeBytes: jpeg.byteLength,
+            storagePath,
+          }),
+        ),
+      )
+      .returning({ id: schema.moneyAttachments.id });
+
+    for (const { id: attachmentId } of rows) {
+      const input = { userId, uploadsDir, attachmentId };
+      await expect(getAttachmentFile(db, input)).rejects.toThrow(/outside the user's uploads/);
+      await expect(removeAttachment(db, input)).rejects.toThrow(/outside the user's uploads/);
+    }
+    await expect(deleteTransaction(db, userId, { transactionId, uploadsDir })).rejects.toThrow(
+      /outside the user's uploads/,
+    );
+    expect(existsSync(outside)).toBe(true);
+    expect(existsSync(othersFile)).toBe(true);
+    // Refused, so the rows stay.
+    expect(await listAttachments(db, userId, transactionId)).toHaveLength(3);
+    expect(await getTransaction(db, userId, transactionId)).not.toBeNull();
+  });
+
+  it("refuses a user id that isn't a uuid before touching any file", async () => {
+    const { transactionId } = await createUser();
+    const input = { userId: "..", uploadsDir, transactionId, filename: "r.jpg", bytes: jpeg };
+
+    await expect(addAttachment(db, input)).rejects.toThrow(/uuid/);
+  });
+
+  it("leaves no file behind when the row can't be written", async () => {
+    const { userId, transactionId } = await createUser();
+
+    // Postgres text can't hold NUL, so the insert fails after the file was written.
+    const input = { userId, uploadsDir, transactionId, filename: "r\0.jpg", bytes: jpeg };
+    await expect(addAttachment(db, input)).rejects.toThrow();
+
+    expect(await readdir(path.join(uploadsDir, userId))).toEqual([]);
+    expect(await listAttachments(db, userId, transactionId)).toEqual([]);
+  });
+
+  it("treats an attachment whose file is gone as removed, and won't serve it", async () => {
+    const { userId, transactionId } = await createUser();
+    const added = await addAttachment(db, {
+      userId,
+      uploadsDir,
+      transactionId,
+      filename: "r.jpg",
+      bytes: jpeg,
+    });
+    if (!added.ok) throw new Error(added.reason);
+    const attachmentId = added.attachment.id;
+    for (const file of await readdir(path.join(uploadsDir, userId))) {
+      await rm(path.join(uploadsDir, userId, file));
+    }
+
+    expect(await getAttachmentFile(db, { userId, uploadsDir, attachmentId })).toBeNull();
+    expect(await removeAttachment(db, { userId, uploadsDir, attachmentId })).toBe(true);
+    expect(await listAttachments(db, userId, transactionId)).toEqual([]);
   });
 });

@@ -260,7 +260,19 @@ export async function deleteTransaction(
   userId: string,
   input: { transactionId: string; uploadsDir: string },
 ): Promise<boolean> {
+  const isTheTransaction = and(
+    eq(moneyTransactions.id, input.transactionId),
+    eq(moneyTransactions.userId, userId),
+  );
   return db.transaction(async (tx) => {
+    // Locked first: an addAttachment on this transaction either commits before (and its file is
+    // removed below) or waits and then finds no transaction.
+    const [locked] = await tx
+      .select({ id: moneyTransactions.id })
+      .from(moneyTransactions)
+      .where(isTheTransaction)
+      .for("update");
+    if (!locked) return false;
     const attachments = await tx
       .delete(moneyAttachments)
       .where(
@@ -270,14 +282,9 @@ export async function deleteTransaction(
         ),
       )
       .returning({ storagePath: moneyAttachments.storagePath });
-    const deleted = await tx
-      .delete(moneyTransactions)
-      .where(
-        and(eq(moneyTransactions.id, input.transactionId), eq(moneyTransactions.userId, userId)),
-      )
-      .returning({ id: moneyTransactions.id });
+    await tx.delete(moneyTransactions).where(isTheTransaction);
     await removeAttachmentFiles(input.uploadsDir, userId, attachments);
-    return deleted.length > 0;
+    return true;
   });
 }
 

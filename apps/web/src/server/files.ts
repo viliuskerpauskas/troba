@@ -37,7 +37,7 @@ export async function attachmentResponse(
     attachmentId: id.data,
   });
   if (!file) return notFound();
-  return new Response(new Uint8Array(file.bytes), {
+  return new Response(file.bytes, {
     headers: {
       // The type sniffed at upload; nosniff stops the browser guessing another.
       "Content-Type": file.mime,

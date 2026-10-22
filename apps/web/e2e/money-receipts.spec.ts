@@ -47,6 +47,16 @@ test("attaches a receipt to a transaction, views it and removes it", async ({ pa
     "Attach a JPEG, PNG, WebP or HEIC photo, or a PDF.",
   );
 
+  // Over the limit: refused before it's sent.
+  await receipt.setInputFiles({
+    name: "big.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.alloc(10 * 1024 * 1024 + 1),
+  });
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText(
+    "That file is over 10 MB. Take the photo at a lower resolution or attach a PDF.",
+  );
+
   await receipt.setInputFiles({ name: "GROCERY MART.png", mimeType: "image/png", buffer: png });
   await page.getByRole("button", { name: "Attach" }).click();
   const receipts = page.getByRole("list", { name: "Attached receipts" });
@@ -63,6 +73,9 @@ test("attaches a receipt to a transaction, views it and removes it", async ({ pa
   expect(served.headers()["content-type"]).toBe("image/png");
   expect(served.headers()["x-content-type-options"]).toBe("nosniff");
   await view.close();
+  // Without the session cookie.
+  const signedOut = await page.request.get(view.url(), { headers: { cookie: "" } });
+  expect(signedOut.status()).toBe(401);
 
   const download = page.waitForEvent("download");
   await receipts.getByRole("link", { name: "Download" }).click();

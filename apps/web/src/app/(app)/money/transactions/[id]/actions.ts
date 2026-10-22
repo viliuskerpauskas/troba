@@ -15,13 +15,20 @@ export type AttachState = { error?: string };
 
 const Id = z.uuid();
 const tooLarge = receiptTooLargeMessage(maxAttachmentBytes);
-// Phones name photos; a file picked from elsewhere may have no usable name.
-const Filename = z
+// Normalises rather than refuses: phones name photos, and a file picked from elsewhere may have no
+// usable name. Control characters go (Postgres text can't hold NUL), and long names are cut.
+const ReceiptFilename = z
   .string()
-  .trim()
-  .transform((name) => name.slice(0, 200) || "receipt");
+  .transform((name) =>
+    name
+      .replace(/\p{Cc}/gu, "")
+      .trim()
+      .slice(0, 200),
+  )
+  .pipe(z.string().max(200))
+  .transform((name) => name || "receipt");
 
-function refresh(transactionId: string) {
+function revalidateTransactionPages(transactionId: string) {
   revalidatePath(`/money/transactions/${transactionId}`);
   revalidatePath("/money/transactions");
 }
@@ -42,7 +49,7 @@ export async function attachReceiptAction(
     userId,
     uploadsDir: uploadsDir(),
     transactionId: transactionId.data,
-    filename: Filename.parse(file.data.name),
+    filename: ReceiptFilename.parse(file.data.name),
     bytes: new Uint8Array(await file.data.arrayBuffer()),
   });
   if (!result.ok) {
@@ -57,7 +64,7 @@ export async function attachReceiptAction(
         assertNever(result.reason);
     }
   }
-  refresh(transactionId.data);
+  revalidateTransactionPages(transactionId.data);
   return {};
 }
 
@@ -71,5 +78,5 @@ export async function removeReceiptAction(formData: FormData): Promise<void> {
     uploadsDir: uploadsDir(),
     attachmentId: attachmentId.data,
   });
-  refresh(transactionId.data);
+  revalidateTransactionPages(transactionId.data);
 }
