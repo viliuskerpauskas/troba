@@ -47,7 +47,7 @@ The documented standards Matt's code-review (`/mattpocock-skills:code-review`) c
 
 **Secrets and dependencies**
 - No secrets in the diff; `.env.example` holds only local-development placeholders.
-- A new dependency needs a reason in the PR (and an ADR when notable), exact version, and `pnpm audit` clean or each finding triaged with a reason. A dependency's build script runs only when it is approved in `pnpm-workspace.yaml` (`onlyBuiltDependencies`); one that doesn't need it goes under `ignoredBuiltDependencies`.
+- A new dependency needs a reason in the PR (and an ADR when notable), exact version, and `pnpm audit` clean or each finding triaged with a reason. A finding that can't be fixed inside its parent's declared range, and whose vulnerable code the app never runs (dev tooling only, not in the image, or the affected feature unused), may be accepted under `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`, with its path, the reason and a review date. A dependency's build script runs only when it is approved in `pnpm-workspace.yaml` (`onlyBuiltDependencies`); one that doesn't need it goes under `ignoredBuiltDependencies`.
 
 ## Performance
 
