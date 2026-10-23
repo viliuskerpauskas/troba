@@ -2,6 +2,7 @@
 // branch created by `git switch` or `git checkout`, and each `git commit`, with the directory it
 // runs in when the command names one. It reads commands with gated-command.mjs's tokenizer, so
 // text that only mentions them (a quoted message, a grep pattern, a heredoc body) isn't a command.
+// Like the review gate, it finds git after any word, so an unquoted `echo git switch -c x` counts.
 
 import {
   gitSubcommand,
@@ -37,6 +38,8 @@ function createdBranch(words, at, options) {
 // Short options whose value is the next word (or the rest of the word), and the long options
 // that carry message text.
 const COMMIT_VALUE_SHORT = "mFCct";
+// Short options whose value can only be attached (`-unormal`, `-S<key>`), ending the cluster.
+const COMMIT_ATTACHED_SHORT = "uS";
 const COMMIT_MESSAGE_LONG = new Set(["--message", "--trailer"]);
 // A `$` (a variable, a `$(…)`, or a bash backtick, which the tokenizer turns into one) or `-`
 // for stdin: the text it ends up as isn't in the word.
@@ -58,7 +61,8 @@ function commitMessages(words, at, command, restore) {
       if (found !== undefined) (name === "--file" ? files : messages).push(restore(found));
     } else if (/^-[^-]/.test(text)) {
       const letter = [...text.slice(1)].findIndex((c) => COMMIT_VALUE_SHORT.includes(c));
-      if (letter === -1) continue;
+      const attached = [...text.slice(1)].findIndex((c) => COMMIT_ATTACHED_SHORT.includes(c));
+      if (letter === -1 || (attached !== -1 && attached < letter)) continue;
       const found = text.slice(letter + 2) || words[++i]?.text;
       const kind = text[letter + 1];
       if (found !== undefined && kind === "m") messages.push(restore(found));
@@ -94,10 +98,16 @@ function guardedIn(words, start, cwd, command, restore) {
   return [];
 }
 
-// An attribution trailer, as git reads one (case-insensitive). It doesn't need to start a line:
-// PowerShell's `n escape reaches here as a plain "n".
-const TRAILER = /\bCo-Authored-By:/i;
+// An attribution trailer, as git reads one (case-insensitive, `:` or `--trailer`'s `=`). It
+// needn't start a line or a word: PowerShell's `n escape reaches here as a plain "n", and a
+// computed message may hold a literal \n. So a message that only mentions the phrase is refused.
+const TRAILER = /Co-Authored-By\s*[:=]/i;
 export const hasTrailer = (text) => TRAILER.test(text);
+
+// A here-string's placeholder: its index between two private-use characters, which no command
+// types.
+const MARK = "\uE000";
+const PLACEHOLDER = new RegExp(`${MARK}(\\d+)${MARK}`, "g");
 
 export function guardedCommands(command, shell = "bash") {
   // The tokenizer drops PowerShell here-strings as data, but one can be a commit message, so
@@ -105,9 +115,9 @@ export function guardedCommands(command, shell = "bash") {
   const bodies = [];
   const kept = command.replace(/@(['"])\r?\n([\s\S]*?)\r?\n\1@/g, (_, quote, body) => {
     bodies.push(body);
-    return `'${bodies.length - 1}'`;
+    return `'${MARK}${bodies.length - 1}${MARK}'`;
   });
-  const restore = (text) => text.replace(/(\d+)/g, (_, n) => bodies[Number(n)]);
+  const restore = (text) => text.replace(PLACEHOLDER, (_, n) => bodies[Number(n)]);
   const { items } = parse(kept, shell);
   return simpleCommands(items).flatMap(({ words, start, cwd }) =>
     guardedIn(words, start, cwd, command, restore),

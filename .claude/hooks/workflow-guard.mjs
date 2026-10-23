@@ -3,8 +3,10 @@
 // in the main checkout, where it would move the shared working tree under every session using
 // it, and a `git commit` whose `-m`, `--trailer` or `-F` message carries an attribution
 // trailer. Exit code 2 blocks the command and shows the reason to the agent. Which commands count
-// is in workflow-command.mjs. Not covered: `git branch <name>` with a later switch, a message
-// typed in an editor, `--amend` keeping an old message, and anything the tokenizer can't read.
+// is in workflow-command.mjs. Not covered: `git branch <name>` with a later switch, a branch made
+// by `--track` or guessed from a remote branch, switching the main checkout to an existing branch,
+// a message typed in an editor, `--amend` keeping an old message, a directory git can't open
+// (a `~` or `$VAR` in it), and anything the tokenizer can't read.
 // Unlike the review gate, an error in the hook itself lets the command through (exit 1): it's
 // a guardrail, and one bug shouldn't stop every command.
 import { spawnSync } from "node:child_process";
@@ -51,7 +53,8 @@ try {
         `this creates ${found.branch} in the main checkout, which stays on main: every session ` +
           "sharing its working tree would move onto the new branch. Create a worktree for it " +
           `instead, from the main checkout: \`git worktree add .claude/worktrees/${folder} ` +
-          `-b ${found.branch} main\`, then work there.`,
+          `-b ${found.branch} main\`, then set it up as docs/agents/skill-overrides.md#worktrees ` +
+          "says and work there.",
       );
     }
     if (found.kind === "commit") {

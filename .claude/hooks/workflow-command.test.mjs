@@ -56,6 +56,9 @@ describe("guardedCommands", () => {
     ).toEqual([
       { kind: "commit", cwd: null, messages: ["a", "b", "c", "d", "e"], files: ["f", "g"] },
     ]);
+    expect(guardedCommands("git commit -unormal -Skey -m a")).toEqual([
+      { kind: "commit", cwd: null, messages: ["a"], files: [] },
+    ]);
     expect(guardedCommands("git -C ../wt commit -C HEAD -s")).toEqual([
       { kind: "commit", cwd: "../wt", messages: [], files: [] },
     ]);
@@ -91,5 +94,13 @@ describe("hasTrailer", () => {
     expect(hasTrailer("feat: x\n\nCo-Authored-By: A <a@example.test>")).toBe(true);
     expect(hasTrailer("feat: x\n\nco-authored-by: A")).toBe(true);
     expect(hasTrailer("feat: x\n\nRefs #1")).toBe(false);
+  });
+
+  it("finds one written with escapes or git's = separator", () => {
+    const [found] = guardedCommands('git commit -m "feat: x`n`nCo-Authored-By: A"', "powershell");
+    expect(found.messages.some(hasTrailer)).toBe(true);
+    expect(hasTrailer("feat: x\\n\\nCo-Authored-By: A")).toBe(true);
+    expect(hasTrailer("Co-authored-by=A")).toBe(true);
+    expect(hasTrailer("co-authored-by = A")).toBe(true);
   });
 });

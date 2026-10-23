@@ -1,4 +1,6 @@
-// Which parts of a Bash or PowerShell command .claude/hooks/review-gate.mjs must check: each
+// The shell tokenizer both hooks read commands with (`parse`, `simpleCommands` and the helpers
+// exported below; workflow-command.mjs uses them too), and which parts of a Bash or PowerShell
+// command .claude/hooks/review-gate.mjs must check: each
 // `git push` and `gh pr create` (or `gh pr new`), with the directory it runs in when the command
 // names one (`git -C <dir>`, or an earlier `cd <dir>`), and for a push the branches it names.
 // A PR create aimed at another repository or branch (`-R`, `--repo`, `-H`, `--head`, or a
