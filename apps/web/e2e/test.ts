@@ -18,12 +18,14 @@ export const test = base.extend<object, { endPool: void }>({
 });
 
 // A one-time link is too long for a phone screen: its input fits the viewport, the link scrolls
-// inside it, and focusing it selects the whole link for copying.
+// inside it, and focusing it selects the whole link for copying. The page stays at phone size.
 export async function expectLinkFitsPhone(link: Locator) {
   const page = link.page();
   await page.setViewportSize({ width: 375, height: 812 });
   const box = (await link.boundingBox())!;
   expect(box.x + box.width, "link input fits a 375 px screen").toBeLessThanOrEqual(375);
+  // Blurred first, so the focus below is a new one even when the link already had it.
+  await link.blur();
   await link.focus();
   const [start, end, length] = await link.evaluate((input: HTMLInputElement) => [
     input.selectionStart,

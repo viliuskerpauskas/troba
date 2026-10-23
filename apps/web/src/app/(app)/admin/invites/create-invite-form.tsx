@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { OneTimeLink } from "../one-time-link";
 import { createInviteAction, type CreateInviteState } from "./actions";
 
 export function CreateInviteForm() {
@@ -27,19 +28,12 @@ export function CreateInviteForm() {
         </button>
       </form>
       {state.link && (
-        <p>
-          <label htmlFor="invite-link">Invite link</label>
-          <br />
-          <input
-            id="invite-link"
-            readOnly
-            value={state.link}
-            style={{ width: "100%", boxSizing: "border-box" }}
-            onFocus={(event) => event.currentTarget.select()}
-          />
-          <br />
-          <small>Copy it now and send it yourself. It won&apos;t be shown again.</small>
-        </p>
+        <OneTimeLink
+          id="invite-link"
+          label="Invite link"
+          link={state.link}
+          hint="Copy it now and send it yourself. It won't be shown again."
+        />
       )}
     </>
   );

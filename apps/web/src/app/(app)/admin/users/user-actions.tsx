@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { OneTimeLink } from "../one-time-link";
 import {
   createResetLinkAction,
   disableUserAction,
@@ -28,14 +29,32 @@ export function DisableToggle({ userId, disabled }: { userId: string; disabled: 
 }
 
 // The page renders this element after the users table.
-export const resetLinksId = "reset-links";
+export const resetLinksContainerId = "reset-links";
+
+// The container is in the document once the page has hydrated. A server render (a form sent
+// before hydration) and the first client render of a fresh page have none, so the link then
+// shows in its row. Nothing to subscribe to: each render looks again.
+const noSubscription = () => () => {};
+const findContainer = () => document.getElementById(resetLinksContainerId);
+const noContainer = () => null;
 
 export function ResetLinkForm({ userId, email }: { userId: string; email: string }) {
   const [state, action, pending] = useActionState<ResetLinkState, FormData>(
     createResetLinkAction,
     {},
   );
-  const linkId = `reset-link-${userId}`;
+  const container = useSyncExternalStore(noSubscription, findContainer, noContainer);
+  // Keyed on the link, so a new link mounts afresh and takes focus again.
+  const link = state.link && (
+    <OneTimeLink
+      key={state.link}
+      id={`reset-link-${userId}`}
+      label={`Reset link for ${email}`}
+      link={state.link}
+      hint="Copy it now and send it yourself. It works once, for 1 hour. Creating a new link replaces this one."
+      autoFocus
+    />
+  );
 
   return (
     <form action={action}>
@@ -45,29 +64,8 @@ export function ResetLinkForm({ userId, email }: { userId: string; email: string
       </button>
       {state.error && <span role="alert"> {state.error}</span>}
       {/* Below the table, not in the row: the table is wider than a phone screen, and the link
-          must fit it. The link only exists after the action runs in the browser, so document
-          is there. */}
-      {state.link &&
-        createPortal(
-          <p>
-            <label htmlFor={linkId}>Reset link for {email}</label>
-            <br />
-            <input
-              id={linkId}
-              readOnly
-              value={state.link}
-              style={{ width: "100%", boxSizing: "border-box" }}
-              autoFocus
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <br />
-            <small>
-              Copy it now and send it yourself. It works once, for 1 hour. Creating a new link
-              replaces this one.
-            </small>
-          </p>,
-          document.getElementById(resetLinksId)!,
-        )}
+          must fit it. Focus moves to it, out of the row's sight. */}
+      {container && link ? createPortal(link, container) : link}
     </form>
   );
 }
