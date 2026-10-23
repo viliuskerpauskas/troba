@@ -23,6 +23,7 @@
     "admin:create": "node apps/web/src/build-cli.ts apps/web/.cli && node --env-file-if-exists=.env.example --env-file-if-exists=.env apps/web/.cli/scripts/create-admin.js"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "9.39.5",
     "@playwright/test": "1.64.0",
     "@types/node": "24.19.2",
