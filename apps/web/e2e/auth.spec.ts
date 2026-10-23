@@ -25,11 +25,11 @@ test("the sign-in page can't be framed by another site", async ({ request }) => 
   const response = await request.get("/sign-in");
 
   expect(response.headers()).toMatchObject({
-    "content-security-policy": "frame-ancestors 'none'",
     "x-frame-options": "DENY",
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
   });
+  expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
 });
 
 test("the admin signs in and out", async ({ page, context }) => {
