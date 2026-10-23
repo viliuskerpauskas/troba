@@ -56,11 +56,18 @@ export function RenameCategoryForm({ categoryId, name }: { categoryId: string; n
 }
 
 export function DeleteCategory({ categoryId, name }: { categoryId: string; name: string }) {
-  const [confirming, setConfirming] = useState(false);
+  // Each swap unmounts the button pressed, so focus moves to its counterpart: Cancel, the safe
+  // default, and back to Delete after cancelling.
+  const [step, setStep] = useState<"idle" | "confirming" | "cancelled">("idle");
 
-  if (!confirming) {
+  if (step !== "confirming") {
     return (
-      <button type="button" onClick={() => setConfirming(true)} aria-label={`Delete ${name}`}>
+      <button
+        type="button"
+        autoFocus={step === "cancelled"}
+        onClick={() => setStep("confirming")}
+        aria-label={`Delete ${name}`}
+      >
         Delete
       </button>
     );
@@ -70,7 +77,7 @@ export function DeleteCategory({ categoryId, name }: { categoryId: string; name:
       <input type="hidden" name="categoryId" value={categoryId} />
       <p role="alert">Delete {name}? Its transactions become uncategorized.</p>
       <button type="submit">Yes, delete</button>{" "}
-      <button type="button" onClick={() => setConfirming(false)}>
+      <button type="button" autoFocus onClick={() => setStep("cancelled")}>
         Cancel
       </button>
     </form>
