@@ -16,6 +16,7 @@ let stub;
 
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
+// Only what git and node need, so a GH_REPO or GH_TOKEN on the developer's machine can't leak in.
 function status(cwd) {
   const keep = ["PATH", "Path", "SystemRoot", "HOME", "USERPROFILE", "TEMP", "TMP"];
   const env = Object.fromEntries(
@@ -26,6 +27,7 @@ function status(cwd) {
     encoding: "utf8",
     env: { ...env, SESSION_STATUS_GH_STUB: stub },
   });
+  expect(r.status, r.stderr).toBe(0);
   return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
 }
 
@@ -48,6 +50,8 @@ beforeAll(() => {
 afterEach(() => {
   git(repo, "switch", "-q", "main");
   git(repo, "checkout", "-q", "--", ".");
+  if (git(repo, "branch", "--list", "feat/y")) git(repo, "branch", "-qD", "feat/y");
+  git(linked, "checkout", "-q", "--", ".");
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -59,8 +63,6 @@ describe("session-status", { timeout: 30000 }, () => {
     expect(out).toContain("another session may be using this checkout");
     expect(out).toContain("git worktree add <path> -b <branch> main");
     expect(out).toMatch(/linked\s+\w+ \[feat\/x\]/);
-    git(repo, "switch", "-q", "main");
-    git(repo, "branch", "-qD", "feat/y");
   });
 
   it("warns in the main checkout on main with an uncommitted change", () => {
@@ -74,7 +76,12 @@ describe("session-status", { timeout: 30000 }, () => {
     expect(status(repo)).not.toMatch(/Warning|Checkout:/);
     writeFileSync(path.join(linked, "notes.md"), "edited\n");
     expect(status(linked)).not.toMatch(/Warning|Checkout:/);
-    git(linked, "checkout", "-q", "--", ".");
+  });
+
+  it("reports the checkout as unknown, not clear, when git can't find its directories", () => {
+    const plain = path.join(root, "plain");
+    mkdirSync(plain, { recursive: true });
+    expect(status(plain)).toContain("Checkout: unknown whether it is in use (git lookup failed).");
   });
 
   it("reports the checkout as unknown, not clear, when git status fails", () => {
