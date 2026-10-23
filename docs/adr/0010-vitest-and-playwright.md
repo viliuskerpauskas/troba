@@ -56,3 +56,5 @@ CI runs `pnpm test`, `pnpm test:integration` and the Playwright smoke test on ev
 ## More Information
 
 Checked 2026-10-11: the scaffold pins `vitest@5.0.3`. Playwright `@playwright/test@1.64.0` was added with the CI task ([T4](https://github.com/viliuskerpauskas/troba/issues/4)); `pnpm test:e2e` runs it against the standalone build, not `next dev`.
+
+Added 2026-10-23 with the money v1 accessibility pass ([T26](https://github.com/viliuskerpauskas/troba/issues/26)): `@axe-core/playwright@4.13.0` (MPL-2.0), a dev dependency that runs axe's WCAG 2.1 A and AA rules on every money page in `e2e/money-v1.spec.ts`. Checking labels, names and contrast by hand on each page would miss what axe already knows; 4.13.0 rather than the newer 4.14.0, which was a week old.

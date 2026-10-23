@@ -2,7 +2,14 @@
 
 import type { DateFormat, ImportField } from "@troba/core";
 import Link from "next/link";
-import { startTransition, useActionState, useState, type FormEvent } from "react";
+import {
+  startTransition,
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   commitImportAction,
   createImportAccountAction,
@@ -31,6 +38,8 @@ const actions = {
   commit: commitImportAction,
 } satisfies Record<string, (formData: FormData) => Promise<ImportState>>;
 
+const firstStep: ImportState = { step: "upload" };
+
 async function run(state: ImportState, formData: FormData): Promise<ImportState> {
   const intent = String(formData.get("intent"));
   if (intent === "restart") return { step: "upload" };
@@ -46,10 +55,17 @@ export function ImportWizard({
   dateFormats: readonly DateFormat[];
   maxBytes: number;
 }) {
-  const [state, dispatch, pending] = useActionState(run, { step: "upload" });
+  const [state, dispatch, pending] = useActionState(run, firstStep);
   // The file the user chose, sent again with every step: the server keeps nothing between them.
   const [file, setFile] = useState<File | null>(null);
   const [tooLarge, setTooLarge] = useState(false);
+  const stepStart = useRef<HTMLDivElement>(null);
+
+  // The button that ran a step is gone once the next one renders, which drops focus to the page:
+  // put it at the start of the step instead, so a keyboard user carries on from there.
+  useEffect(() => {
+    if (state !== firstStep && document.activeElement === document.body) stepStart.current?.focus();
+  }, [state]);
 
   // Submitted by hand, so React doesn't reset the forms (and the file input) after each step.
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -63,74 +79,82 @@ export function ImportWizard({
     startTransition(() => dispatch(data));
   }
 
-  switch (state.step) {
-    case "upload":
-      return (
-        <form onSubmit={submit}>
-          <p>
-            <label htmlFor="import-file">CSV file from your bank</label>
-            <br />
-            <input
-              id="import-file"
-              type="file"
-              name="file"
-              accept=".csv,text/csv"
-              required
-              onChange={(event) => {
-                setFile(event.currentTarget.files?.[0] ?? null);
-                setTooLarge(false);
-              }}
-            />
-          </p>
-          <p>
-            <label htmlFor="import-profile">Import profile</label>
-            <br />
-            <select id="import-profile" name="profileId" defaultValue="">
-              <option value="">Find by the file&apos;s columns</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-          </p>
-          {tooLarge && <p role="alert">{tooLargeMessage(maxBytes)}</p>}
-          {state.error && <p role="alert">{state.error}</p>}
-          <button type="submit" name="intent" value="start" disabled={pending}>
-            Continue
-          </button>
-        </form>
-      );
-    case "mapping":
-      return (
-        <MappingForm
-          // Read again with other settings: the column choices start from the echoed values.
-          key={JSON.stringify([state.values, state.table?.headers])}
-          state={state}
-          dateFormats={dateFormats}
-          pending={pending}
-          onSubmit={submit}
-        />
-      );
-    case "preview":
-      return <PreviewForm state={state} pending={pending} onSubmit={submit} />;
-    case "done":
-      return (
-        <form onSubmit={submit}>
-          <p role="status">
-            Imported {count(state.rowsNew, "transaction")} into {state.accountName}.
-            {state.rowsDuplicate > 0 &&
-              ` Skipped ${count(state.rowsDuplicate, "row")} already imported.`}
-            {state.rowsFailed > 0 && ` ${count(state.rowsFailed, "row")} couldn't be read.`}
-          </p>
-          <p>
-            <Link href="/money/transactions">View transactions</Link>
-          </p>
-          <button type="submit" name="intent" value="restart" onClick={() => setFile(null)}>
-            Import another file
-          </button>
-        </form>
-      );
+  return (
+    <div ref={stepStart} tabIndex={-1}>
+      {step()}
+    </div>
+  );
+
+  function step() {
+    switch (state.step) {
+      case "upload":
+        return (
+          <form onSubmit={submit}>
+            <p>
+              <label htmlFor="import-file">CSV file from your bank</label>
+              <br />
+              <input
+                id="import-file"
+                type="file"
+                name="file"
+                accept=".csv,text/csv"
+                required
+                onChange={(event) => {
+                  setFile(event.currentTarget.files?.[0] ?? null);
+                  setTooLarge(false);
+                }}
+              />
+            </p>
+            <p>
+              <label htmlFor="import-profile">Import profile</label>
+              <br />
+              <select id="import-profile" name="profileId" defaultValue="">
+                <option value="">Find by the file&apos;s columns</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </p>
+            {tooLarge && <p role="alert">{tooLargeMessage(maxBytes)}</p>}
+            {state.error && <p role="alert">{state.error}</p>}
+            <button type="submit" name="intent" value="start" disabled={pending}>
+              Continue
+            </button>
+          </form>
+        );
+      case "mapping":
+        return (
+          <MappingForm
+            // Read again with other settings: the column choices start from the echoed values.
+            key={JSON.stringify([state.values, state.table?.headers])}
+            state={state}
+            dateFormats={dateFormats}
+            pending={pending}
+            onSubmit={submit}
+          />
+        );
+      case "preview":
+        return <PreviewForm state={state} pending={pending} onSubmit={submit} />;
+      case "done":
+        return (
+          <form onSubmit={submit}>
+            <p role="status">
+              Imported {count(state.rowsNew, "transaction")} into {state.accountName}.
+              {state.rowsDuplicate > 0 &&
+                ` Skipped ${count(state.rowsDuplicate, "row")} already imported.`}
+              {state.rowsFailed > 0 && ` ${count(state.rowsFailed, "row")} couldn't be read.`}
+            </p>
+            <p>
+              <Link href="/money/transactions">View transactions</Link>
+            </p>
+            <button type="submit" name="intent" value="restart" onClick={() => setFile(null)}>
+              Import another file
+            </button>
+          </form>
+        );
+    }
   }
 }
 
