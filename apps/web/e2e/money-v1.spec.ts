@@ -157,9 +157,9 @@ test.describe("on a phone", () => {
     for (const [pattern, category] of [
       ["GROCERY MART", "Food"],
       ["PARKING", "Transport"],
-    ]) {
-      await newRule.getByLabel("contains (any case)").fill(pattern!);
-      await newRule.getByLabel("Category").selectOption(category!);
+    ] as const) {
+      await newRule.getByLabel("contains (any case)").fill(pattern);
+      await newRule.getByLabel("Category").selectOption(category);
       await newRule.getByRole("button", { name: "Add rule" }).click();
       await expect(newRule.getByRole("status")).toContainText("Rule added.");
     }
@@ -169,6 +169,7 @@ test.describe("on a phone", () => {
     await checkPage(page, "Rules");
 
     await page.goto("/money/import");
+    await expect(page.getByLabel("CSV file from your bank")).toBeVisible();
     await checkPage(page, "Import: upload");
     await page.getByLabel("CSV file from your bank").setInputFiles(statement);
     await page.getByRole("button", { name: "Continue" }).click();
