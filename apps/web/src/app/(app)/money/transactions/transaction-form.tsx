@@ -154,11 +154,13 @@ export function TransactionForm(props: Props) {
 
 // Deleting asks first: a second button confirms.
 export function DeleteTransaction({ transactionId }: { transactionId: string }) {
-  const [confirming, setConfirming] = useState(false);
+  // Each swap unmounts the button pressed, so focus moves to its counterpart: Cancel, the safe
+  // default, and back to Delete after cancelling.
+  const [step, setStep] = useState<"idle" | "confirming" | "cancelled">("idle");
 
-  if (!confirming) {
+  if (step !== "confirming") {
     return (
-      <button type="button" onClick={() => setConfirming(true)}>
+      <button type="button" autoFocus={step === "cancelled"} onClick={() => setStep("confirming")}>
         Delete
       </button>
     );
@@ -168,7 +170,7 @@ export function DeleteTransaction({ transactionId }: { transactionId: string }) 
       <input type="hidden" name="transactionId" value={transactionId} />
       <p role="alert">Delete this transaction? This can&apos;t be undone.</p>
       <button type="submit">Yes, delete</button>{" "}
-      <button type="button" onClick={() => setConfirming(false)}>
+      <button type="button" autoFocus onClick={() => setStep("cancelled")}>
         Cancel
       </button>
     </form>

@@ -88,7 +88,8 @@ test("a revoked invite shows the same page as an unknown one", async ({ page, br
 
   const row = page.getByRole("row", { name: new RegExp(email) });
   await row.getByRole("button", { name: "Revoke" }).click();
-  await expect(row.getByRole("cell", { name: "revoked" })).toBeVisible();
+  // Exact, or the email cell ("revoked-…@example.test") matches before the revoke lands.
+  await expect(row.getByRole("cell", { name: "revoked", exact: true })).toBeVisible();
 
   const friend = await friendPage(browser);
   await friend.goto(path);
