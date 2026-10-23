@@ -40,7 +40,8 @@ export default async function SettingsPage() {
           {sessions.map((session) => (
             <li key={session.id}>
               {session.device}
-              {session.current ? " (this device)" : ""}, last active{" "}
+              {session.current ? " (this device)" : ""}
+              {session.ipAddress ? `, from ${session.ipAddress}` : ""}, last active{" "}
               <time dateTime={session.lastActive.toISOString()}>
                 {dateFormat.format(session.lastActive)}
               </time>{" "}

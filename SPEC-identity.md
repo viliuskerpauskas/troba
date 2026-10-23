@@ -31,7 +31,8 @@ Only invited people can use troba. Each user signs in securely, and **no user ca
 
 **I4. Account settings**
 - A user can change their name and password. Changing the password signs out their other sessions.
-- A user can see their active sessions (device/browser, last active) and revoke them.
+- A user can see their active sessions (device/browser, IP address, last active) and revoke them.
+- A session keeps its user agent, to name the device and browser in that list, and its IP address (an IPv6 address as its /64 network), shown in the list too, to spot a session the user doesn't recognise. Both are personal data, so expired sessions are deleted: every sign-in and daily session refresh deletes all users' expired sessions, rather than waiting for their browser to come back. On an instance nobody uses, they wait until someone next signs in or a session refreshes.
 - **Delete account:** after typing their email to confirm, all of the user's data is removed:
   - their rows, through `ON DELETE CASCADE` from every user-owned table
   - their files, by deleting `uploads/<userId>/`

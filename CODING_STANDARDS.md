@@ -15,6 +15,7 @@ The documented standards Matt's code-review (`/mattpocock-skills:code-review`) c
 - Every user-owned table has `user_id ... not null references users on delete cascade`. The isolation helper (`packages/db/src/user-tables.ts`) then covers it in the delete-account and isolation tests.
 - Every query on a user-owned table filters by the signed-in user's id, including updates, deletes and joins, and including lookups by a primary key the client sent. An id from the client is a candidate, never proof of ownership (IDOR).
 - The `userId` comes from the session (`requireUser()`), never from the request body, query or form.
+- Retention clean-up is the exception, and only where named here: `deleteExpiredSessions` deletes every user's expired `sessions` rows, taking no `userId` or other input and returning nothing. Adding another needs an ADR and a two-user test that the other user's live rows survive.
 
 ## Layering
 
