@@ -25,6 +25,9 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   globalSetup: "./e2e/global-setup.ts",
+  // Signing in or up hashes the password with scrypt, which is slow when every worker does it
+  // at once on a busy machine; the default 5 s let a sign-in redirect wait expire.
+  expect: { timeout: 10_000 },
   use: {
     baseURL,
     trace: "retain-on-failure",
