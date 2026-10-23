@@ -11,6 +11,7 @@ import { auth, passwordLength } from "./auth";
 import { clientIp } from "./client-ip";
 import { db } from "./db";
 import { uploadsDir } from "./env";
+import { describeIpAddress } from "./ip-address";
 import { describeDevice } from "./user-agent";
 
 // Account settings (SPEC-identity I3, I4). Each function acts as the user whose session cookie
@@ -28,6 +29,8 @@ export class NotSignedInError extends Error {
 export type SessionSummary = {
   id: string;
   device: string;
+  // So the user can spot a session they don't recognise; see describeIpAddress.
+  ipAddress: string | null;
   lastActive: Date;
   current: boolean;
 };
@@ -113,7 +116,7 @@ export async function changePassword(
 export async function listSessions(requestHeaders: Headers): Promise<SessionSummary[]> {
   const { session: current, user } = await signedInSession(requestHeaders);
   const sessions = await db().query.sessions.findMany({
-    columns: { id: true, userAgent: true, updatedAt: true },
+    columns: { id: true, userAgent: true, ipAddress: true, updatedAt: true },
     where: (sessions, { and, eq, gt }) =>
       and(eq(sessions.userId, user.id), gt(sessions.expiresAt, new Date())),
     orderBy: (sessions, { desc }) => [desc(sessions.updatedAt)],
@@ -121,6 +124,7 @@ export async function listSessions(requestHeaders: Headers): Promise<SessionSumm
   return sessions.map((session) => ({
     id: session.id,
     device: describeDevice(session.userAgent),
+    ipAddress: describeIpAddress(session.ipAddress),
     // Better Auth refreshes a session at most once a day (updateAge), so this is day-accurate.
     lastActive: session.updatedAt,
     current: session.id === current.id,

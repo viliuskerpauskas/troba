@@ -1,4 +1,4 @@
-import { recordActivity } from "@troba/core";
+import { deleteExpiredSessions, recordActivity } from "@troba/core";
 import { schema } from "@troba/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -24,6 +24,20 @@ const roles = {
   }),
   user: ac.newRole({ user: [], session: [] }),
 };
+
+// Sign-ins and refreshes also delete every user's expired sessions, which Better Auth would
+// otherwise keep until their browser came back. The request doesn't depend on it, so a failure is
+// logged rather than failing the sign-in or the page; the next sign-in or refresh retries.
+async function deleteExpiredSessionsBestEffort() {
+  try {
+    await deleteExpiredSessions(db());
+  } catch (error) {
+    console.error(
+      "deleting expired sessions failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
 
 function createAuth() {
   const { BETTER_AUTH_SECRET, BETTER_AUTH_URL } = env();
@@ -54,10 +68,16 @@ function createAuth() {
     // deleted meanwhile (disabled, password reset); Better Auth then signs the browser out.
     databaseHooks: {
       session: {
-        create: { after: (session) => recordActivity(db(), session.userId) },
+        create: {
+          after: async (session) => {
+            await recordActivity(db(), session.userId);
+            await deleteExpiredSessionsBestEffort();
+          },
+        },
         update: {
           after: async (session) => {
             if (session) await recordActivity(db(), session.userId);
+            await deleteExpiredSessionsBestEffort();
           },
         },
       },

@@ -103,6 +103,95 @@ describe("signInWithPassword", () => {
     });
   });
 
+  describe("expired sessions", () => {
+    beforeEach(async () => {
+      await modules.db.db().$client.query("delete from sessions");
+    });
+
+    async function setSessionsOf(email: string, set: string) {
+      await modules.db
+        .db()
+        .$client.query(
+          `update sessions set ${set} where user_id = (select id from users where email = $1)`,
+          [email],
+        );
+    }
+
+    const expireSessionsOf = (email: string) =>
+      setSessionsOf(email, "expires_at = now() - interval '1 hour'");
+
+    async function emailsWithSessions() {
+      const { rows } = await modules.db
+        .db()
+        .$client.query<{ email: string }>(
+          "select u.email from sessions s join users u on u.id = s.user_id order by u.email",
+        );
+      return rows.map((row) => row.email);
+    }
+
+    it("deletes every user's expired sessions on sign-in, keeping live ones", async () => {
+      const expired = await createUser();
+      const live = await createUser();
+      await signIn(fromIp(newIp()), expired, password);
+      await signIn(fromIp(newIp()), live, password);
+      await expireSessionsOf(expired);
+      const signingIn = await createUser();
+
+      expect(await signIn(fromIp(newIp()), signingIn, password)).toEqual({ ok: true });
+
+      expect(await emailsWithSessions()).toEqual([live, signingIn].sort());
+    });
+
+    it("deletes every user's expired sessions when a day-old session is refreshed", async () => {
+      const expired = await createUser();
+      await signIn(fromIp(newIp()), expired, password);
+      const refreshing = await createUser();
+      const { headers } = await modules.auth.auth().api.signInEmail({
+        body: { email: refreshing, password },
+        returnHeaders: true,
+      });
+      const cookie = headers
+        .getSetCookie()
+        .map((setCookie) => setCookie.split(";")[0])
+        .join("; ");
+      await expireSessionsOf(expired);
+      await setSessionsOf(
+        refreshing,
+        "updated_at = now() - interval '2 days', expires_at = now() + interval '28 days'",
+      );
+      expect(await emailsWithSessions()).toEqual([expired, refreshing].sort());
+
+      await modules.auth.auth().api.getSession({ headers: new Headers({ cookie }) });
+
+      expect(await emailsWithSessions()).toEqual([refreshing]);
+    });
+
+    it("still signs in when deleting expired sessions fails", async () => {
+      const expired = await createUser();
+      await signIn(fromIp(newIp()), expired, password);
+      await expireSessionsOf(expired);
+      const client = modules.db.db().$client;
+      await client.query(`
+        create function refuse_session_delete() returns trigger language plpgsql
+          as $$ begin raise exception 'deleting sessions is refused'; end $$;
+        create trigger refuse_session_delete before delete on sessions
+          for each row execute function refuse_session_delete();
+      `);
+      try {
+        const signingIn = await createUser();
+
+        expect(await signIn(fromIp(newIp()), signingIn, password)).toEqual({ ok: true });
+
+        expect(await emailsWithSessions()).toEqual([expired, signingIn].sort());
+      } finally {
+        await client.query(`
+          drop trigger refuse_session_delete on sessions;
+          drop function refuse_session_delete();
+        `);
+      }
+    });
+  });
+
   it("starts the count again after a successful sign-in", async () => {
     const email = await createUser();
     for (let i = 0; i < 4; i++) await signIn(fromIp(newIp()), email, wrongPassword);
