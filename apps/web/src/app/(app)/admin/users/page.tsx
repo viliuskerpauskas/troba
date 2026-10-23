@@ -2,7 +2,7 @@ import { listUsers } from "@troba/core";
 import type { Metadata } from "next";
 import { db } from "@/server/db";
 import { requireAdmin } from "@/server/session";
-import { DisableToggle, ResetLinkForm } from "./user-actions";
+import { DisableToggle, ResetLinkForm, resetLinksId } from "./user-actions";
 
 export const metadata: Metadata = { title: "Users · troba" };
 
@@ -64,6 +64,7 @@ export default async function UsersPage() {
           ))}
         </tbody>
       </table>
+      <div id={resetLinksId} />
     </main>
   );
 }

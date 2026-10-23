@@ -34,7 +34,7 @@ export function CreateInviteForm() {
             id="invite-link"
             readOnly
             value={state.link}
-            size={state.link.length}
+            style={{ width: "100%", boxSizing: "border-box" }}
             onFocus={(event) => event.currentTarget.select()}
           />
           <br />

@@ -3,7 +3,7 @@ import type { Browser, Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
-import { expect, test } from "./test";
+import { expect, expectLinkFitsPhone, test } from "./test";
 
 const invalidHeading = "This reset link doesn't work";
 
@@ -84,7 +84,10 @@ test("an admin creates a reset link, and the user sets a new password with it on
   await userRow(admin, user.email).getByRole("button", { name: "Create reset link" }).click();
   const link = admin.getByLabel(`Reset link for ${user.email}`);
   await expect(link).toHaveValue(/\/reset\/[A-Za-z0-9_-]{43}$/);
+  // It shows below the table, out of the row's sight, so focus moves to it.
+  await expect(link).toBeFocused();
   const path = new URL(await link.inputValue()).pathname;
+  await expectLinkFitsPhone(link);
 
   const usersLaptop = await (await browser.newContext()).newPage();
   await usersLaptop.goto(path);

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Browser, Page } from "@playwright/test";
 import { adminEmail } from "./global-setup";
-import { expect, test } from "./test";
+import { expect, expectLinkFitsPhone, test } from "./test";
 
 const invalidHeading = "This invite link doesn't work";
 
@@ -37,6 +37,7 @@ test("an admin invites a friend, who signs up and lands in an empty app", async 
 }) => {
   await signInAsAdmin(page);
   const path = await createInvite(page);
+  await expectLinkFitsPhone(page.getByLabel("Invite link"));
   const friend = await friendPage(browser);
   const email = uniqueEmail("friend");
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { createPortal } from "react-dom";
 import {
   createResetLinkAction,
   disableUserAction,
@@ -26,6 +27,9 @@ export function DisableToggle({ userId, disabled }: { userId: string; disabled: 
   );
 }
 
+// The page renders this element after the users table.
+export const resetLinksId = "reset-links";
+
 export function ResetLinkForm({ userId, email }: { userId: string; email: string }) {
   const [state, action, pending] = useActionState<ResetLinkState, FormData>(
     createResetLinkAction,
@@ -40,25 +44,30 @@ export function ResetLinkForm({ userId, email }: { userId: string; email: string
         Create reset link
       </button>
       {state.error && <span role="alert"> {state.error}</span>}
-      {state.link && (
-        <>
-          <br />
-          <label htmlFor={linkId}>Reset link for {email}</label>
-          <br />
-          <input
-            id={linkId}
-            readOnly
-            value={state.link}
-            size={state.link.length}
-            onFocus={(event) => event.currentTarget.select()}
-          />
-          <br />
-          <small>
-            Copy it now and send it yourself. It works once, for 1 hour. Creating a new link
-            replaces this one.
-          </small>
-        </>
-      )}
+      {/* Below the table, not in the row: the table is wider than a phone screen, and the link
+          must fit it. The link only exists after the action runs in the browser, so document
+          is there. */}
+      {state.link &&
+        createPortal(
+          <p>
+            <label htmlFor={linkId}>Reset link for {email}</label>
+            <br />
+            <input
+              id={linkId}
+              readOnly
+              value={state.link}
+              style={{ width: "100%", boxSizing: "border-box" }}
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <br />
+            <small>
+              Copy it now and send it yourself. It works once, for 1 hour. Creating a new link
+              replaces this one.
+            </small>
+          </p>,
+          document.getElementById(resetLinksId)!,
+        )}
     </form>
   );
 }

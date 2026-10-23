@@ -1,4 +1,4 @@
-import { test as base } from "@playwright/test";
+import { type Locator, test as base, expect } from "@playwright/test";
 import { db } from "../src/server/db";
 
 export { expect } from "@playwright/test";
@@ -16,3 +16,19 @@ export const test = base.extend<object, { endPool: void }>({
     { scope: "worker", auto: true },
   ],
 });
+
+// A one-time link is too long for a phone screen: its input fits the viewport, the link scrolls
+// inside it, and focusing it selects the whole link for copying.
+export async function expectLinkFitsPhone(link: Locator) {
+  const page = link.page();
+  await page.setViewportSize({ width: 375, height: 812 });
+  const box = (await link.boundingBox())!;
+  expect(box.x + box.width, "link input fits a 375 px screen").toBeLessThanOrEqual(375);
+  await link.focus();
+  const [start, end, length] = await link.evaluate((input: HTMLInputElement) => [
+    input.selectionStart,
+    input.selectionEnd,
+    input.value.length,
+  ]);
+  expect([start, end], "focus selects the link").toEqual([0, length]);
+}
