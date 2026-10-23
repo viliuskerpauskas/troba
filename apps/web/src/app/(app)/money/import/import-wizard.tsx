@@ -62,7 +62,9 @@ export function ImportWizard({
   const stepStart = useRef<HTMLDivElement>(null);
 
   // The button that ran a step is gone once the next one renders, which drops focus to the page:
-  // put it at the start of the step instead, so a keyboard user carries on from there.
+  // put it at the start of the step instead, so a keyboard user carries on from there. Not on the
+  // page load's first step (restarting gives a new state object), which would steal focus. A
+  // refused submit moves it too: its disabled button lost focus while pending.
   useEffect(() => {
     if (state !== firstStep && document.activeElement === document.body) stepStart.current?.focus();
   }, [state]);
@@ -81,11 +83,11 @@ export function ImportWizard({
 
   return (
     <div ref={stepStart} tabIndex={-1}>
-      {step()}
+      {renderStep()}
     </div>
   );
 
-  function step() {
+  function renderStep() {
     switch (state.step) {
       case "upload":
         return (

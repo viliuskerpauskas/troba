@@ -105,9 +105,11 @@ test.describe("on a phone", () => {
     page,
   }) => {
     await signIn(page, "e2e-money-phone@example.test", "198.51.100.31");
+    await expect(page.getByRole("heading", { level: 1, name: "Money" })).toBeVisible();
     await checkPage(page, "Money");
 
     await page.goto("/money/transactions/new");
+    await expect(page.getByRole("button", { name: "Add transaction" })).toBeVisible();
     await checkPage(page, "Add transaction");
     await page.getByLabel("Date").fill("2026-10-03");
     await page.getByLabel("Amount").fill("12.50");
@@ -132,12 +134,38 @@ test.describe("on a phone", () => {
       page.getByRole("list", { name: "Attached receipts" }).getByRole("listitem"),
     ).toHaveCount(1);
     await checkPage(page, "Edit transaction");
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Yes, delete" })).toBeVisible();
+    await checkPage(page, "Edit transaction: confirming delete");
 
+    // Each page with what it lists: an archived account, a category being deleted, two rules.
     await page.goto("/money/accounts");
+    const create = page.getByRole("region", { name: "New account" });
+    await create.getByLabel("Name").fill("Savings jar");
+    await create.getByRole("button", { name: "Create account" }).click();
+    await page.getByRole("button", { name: "Archive Savings jar" }).click();
+    await expect(page.getByRole("region", { name: "Archived" })).toContainText("Savings jar");
     await checkPage(page, "Accounts");
+
     await page.goto("/money/categories");
-    await checkPage(page, "Categories");
+    await page.getByRole("button", { name: "Delete Other" }).click();
+    await expect(page.getByRole("button", { name: "Yes, delete" })).toBeVisible();
+    await checkPage(page, "Categories: confirming delete");
+
     await page.goto("/money/rules");
+    const newRule = page.getByRole("region", { name: "New rule" });
+    for (const [pattern, category] of [
+      ["GROCERY MART", "Food"],
+      ["PARKING", "Transport"],
+    ]) {
+      await newRule.getByLabel("contains (any case)").fill(pattern!);
+      await newRule.getByLabel("Category").selectOption(category!);
+      await newRule.getByRole("button", { name: "Add rule" }).click();
+      await expect(newRule.getByRole("status")).toContainText("Rule added.");
+    }
+    await expect(
+      page.getByRole("list", { name: "Rules, first match wins" }).getByRole("listitem"),
+    ).toHaveCount(2);
     await checkPage(page, "Rules");
 
     await page.goto("/money/import");
@@ -264,7 +292,7 @@ async function expectFocusInMain(page: Page) {
 async function checkPage(page: Page, name: string) {
   await test.step(name, async () => {
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(width, "no sideways scrolling").toBeLessThanOrEqual(360);
+    expect(width, "no sideways scrolling").toBeLessThanOrEqual(page.viewportSize()!.width);
 
     const { violations } = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -284,6 +312,9 @@ async function expectTabReachesEveryControl(page: Page) {
   const controls = await page.evaluate(() => {
     const selector = "a[href], button, input:not([type=hidden]), select, textarea, summary";
     const found = new Map<string, string>();
+    document.querySelectorAll<HTMLElement>("[data-tab-check]").forEach((element) => {
+      delete element.dataset.tabCheck;
+    });
     document.querySelectorAll<HTMLElement>(selector).forEach((element, index) => {
       const disabled = (element as HTMLButtonElement).disabled;
       if (disabled || !element.checkVisibility()) return;
@@ -297,6 +328,8 @@ async function expectTabReachesEveryControl(page: Page) {
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const reached = new Set<string>();
+  // A few more presses than controls, for the stops the selector doesn't list, such as the import
+  // file preview's scrollable region.
   for (let i = 0; i < controls.length + 5; i++) {
     await page.keyboard.press("Tab");
     const id = await page.evaluate(() => (document.activeElement as HTMLElement).dataset.tabCheck);
