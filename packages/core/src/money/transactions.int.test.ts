@@ -17,6 +17,8 @@ import {
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
 let userCount = 0;
+// These transactions have no attachments, so deleting one touches no files.
+const uploadsDir = "unused-uploads-dir";
 
 // A user with the money defaults: a Cash account (EUR) and the default categories.
 async function createUser() {
@@ -345,9 +347,13 @@ describe("transactions", () => {
     });
     const imported = await insertImported(userId, cashId);
 
-    expect(await deleteTransaction(db, userId, { transactionId: manual.id })).toBe(true);
-    expect(await deleteTransaction(db, userId, { transactionId: imported })).toBe(true);
-    expect(await deleteTransaction(db, userId, { transactionId: imported })).toBe(false);
+    expect(await deleteTransaction(db, userId, { transactionId: manual.id, uploadsDir })).toBe(
+      true,
+    );
+    expect(await deleteTransaction(db, userId, { transactionId: imported, uploadsDir })).toBe(true);
+    expect(await deleteTransaction(db, userId, { transactionId: imported, uploadsDir })).toBe(
+      false,
+    );
     expect(await listTransactions(db, userId)).toEqual([]);
   });
 
@@ -379,7 +385,9 @@ describe("transactions", () => {
         note: "Bob's",
       }),
     ).toEqual({ ok: false, reason: "not-found" });
-    expect(await deleteTransaction(db, bob.userId, { transactionId: alicesOwn.id })).toBe(false);
+    expect(
+      await deleteTransaction(db, bob.userId, { transactionId: alicesOwn.id, uploadsDir }),
+    ).toBe(false);
     expect(
       await createTransaction(db, bob.userId, { ...bobsDetails, accountId: alice.cashId }),
     ).toEqual({ ok: false, reason: "account-not-found" });

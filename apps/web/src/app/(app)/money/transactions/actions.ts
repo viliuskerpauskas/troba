@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/server/db";
+import { uploadsDir } from "@/server/env";
 import { requireUser } from "@/server/session";
 
 // React resets a form after its action, so a refused form gets back what was typed.
@@ -131,7 +132,10 @@ export async function deleteTransactionAction(formData: FormData): Promise<void>
   const { userId } = await requireUser();
   const transactionId = TransactionId.safeParse(formData.get("transactionId"));
   if (transactionId.success) {
-    await deleteTransaction(db(), userId, { transactionId: transactionId.data });
+    await deleteTransaction(db(), userId, {
+      transactionId: transactionId.data,
+      uploadsDir: uploadsDir(),
+    });
   }
   revalidatePath("/money/transactions");
   redirect("/money/transactions");
