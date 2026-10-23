@@ -1,0 +1,254 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { schema, type Db } from "@troba/db";
+import { and, asc, count, eq } from "drizzle-orm";
+
+// Receipt attachments (SPEC-money M6). Files live at <uploadsDir>/<userId>/<uuid>, named by the
+// server; the client's filename is metadata only. Every read and delete filters by the user, so
+// another user's attachment id finds nothing.
+
+const { moneyAttachments, moneyTransactions } = schema;
+
+export type Attachment = {
+  id: string;
+  transactionId: string;
+  filename: string;
+  mime: string;
+  sizeBytes: number;
+  createdAt: Date;
+};
+
+export type AddAttachmentResult =
+  | { ok: true; attachment: Attachment }
+  | {
+      ok: false;
+      reason: "transaction-not-found" | "too-large" | "unsupported-type" | "limit-reached";
+    };
+
+export const maxAttachmentBytes = 10 * 1024 * 1024;
+// Bounds the list on a transaction's page; a receipt rarely needs more than a few pages.
+export const maxAttachmentsPerTransaction = 20;
+
+export const attachmentTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+] as const;
+export type AttachmentType = (typeof attachmentTypes)[number];
+
+const startsWith = (bytes: Uint8Array, prefix: readonly number[], at = 0) =>
+  bytes.byteLength >= at + prefix.length && prefix.every((byte, i) => bytes[at + i] === byte);
+const ascii = (text: string) => Array.from(text, (char) => char.charCodeAt(0));
+const brandAt = (bytes: Uint8Array, at: number) =>
+  String.fromCharCode(...bytes.subarray(at, at + 4));
+
+// HEIC is an ISO base media file: a box size, "ftyp", the major brand, a version, then the
+// compatible brands. AVIF has the same shape with other brands, so the brand decides. A generic
+// HEIF major brand (mif1, msf1) counts when a HEVC brand is among the compatible ones.
+const heicBrands = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx"]);
+const heifBrands = new Set(["mif1", "msf1"]);
+
+function isHeic(bytes: Uint8Array): boolean {
+  if (!startsWith(bytes, ascii("ftyp"), 4)) return false;
+  const major = brandAt(bytes, 8);
+  if (heicBrands.has(major)) return true;
+  if (!heifBrands.has(major)) return false;
+  const boxSize = new DataView(bytes.buffer, bytes.byteOffset).getUint32(0);
+  const end = Math.min(boxSize, bytes.byteLength);
+  for (let at = 16; at + 4 <= end; at += 4) {
+    if (heicBrands.has(brandAt(bytes, at))) return true;
+  }
+  return false;
+}
+
+// The type is what the content is, by its magic bytes; the declared type and the filename are
+// never trusted.
+export function sniffAttachmentType(bytes: Uint8Array): AttachmentType | null {
+  if (startsWith(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (startsWith(bytes, [0x89, ...ascii("PNG\r\n"), 0x1a, 0x0a])) return "image/png";
+  if (startsWith(bytes, ascii("RIFF")) && startsWith(bytes, ascii("WEBP"), 8)) return "image/webp";
+  if (startsWith(bytes, ascii("%PDF-"))) return "application/pdf";
+  if (isHeic(bytes)) return "image/heic";
+  return null;
+}
+
+const attachmentColumns = {
+  id: moneyAttachments.id,
+  transactionId: moneyAttachments.transactionId,
+  filename: moneyAttachments.filename,
+  mime: moneyAttachments.mime,
+  sizeBytes: moneyAttachments.sizeBytes,
+  createdAt: moneyAttachments.createdAt,
+};
+
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The user's own rows on one transaction.
+function attachmentsOf(userId: string, transactionId: string) {
+  return and(
+    eq(moneyAttachments.transactionId, transactionId),
+    eq(moneyAttachments.userId, userId),
+  );
+}
+
+// storagePath is always <userId>/<uuid>, written by addAttachment; the checks make a bad row or
+// user id fail rather than reach outside the user's folder.
+function filePath(uploadsDir: string, userId: string, storagePath: string): string {
+  if (!uuid.test(userId)) throw new Error("Attachment paths need the user id to be a uuid.");
+  const folder = path.resolve(uploadsDir, userId);
+  const file = path.resolve(uploadsDir, storagePath);
+  if (path.dirname(file) !== folder) {
+    throw new Error("Attachment path is outside the user's uploads folder.");
+  }
+  return file;
+}
+
+const maxFilenameLength = 200;
+
+// Control characters (Postgres text can't hold NUL) and bidirectional controls, which can make
+// "x\u202egnp.exe" show as "xexe.png".
+const unwantedInFilename = /[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu;
+
+// The client's filename is metadata, so it's cleaned rather than refused: phones name photos, and
+// a file picked from elsewhere may have no usable name. A long name is cut by code points, so no
+// character is split into invalid halves.
+function cleanFilename(filename: string): string {
+  const cleaned = Array.from(filename.replace(unwantedInFilename, "").trim())
+    .slice(0, maxFilenameLength)
+    .join("")
+    .trim();
+  return cleaned || "receipt";
+}
+
+export async function addAttachment(
+  db: Db,
+  input: {
+    userId: string;
+    uploadsDir: string;
+    transactionId: string;
+    filename: string;
+    bytes: Uint8Array;
+  },
+): Promise<AddAttachmentResult> {
+  const { userId, uploadsDir, transactionId, bytes } = input;
+  if (bytes.byteLength > maxAttachmentBytes) return { ok: false, reason: "too-large" };
+  const mime = sniffAttachmentType(bytes);
+  if (!mime) return { ok: false, reason: "unsupported-type" };
+  const storagePath = `${userId}/${randomUUID()}`;
+  const file = filePath(uploadsDir, userId, storagePath);
+
+  // Set before the write: a write that fails partway can leave a file too.
+  let writing = false;
+  try {
+    return await db.transaction(async (tx) => {
+      // Locked, so the count holds until the insert commits, and a deleteTransaction running at
+      // the same time waits for this attachment and removes its file too.
+      const [transaction] = await tx
+        .select({ id: moneyTransactions.id })
+        .from(moneyTransactions)
+        .where(and(eq(moneyTransactions.id, transactionId), eq(moneyTransactions.userId, userId)))
+        .for("update");
+      if (!transaction) return { ok: false, reason: "transaction-not-found" } as const;
+      const [{ attached } = { attached: 0 }] = await tx
+        .select({ attached: count() })
+        .from(moneyAttachments)
+        .where(attachmentsOf(userId, transactionId));
+      if (attached >= maxAttachmentsPerTransaction) {
+        return { ok: false, reason: "limit-reached" } as const;
+      }
+
+      await mkdir(path.dirname(file), { recursive: true });
+      writing = true;
+      try {
+        await writeFile(file, bytes, { flag: "wx" });
+      } catch (error) {
+        // "wx" refused because the file exists: it's another attachment's, so it stays.
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") writing = false;
+        throw error;
+      }
+      const [attachment] = await tx
+        .insert(moneyAttachments)
+        .values({
+          userId,
+          transactionId,
+          filename: cleanFilename(input.filename),
+          mime,
+          sizeBytes: bytes.byteLength,
+          storagePath,
+        })
+        .returning(attachmentColumns);
+      return { ok: true, attachment: attachment! } as const;
+    });
+  } catch (error) {
+    // No row, so no file either. The original error is the one worth reporting.
+    if (writing) await rm(file, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+// Oldest first; at most maxAttachmentsPerTransaction, which addAttachment enforces.
+export async function listAttachments(
+  db: Db,
+  userId: string,
+  transactionId: string,
+): Promise<Attachment[]> {
+  return db
+    .select(attachmentColumns)
+    .from(moneyAttachments)
+    .where(attachmentsOf(userId, transactionId))
+    .orderBy(asc(moneyAttachments.createdAt), asc(moneyAttachments.id))
+    .limit(maxAttachmentsPerTransaction);
+}
+
+// The file and its metadata, or null when the id isn't one of the user's attachments, or its file
+// is gone (a removal that failed to commit after removing it).
+export async function getAttachmentFile(
+  db: Db,
+  input: { userId: string; uploadsDir: string; attachmentId: string },
+): Promise<(Attachment & { bytes: Buffer<ArrayBuffer> }) | null> {
+  const { userId, uploadsDir, attachmentId } = input;
+  const [row] = await db
+    .select({ ...attachmentColumns, storagePath: moneyAttachments.storagePath })
+    .from(moneyAttachments)
+    .where(and(eq(moneyAttachments.id, attachmentId), eq(moneyAttachments.userId, userId)));
+  if (!row) return null;
+  const { storagePath, ...attachment } = row;
+  try {
+    const bytes = await readFile(filePath(uploadsDir, userId, storagePath));
+    return { ...attachment, bytes };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+// Returns whether one of the user's attachments was removed.
+export async function removeAttachment(
+  db: Db,
+  input: { userId: string; uploadsDir: string; attachmentId: string },
+): Promise<boolean> {
+  const { userId, uploadsDir, attachmentId } = input;
+  return db.transaction(async (tx) => {
+    const removed = await tx
+      .delete(moneyAttachments)
+      .where(and(eq(moneyAttachments.id, attachmentId), eq(moneyAttachments.userId, userId)))
+      .returning({ storagePath: moneyAttachments.storagePath });
+    await removeAttachmentFiles(uploadsDir, userId, removed);
+    return removed.length > 0;
+  });
+}
+
+// Call inside the database transaction that deletes the rows, before it commits: if a file can't
+// be removed, the rows stay and the user can retry. A missing file is already removed.
+export async function removeAttachmentFiles(
+  uploadsDir: string,
+  userId: string,
+  rows: { storagePath: string }[],
+): Promise<void> {
+  await Promise.all(
+    rows.map(({ storagePath }) => rm(filePath(uploadsDir, userId, storagePath), { force: true })),
+  );
+}
