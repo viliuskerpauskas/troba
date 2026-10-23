@@ -4,7 +4,7 @@ Status: **approved 2026-10-11**. Module id: `identity` ([capability map](SPEC.md
 
 ## Objective
 
-Only invited people can use troba. Each user signs in securely, and **no user can ever see another user's data**. The owner administers invites and accounts but can't read anyone's financial data.
+Only invited people can use troba. Each user signs in securely, and **no user can ever see another user's data**. The owner administers invites and accounts but can't read anyone's financial data (reset links are the one place this rests on trust; see [Boundaries](#boundaries)).
 
 **Users:** the owner (admin) and a handful of invited friends.
 
@@ -43,12 +43,12 @@ Only invited people can use troba. Each user signs in securely, and **no user ca
 **I5. Password reset (no email in v1)**
 - An admin generates a single-use reset link for a user (expires after 1 hour) and sends it themselves.
 - The link lets the user set a new password and signs out all their sessions.
-- The admin never sees or sets the password.
+- The admin never sees or sets the password. The link itself is a bearer credential, so this rests on trusting the admin; see [Boundaries](#boundaries).
 
 **I6. Admin**
 - Roles: `admin` | `user`.
 - Admin pages list users (name, email, role, created, last active), create and revoke invites, generate reset links, and disable/enable users. A disabled user's sessions are revoked and sign-in is refused.
-- **No impersonation.** No admin view of other users' data.
+- **No impersonation.** No admin view of other users' data. troba's UI offers no way in, but a reset link is a way in the code can't close; see [Boundaries](#boundaries).
 
 **I7. Isolation contract (for all modules)**
 - `apps/web` exposes `requireUser(): { userId, role }`. Pages and server actions redirect to `/sign-in` without a session. `/api/*` routes return 401.
@@ -112,6 +112,7 @@ export async function addTransaction(input: unknown) {
 - **Always:** call `requireUser()` first in every server action and route handler, use generic auth error messages, revoke sessions on password change/reset/disable.
 - **Ask first:** adding OAuth/social login, 2FA/passkeys, sending email, changing session lifetime, adding Postgres row-level security.
 - **Never:** log passwords, tokens or session ids; store raw invite/reset tokens; build impersonation or an admin data view; enable public sign-up.
+- **Trusted, not enforced:** a reset link (I5) is a bearer credential. Whoever holds it, the admin who created it included, can set a new password and sign in as that user, and then see their data. Admins are trusted not to use the links they create; "never sees or sets the password" (I5) and "no impersonation" (I6) describe what troba's UI offers, not what the link design guarantees. A user can notice misuse: the reset signs them out on every device and their old password stops working, so they have to ask for a new link. troba sends no alert, so they find out on their next visit. What would close it later: TOTP 2FA ([Decision 1](#decisions-resolved-2026-10-11)), which keeps the second factor across a reset, so the link alone no longer signs anyone in; delivering the link by email straight to the user; or having the user confirm a reset before it takes effect.
 
 ## Success Criteria
 
@@ -127,6 +128,6 @@ Email sending (verification, invites, resets), OAuth/social login, 2FA/passkeys,
 
 ## Decisions (resolved 2026-10-11)
 
-1. **2FA:** TOTP 2FA comes right after v1, as a gate before real data goes into prod.
+1. **2FA:** TOTP 2FA comes right after v1, as a gate before real data goes into prod. Added for T61: a password reset must leave the second factor in place, which closes the reset-link trust gap in [Boundaries](#boundaries).
 2. **Row-level security:** v1 uses application filtering plus isolation tests. **RLS gets added after v1** (record it as an ADR when designed).
 3. **Data export:** comes later, not in v1.
