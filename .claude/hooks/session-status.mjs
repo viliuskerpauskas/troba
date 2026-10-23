@@ -3,11 +3,17 @@
 // Every lookup fails soft and says so: a failed check is reported as unknown, never
 // as "nothing there", and the hook always prints whatever it collected.
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import process from "node:process";
+
+// session-status.test.mjs points this at a stub script, since spawnSync can't find a stub
+// `gh.cmd` on Windows; nothing else sets it.
+const ghStub = process.env.SESSION_STATUS_GH_STUB;
 
 // git calls are local and instant; the two gh calls hit the network. 2 x 5s stays
 // well inside the 30s hook timeout in .claude/settings.json.
 function run(cmd, args) {
+  if (cmd === "gh" && ghStub) [cmd, args] = [process.execPath, [ghStub, ...args]];
   const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 5000 });
   return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: r.stderr ?? "" };
 }
@@ -19,18 +25,49 @@ const FAILED = ["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED",
 
 function gitStatus() {
   const inside = run("git", ["rev-parse", "--is-inside-work-tree"]);
-  if (!inside.ok) return { branch: null, line: "Git: not a git checkout." };
+  if (!inside.ok) return { branch: null, dirty: null, line: "Git: not a git checkout." };
   const branch = run("git", ["branch", "--show-current"]).out || null;
-  const dirty = run("git", ["status", "--porcelain"]).out.split("\n").filter(Boolean).length;
+  const status = run("git", ["status", "--porcelain"]);
+  const dirty = status.ok ? status.out.split("\n").filter(Boolean).length : null;
   const counts = run("git", ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
   const [ahead, behind] = counts.ok ? counts.out.split(/\s+/) : [];
   return {
     branch,
+    dirty,
     line:
       `Branch: ${branch ?? "(detached HEAD)"}` +
       (counts.ok ? ` (ahead ${ahead}, behind ${behind} of upstream)` : " (no upstream)") +
-      `, ${dirty} uncommitted change${dirty === 1 ? "" : "s"}`,
+      (dirty === null
+        ? ", uncommitted changes unknown (git status failed)"
+        : `, ${dirty} uncommitted change${dirty === 1 ? "" : "s"}`),
   };
+}
+
+// The main checkout stays on a clean `main` (AGENTS.md, "Worktrees"). When it isn't, another
+// session is probably working in it, and a second one branching there ends up committing onto
+// the first one's branch.
+function checkoutInUse({ branch, dirty }) {
+  const dirs = run("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]);
+  const [gitDir, commonDir] = dirs.out.split("\n");
+  if (!dirs.ok || !commonDir) return "Checkout: unknown whether it is in use (git lookup failed).";
+  // A linked worktree has its own git dir under the common one; it is never the shared checkout.
+  if (path.resolve(gitDir) !== path.resolve(commonDir)) return null;
+  if (dirty === null) return "Checkout: unknown whether it is in use (git status failed).";
+  if (branch === "main" && dirty === 0) return null;
+  const state =
+    branch === "main" ? "on main with uncommitted changes" : `on ${branch ?? "a detached HEAD"}`;
+  const list = run("git", ["worktree", "list"]);
+  return (
+    `Warning: this is the main checkout and it is ${state}, so another session may be using ` +
+    "this checkout. Start this task in its own worktree (`git worktree add <path> -b <branch> main`) " +
+    "rather than branching here.\n" +
+    (list.ok
+      ? `Worktrees:\n${list.out
+          .split("\n")
+          .map((worktree) => `  ${worktree}`)
+          .join("\n")}`
+      : "Worktrees: unknown (git worktree list failed).")
+  );
 }
 
 function ciState(checks) {
@@ -100,14 +137,14 @@ function unblockedIssues() {
 }
 
 const lines = [];
-let branch = null;
+let git = { branch: null, dirty: null };
 for (const step of [
   () => {
-    const g = gitStatus();
-    branch = g.branch;
-    return g.line;
+    git = gitStatus();
+    return git.line;
   },
-  () => prStatus(branch),
+  () => checkoutInUse(git),
+  () => prStatus(git.branch),
   unblockedIssues,
 ]) {
   try {
