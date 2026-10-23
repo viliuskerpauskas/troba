@@ -4,3 +4,13 @@ packages:
 
 ignoredBuiltDependencies:
   - unrs-resolver
+
+# Accepted audit findings: each names its path, why it can't be fixed yet, and when to look again.
+auditConfig:
+  ignoreGhsas:
+    # esbuild <=0.24.2 dev server answers cross-origin requests. Reached only through
+    # drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils, which pins esbuild ~0.18.20,
+    # so an override would leave its declared range. We run `drizzle-kit generate`, never an
+    # esbuild dev server, and it isn't in the runtime image. Stable drizzle-kit (0.31.11) still
+    # depends on @esbuild-kit; drop this when drizzle-kit 1.0 is stable, or by 2027-01-23.
+    - GHSA-67mh-4wv8-2f99
