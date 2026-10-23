@@ -16,6 +16,8 @@
 // change can't be placed in a folder, so it's "pr-elsewhere" or "push-elsewhere", which the
 // hook refuses. `git push --dry-run` is checked too.
 
+import process from "node:process";
+
 const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl", "push-location"]);
 const PUSHD = new Set(["pushd", "push-location"]);
 const POPD = new Set(["popd", "pop-location"]);
@@ -39,7 +41,13 @@ const PUSH_ALL = new Set(["--all", "--mirror", "--branches"]);
 // Programs that run a command string.
 const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 const POWERSHELLS = new Set(["pwsh", "powershell"]);
-const RUNS_COMMAND = new Set([...SHELLS, ...POWERSHELLS, "eval", "invoke-expression", "iex"]);
+export const RUNS_COMMAND = new Set([
+  ...SHELLS,
+  ...POWERSHELLS,
+  "eval",
+  "invoke-expression",
+  "iex",
+]);
 const ELSEWHERE = /^(?:-[RH]|--repo(?:=|$)|--head(?:=|$))/;
 // `GH_REPO=…`, `$env:GH_REPO = …`, `${env:GH_REPO}`, `Set-Item env:GH_REPO …`.
 const ELSEWHERE_ENV = /env:GH_(?:REPO|HOST)\b|^GH_(?:REPO|HOST)=/i;
@@ -185,9 +193,14 @@ function tokenize(command, shell) {
   return { items, unbalanced: unbalanced || quote !== null };
 }
 
+// Git Bash writes C:\dev as /c/dev, which Node on Windows would read as C:\c\dev.
+export function nativePath(dir) {
+  return process.platform === "win32" ? dir.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:") : dir;
+}
+
 const isAbsolute = (dir) => /^([/\\~]|[A-Za-z]:)/.test(dir);
-const join = (base, dir) => (base === null || isAbsolute(dir) ? dir : `${base}/${dir}`);
-const program = (word) =>
+export const join = (base, dir) => (base === null || isAbsolute(dir) ? dir : `${base}/${dir}`);
+export const program = (word) =>
   word.text
     .split(/[/\\]/)
     .pop()
@@ -196,7 +209,7 @@ const program = (word) =>
 
 // The subcommand of the git at words[at], after its global options, where it sits, and the
 // directory its -C options name.
-function gitSubcommand(words, at, cwd) {
+export function gitSubcommand(words, at, cwd) {
   let i = at + 1;
   while (words[i]?.text.startsWith("-")) {
     if (words[i].text === "-C") cwd = join(cwd, words[i + 1]?.text ?? "");
@@ -255,7 +268,7 @@ const joined = (words) => words.map((w) => w.text).join(" ");
 // encoded PowerShell command; null when it runs none. PowerShell takes any prefix of a parameter
 // name: every `-e…` but `-ex…` (ExecutionPolicy) is EncodedCommand, and `-c` to `-command` is
 // Command.
-function innerCommand(words, at) {
+export function innerCommand(words, at) {
   const name = program(words[at]);
   const rest = words.slice(at + 1);
   if (name === "eval") return { text: joined(rest), shell: "bash" };
@@ -303,12 +316,16 @@ function gatedIn(words, start, cwd) {
   return [];
 }
 
-function read(command, shell) {
+// A command as text without heredoc bodies and line continuations, and its tokens.
+export function parse(command, shell) {
   const text = joinLines(dropBodies(command), shell);
-  const { items, unbalanced } = tokenize(text, shell);
-  if (unbalanced) return mentionsGated(text) ? [{ kind: "unclear", cwd: null }] : [];
+  return { text, ...tokenize(text, shell) };
+}
 
-  const found = [];
+// Each simple command in tokenized items, other than a directory change or a help call: its
+// words, where the program starts (after any `NAME=value`), and the directory a cd moved to.
+export function simpleCommands(items) {
+  const commands = [];
   let cwd = null;
   const subshells = [];
   const pushed = [];
@@ -333,9 +350,19 @@ function read(command, shell) {
         if (words[dir]) cwd = join(cwd, words[dir].text);
         continue;
       }
-      found.push(...gatedIn(words, start, cwd));
+      commands.push({ words, start, cwd });
     }
   }
+  return commands;
+}
+
+function read(command, shell) {
+  const { text, items, unbalanced } = parse(command, shell);
+  if (unbalanced) return mentionsGated(text) ? [{ kind: "unclear", cwd: null }] : [];
+
+  const found = simpleCommands(items).flatMap(({ words, start, cwd }) =>
+    gatedIn(words, start, cwd),
+  );
   // A GH_REPO or GH_HOST set anywhere, inline or exported, points gh at another repository. Its
   // value may be quoted (`GH_REPO="o/r"`), so the word only has to start unquoted.
   const elsewhere = items.some(

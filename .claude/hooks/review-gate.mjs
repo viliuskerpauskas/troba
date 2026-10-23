@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { gatedCommands } from "./gated-command.mjs";
+import { gatedCommands, nativePath } from "./gated-command.mjs";
 import { checkReview, shasIn, specIssue } from "./review-evidence.mjs";
 
 // A hook that runs past its timeout in .claude/settings.json (30 s) lets the command through,
@@ -50,11 +50,6 @@ function git(args, cwd) {
     );
   }
   return r.stdout.trim();
-}
-
-// Git Bash writes C:\dev as /c/dev, which Node on Windows would read as C:\c\dev.
-function nativePath(dir) {
-  return process.platform === "win32" ? dir.replace(/^\/([A-Za-z])(?=\/|$)/, "$1:") : dir;
 }
 
 function gh(args, cwd, what) {
