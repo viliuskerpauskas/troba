@@ -5,6 +5,7 @@ export * from "./identity/password-resets";
 export * from "./identity/sign-in-limit";
 export * from "./identity/users";
 export * from "./money/accounts";
+export * from "./money/attachments";
 export * from "./money/categories";
 export * from "./money/cents";
 export * from "./money/defaults";

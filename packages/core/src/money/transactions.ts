@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
 import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { removeAttachmentFiles } from "./attachments";
 import { monthRange } from "./month";
 
 // Transactions (SPEC-money M2, M8). Manual ones are entered by hand and fully editable; imported
@@ -253,17 +254,38 @@ export async function updateTransaction(
 }
 
 // Manual or imported; a deleted imported transaction comes back if its file is imported again.
-// Its attachment rows go with it (on delete cascade). Returns whether one of the user's was deleted.
+// Its attachments go with it, rows and files. Returns whether one of the user's was deleted.
 export async function deleteTransaction(
   db: Db,
   userId: string,
-  input: { transactionId: string },
+  input: { transactionId: string; uploadsDir: string },
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(moneyTransactions)
-    .where(and(eq(moneyTransactions.id, input.transactionId), eq(moneyTransactions.userId, userId)))
-    .returning({ id: moneyTransactions.id });
-  return deleted.length > 0;
+  const isTheTransaction = and(
+    eq(moneyTransactions.id, input.transactionId),
+    eq(moneyTransactions.userId, userId),
+  );
+  return db.transaction(async (tx) => {
+    // Locked first: an addAttachment on this transaction either commits before (and its file is
+    // removed below) or waits and then finds no transaction.
+    const [locked] = await tx
+      .select({ id: moneyTransactions.id })
+      .from(moneyTransactions)
+      .where(isTheTransaction)
+      .for("update");
+    if (!locked) return false;
+    const attachments = await tx
+      .delete(moneyAttachments)
+      .where(
+        and(
+          eq(moneyAttachments.transactionId, input.transactionId),
+          eq(moneyAttachments.userId, userId),
+        ),
+      )
+      .returning({ storagePath: moneyAttachments.storagePath });
+    await tx.delete(moneyTransactions).where(isTheTransaction);
+    await removeAttachmentFiles(input.uploadsDir, userId, attachments);
+    return true;
+  });
 }
 
 export type TransactionFilter = {

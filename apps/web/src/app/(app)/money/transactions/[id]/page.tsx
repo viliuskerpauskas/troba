@@ -1,4 +1,12 @@
-import { centsToDecimal, getTransaction, listAccounts, listCategories } from "@troba/core";
+import {
+  centsToDecimal,
+  getTransaction,
+  listAccounts,
+  listAttachments,
+  listCategories,
+  maxAttachmentBytes,
+  maxAttachmentsPerTransaction,
+} from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -7,6 +15,7 @@ import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../../format";
 import { DeleteTransaction, TransactionForm } from "../transaction-form";
+import { Receipts } from "./receipts";
 
 export const metadata: Metadata = { title: "Edit transaction · troba" };
 
@@ -16,10 +25,11 @@ export default async function EditTransactionPage({
   const { userId } = await requireMoneyUser();
   const id = z.uuid().safeParse((await params).id);
   if (!id.success) notFound();
-  const [transaction, accounts, categories] = await Promise.all([
+  const [transaction, accounts, categories, receipts] = await Promise.all([
     getTransaction(db(), userId, id.data),
     listAccounts(db(), userId, { includeArchived: true }),
     listCategories(db(), userId),
+    listAttachments(db(), userId, id.data),
   ]);
   if (!transaction) notFound();
   const imported = transaction.source === "csv_import";
@@ -77,6 +87,12 @@ export default async function EditTransactionPage({
           categoryId: transaction.categoryId ?? "",
           note: transaction.note ?? "",
         }}
+      />
+      <Receipts
+        transactionId={transaction.id}
+        receipts={receipts}
+        maxBytes={maxAttachmentBytes}
+        full={receipts.length >= maxAttachmentsPerTransaction}
       />
       {!transaction.categoryId && (
         <p>
