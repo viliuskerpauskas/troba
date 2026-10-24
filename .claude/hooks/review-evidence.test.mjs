@@ -225,6 +225,14 @@ describe("checkReview", () => {
       ]);
     });
 
+    it("is required when pnpm-workspace.yaml changes, where accepted findings live", () => {
+      const changed = ["pnpm-workspace.yaml"];
+      const read = "Files read:\n- `pnpm-workspace.yaml`";
+      expect(check(reviewFile({ filesRead: read }), changed)).toEqual([
+        '## Checks has no "pnpm audit:" line, but the diff changes pnpm-workspace.yaml',
+      ]);
+    });
+
     it("is satisfied by a pnpm audit: line", () => {
       const review = reviewFile({ filesRead, checks: "pnpm audit: no known vulnerabilities." });
       expect(check(review, files)).toEqual([]);
