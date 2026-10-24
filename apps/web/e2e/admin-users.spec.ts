@@ -3,7 +3,7 @@ import type { Browser, Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
-import { expect, test } from "./test";
+import { expect, expectLinkFitsPhone, test } from "./test";
 
 const invalidHeading = "This reset link doesn't work";
 
@@ -81,10 +81,19 @@ test("an admin creates a reset link, and the user sets a new password with it on
   const usersPhone = await signedIn(browser, user.email, user.password);
   const admin = await adminPage(browser);
 
-  await userRow(admin, user.email).getByRole("button", { name: "Create reset link" }).click();
+  const createLink = userRow(admin, user.email).getByRole("button", { name: "Create reset link" });
+  await createLink.click();
   const link = admin.getByLabel(`Reset link for ${user.email}`);
   await expect(link).toHaveValue(/\/reset\/[A-Za-z0-9_-]{43}$/);
+  // It shows below the table, out of the row's sight, so focus moves to it, and again for a
+  // new link.
+  await expect(link).toBeFocused();
+  const firstLink = await link.inputValue();
+  await createLink.click();
+  await expect(link).not.toHaveValue(firstLink);
+  await expect(link).toBeFocused();
   const path = new URL(await link.inputValue()).pathname;
+  await expectLinkFitsPhone(link);
 
   const usersLaptop = await (await browser.newContext()).newPage();
   await usersLaptop.goto(path);
@@ -98,6 +107,26 @@ test("an admin creates a reset link, and the user sets a new password with it on
   await signedIn(browser, user.email, newPassword);
   await usersLaptop.goto(path);
   await expect(usersLaptop.getByRole("heading", { level: 1, name: invalidHeading })).toBeVisible();
+});
+
+test("a reset link created before the page's scripts run still shows", async ({ browser }) => {
+  const user = await createUser("e2e-reset-no-js@example.test");
+  const admin = await adminPage(browser);
+  // No JavaScript: the form posts and the server renders the result, as it does for a form
+  // sent before hydration.
+  const noScripts = await (
+    await browser.newContext({
+      javaScriptEnabled: false,
+      storageState: await admin.context().storageState(),
+    })
+  ).newPage();
+  await noScripts.goto("/admin/users");
+
+  await userRow(noScripts, user.email).getByRole("button", { name: "Create reset link" }).click();
+
+  await expect(noScripts.getByLabel(`Reset link for ${user.email}`)).toHaveValue(
+    /\/reset\/[A-Za-z0-9_-]{43}$/,
+  );
 });
 
 test("a signed-in non-admin gets 403 on the admin pages", async ({ browser }) => {
