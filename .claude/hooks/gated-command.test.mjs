@@ -534,6 +534,44 @@ describe("gatedCommands", () => {
     }
   });
 
+  it("calls a gh whose pr word is substituted unclear", () => {
+    for (const command of [
+      "gh $(echo pr) create --fill",
+      "gh $EMPTY pr create --fill",
+      "gh ${P:-pr} create --fill",
+    ]) {
+      expect(gatedCommands(command), command).toContainEqual({ kind: "unclear", cwd: null });
+    }
+    expect(gatedCommands('cmd /c "gh $EMPTY pr create"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("doesn't read a -R or --repo value as a substituted subcommand", () => {
+    expect(gatedCommands('gh pr --repo "$REPO" comment 5 --body "new round"')).toEqual([]);
+    expect(gatedCommands("gh pr -R $R view 5 --comments create")).toEqual([]);
+    expect(gatedCommands("gh pr view $N")).toEqual([]);
+  });
+
+  it("matches a mention under both joinings, so a PowerShell backslash can't hide one", () => {
+    expect(gatedCommands("@'\nC:\\x\\\ngit push\n'@ | powershell -", "powershell")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "gh pr cre\\\nate"', "powershell")).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("reads a quoted or prefixed cd, and bash cd's options", () => {
+    expect(gatedCommands('"cd" ../wt && git push')).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("builtin cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("command cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("cd -P ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("& 'Set-Location' ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+  });
+
   it("joins a bash continuation without a space, even inside a word", () => {
     expect(gatedCommands("git pu\\\nsh")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("gh pr cre\\\nate")).toEqual([{ kind: "pr-create", cwd: null }]);
@@ -549,7 +587,9 @@ describe("gatedCommands", () => {
     // Bash has no `CD`, `cd..` or `Set-Location`: the command fails and the folder stays.
     expect(gatedCommands("CD ../wt && git push")).toEqual([{ kind: "push", cwd: null }]);
     expect(gatedCommands("cd..; git push")).toEqual([{ kind: "push", cwd: null }]);
-    expect(gatedCommands("Set-Location ../wt; git push")).toEqual([{ kind: "push", cwd: null }]);
+    for (const cd of ["Set-Location", "set-location", "sl", "chdir", "push-location"]) {
+      expect(gatedCommands(`${cd} ../wt; git push`), cd).toEqual([{ kind: "push", cwd: null }]);
+    }
   });
 
   it("reads PowerShell's directory change in any case, with cd.. and cd\\", () => {

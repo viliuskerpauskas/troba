@@ -167,9 +167,10 @@ try {
       block(
         "it can't tell what this command runs: it has an unclosed quote, quotes nested inside " +
           "a `$(…)` in double quotes, an encoded PowerShell command, or a push whose target " +
-          "isn't a plain branch name (a variable or `$(…)`), or a `gh pr` subcommand that is " +
-          "one, and it mentions `git push` or `gh pr create`. Close the quote, use single " +
-          "quotes inside the `$(…)`, name the branch or subcommand, or split the command up.",
+          "isn't a plain branch name (a variable or `$(…)`), or a `gh` whose `pr` word or " +
+          "subcommand is a variable or `$(…)`, so it may run `git push` or `gh pr create`. " +
+          "Close the quote, use single quotes inside the `$(…)`, name the branch or " +
+          "subcommand, or split the command up.",
       );
     }
     if (kind === "pr-elsewhere") {

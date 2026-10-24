@@ -34,8 +34,20 @@ const CD_SHORTHANDS = new Map([
 const BASH_CD = new Set(["cd", "pushd"]);
 const BASH_POPD = new Set(["popd"]);
 // Words that can come before a `cd`, and the options a `cd` can take before its directory.
-const CD_PREFIXES = new Set(["{", "!", "if", "then", "else", "elif", "do", "while", "until"]);
-const CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
+const CD_PREFIXES = new Set([
+  "{",
+  "!",
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until",
+  "builtin",
+  "command",
+]);
+const CD_OPTIONS = new Set(["--", "-p", "-l", "-e", "-@", "-path", "-literalpath"]);
 const HELP = new Set(["--help", "-h"]);
 // Global options whose value is the next word.
 const GIT_VALUE_OPTIONS = new Set([
@@ -69,10 +81,12 @@ const PLAIN_REF = /^[\w./-]+$/;
 // the subcommand, so only flags, each with an optional value (`-R o/r`, `--repo=o/r`), may sit
 // between them: `gh pr edit 5 --title "new title"` names no PR create. A full path may be quoted,
 // and so may the subcommand (`\"create\"`); a subcommand word with a `$` or backtick in it
-// (`$(echo create)`) may run anything up to the line's end. A value can't start with `-`, so each
-// word has one reading, and the lazy middles are bounded, so long input stays near linear.
+// (`$(echo create)`) may hold it within the next 200 characters of the line, unless the word is
+// a `-R` or `--repo` value. A substituted word may sit before `pr` (`gh $EMPTY pr`). A value
+// can't start with `-`, so each word has one reading, and the lazy middles are bounded, so long
+// input stays near linear.
 const PR_MENTION =
-  /\bgh(?:\.exe)?["']?\s+pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:[\\"'`]*|[^\s;&|-]*[$`][^\n;&|]{0,200}?)(?:create|new)\b/gi;
+  /\bgh(?:\.exe)?["']?\s+(?:[^\s;&|]*[$`][^\s;&|]*\s+)?pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:[\\"'`]*|(?<!\s(?:-R|--repo)\s+)[^\s;&|-]*[$`][^\n;&|]{0,200}?)(?:create|new)\b/gi;
 const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]{0,2000}?\s)?push(?![\w-])/gi;
 // A bare help call is the one form that opens or pushes nothing.
 const HELP_CALL =
@@ -272,18 +286,20 @@ function pushTargets(words, at) {
 }
 
 // Whether the gh at words[at] runs `pr create` or `pr new`, with options before or after `pr`,
-// or "unclear" when its subcommand is substituted (`$(…)`, a backtick, `${…}`, `$sub`) and could
-// be either.
+// or "unclear" when its `pr` word or subcommand is substituted (`$(…)`, a backtick, `${…}`,
+// `$sub`, also in double quotes) and could be either.
 function isPrCreate(words, at) {
   let i = at + 1;
   const skipOptions = () => {
     while (words[i]?.text.startsWith("-")) i += GH_VALUE_OPTIONS.has(words[i].text) ? 2 : 1;
   };
+  const substituted = () => /[$`]/.test(words[i]?.text ?? "");
   skipOptions();
+  if (substituted()) return "unclear";
   if (words[i]?.text !== "pr") return false;
   i++;
   skipOptions();
-  if (/[$`]/.test(words[i]?.text ?? "")) return "unclear"; // `"$sub"` expands too.
+  if (substituted()) return "unclear";
   return words[i]?.text === "create" || words[i]?.text === "new";
 }
 
@@ -367,9 +383,10 @@ export function simpleCommands(items, shell) {
       if (start === -1 || words.some((w) => !w.quoted && HELP.has(w.text))) continue;
       let at = start;
       while (at < words.length - 1 && !words[at].quoted && CD_PREFIXES.has(words[at].text)) at++;
+      // A quoted name is the same command (`"cd"` is still bash's builtin).
       const word = words[at];
-      const name = word.quoted ? "" : ps ? program(word) : word.text;
-      const shorthand = ps && !word.quoted && CD_SHORTHANDS.get(word.text.toLowerCase());
+      const name = ps ? program(word) : word.text;
+      const shorthand = ps && CD_SHORTHANDS.get(word.text.toLowerCase());
       if (shorthand) {
         cwd = join(cwd, shorthand);
         continue;
@@ -411,20 +428,26 @@ function read(command, shell) {
 export function gatedCommands(command, shell = "bash") {
   const found = read(command, shell);
   // Mentions are matched with every continuation joined, in either shell's spelling, so a
-  // command split across lines is still named. Joining one that isn't a continuation only
+  // command split across lines is still named. A backslash pair is joined both ways, dropped
+  // as bash does and as a space, since in PowerShell (or a quoted string) the backslash is just
+  // a character; the reading that names more counts. Joining what isn't a continuation only
   // checks more.
-  const mentionText = joinLines(command);
-  if (HELP_CALL.test(mentionText) || found.some((f) => f.kind === "unclear")) return found;
+  const mentionTexts = [joinLines(command), command.replace(/[\\`]\r?\n/g, " ")];
+  if (mentionTexts.every((text) => HELP_CALL.test(text))) return found;
+  if (found.some((f) => f.kind === "unclear")) return found;
+  const mentions = (pattern) =>
+    Math.max(...mentionTexts.map((text) => [...text.matchAll(pattern)].length));
+  const anyText = (test) => mentionTexts.some(test);
   // A mention the reading didn't place: the text names the command more often than the reading
   // found it run, so one sits somewhere it can't read. Counting, rather than asking whether any
   // was found, keeps `git push origin main && cmd /c "git push"` from hiding the second.
   const count = (...kinds) => found.filter((f) => kinds.includes(f.kind)).length;
-  const cd = CD_MENTION.test(mentionText);
-  if ([...mentionText.matchAll(PR_MENTION)].length > count("pr-create", "pr-elsewhere")) {
-    const kind = cd || mentionsElsewhere(mentionText) ? "pr-elsewhere" : "pr-create";
+  const cd = anyText((text) => CD_MENTION.test(text));
+  if (mentions(PR_MENTION) > count("pr-create", "pr-elsewhere")) {
+    const kind = cd || anyText(mentionsElsewhere) ? "pr-elsewhere" : "pr-create";
     found.push({ kind, cwd: null, mentioned: true });
   }
-  if ([...mentionText.matchAll(PUSH_MENTION)].length > count("push")) {
+  if (mentions(PUSH_MENTION) > count("push")) {
     // Next to a cd it may run in another folder, so it can't be checked in the session's.
     found.push({ kind: cd ? "push-elsewhere" : "push", cwd: null, mentioned: true });
   }
