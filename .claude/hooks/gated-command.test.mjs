@@ -600,6 +600,11 @@ describe("gatedCommands", () => {
       ["cd -l ../wt; git push", "bash"],
       ["cd -E ../wt; git push", "bash"],
       ["cd -path ../wt; git push", "bash"],
+      ["cd -@ ../wt; git push", "bash"],
+      ["cd -L@ ../wt; git push", "bash"],
+      ["pushd -P ../wt; git push", "bash"],
+      ["pushd -L ../wt; git push", "bash"],
+      ["pushd -e ../wt; git push", "bash"],
       ["cd -p ../wt; git push", "powershell"],
       ["cd -e ../wt; git push", "powershell"],
     ]) {
@@ -608,6 +613,7 @@ describe("gatedCommands", () => {
         cwd: "../wt",
       });
     }
+    expect(gatedCommands("pushd -- ../wt; git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("cd -Path ../wt; git push", "powershell")).toEqual([
       { kind: "push", cwd: "../wt" },
     ]);

@@ -33,7 +33,7 @@ const CD_SHORTHANDS = new Map([
 ]);
 const BASH_CD = new Set(["cd", "pushd"]);
 const BASH_POPD = new Set(["popd"]);
-// Words that can come before a `cd`, and the options a `cd` can take before its directory.
+// Words that can come before a `cd`.
 const CD_PREFIXES = new Set([
   "{",
   "!",
@@ -47,10 +47,12 @@ const CD_PREFIXES = new Set([
   "builtin",
   "command",
 ]);
-// The options each shell's cd takes before its directory: bash's, case-sensitive and combinable
-// (`-LP`); PowerShell's, in any case, but not `-p` or `-e`, which it finds ambiguous. An option a
-// shell rejects fails the cd, so it isn't skipped: read as the folder, git fails there.
-const BASH_CD_OPTION = /^(?:--|-[LPe@]+)$/;
+// The options each shell's cd takes before its directory: bash's cd, case-sensitive and
+// combinable (`-LP`), without `-@`, which bash builds only on systems with extended attributes;
+// bash's pushd, only `--`; PowerShell's, in any case, but not `-p` or `-e`, which it finds
+// ambiguous. An option a shell rejects fails the cd, so it isn't skipped: read as the folder,
+// git fails there.
+const BASH_CD_OPTION = /^(?:--|-[LPe]+)$/;
 const PS_CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
 const HELP = new Set(["--help", "-h"]);
 // Global options whose value is the next word.
@@ -402,8 +404,10 @@ export function simpleCommands(items, shell) {
       }
       if ((ps ? CD : BASH_CD).has(name)) {
         let dir = at + 1;
-        const isOption = (text) =>
-          ps ? PS_CD_OPTIONS.has(text.toLowerCase()) : BASH_CD_OPTION.test(text);
+        const isOption = (text) => {
+          if (ps) return PS_CD_OPTIONS.has(text.toLowerCase());
+          return name === "pushd" ? text === "--" : BASH_CD_OPTION.test(text);
+        };
         while (words[dir] && isOption(words[dir].text)) dir++;
         if (PUSHD.has(name)) pushed.push(cwd);
         if (words[dir]) cwd = join(cwd, words[dir].text);
