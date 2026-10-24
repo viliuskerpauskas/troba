@@ -173,11 +173,17 @@ try {
       );
     }
     if (kind === "pr-elsewhere") {
+      const hint = mentioned
+        ? " This command names `gh pr create` where the gate can't tell whether it runs, next " +
+          "to a cd, -R, -H, --repo, --head, GH_REPO or GH_HOST, so it can't be placed: a " +
+          "title, body or message that mentions a cd, -R or -H counts too. If it only names " +
+          "it, put that text in a file (`--body-file`, `git commit -F <file>`) or reword it."
+        : "";
+      mentioned = false; // The hint above already says what to do about the mention.
       block(
         "open the PR from the feature worktree for its current branch, without -R, --repo, " +
-          "-H, --head, GH_REPO or GH_HOST" +
-          (mentioned ? " (and, for a command the gate can't read, without a cd)" : "") +
-          ": the review file only vouches for this folder's branch.",
+          "-H, --head, GH_REPO or GH_HOST: the review file only vouches for this folder's " +
+          `branch.${hint}`,
       );
     }
     if (kind === "push-elsewhere") {

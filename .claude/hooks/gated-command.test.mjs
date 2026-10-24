@@ -469,6 +469,71 @@ describe("gatedCommands", () => {
     ]);
   });
 
+  it("ignores other gh pr subcommands whose text says create or new", () => {
+    for (const command of [
+      'gh pr edit 5 --title "new title"',
+      'gh pr comment 5 --body "will create later"',
+      'gh pr list --search "new"',
+      'cmd /c "gh pr edit 5 --title new"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([]);
+    }
+  });
+
+  it("still finds a mentioned PR create with flags between pr and the subcommand", () => {
+    for (const command of [
+      'cmd /c "gh pr -R o/r create"',
+      'cmd /c "gh pr --repo o/r create"',
+      'cmd /c "gh pr --repo=o/r create"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "pr-elsewhere", cwd: null, mentioned: true },
+      ]);
+    }
+    expect(gatedCommands('cmd /c "gh pr --web new"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("finds a mention split across lines by a continuation", () => {
+    expect(gatedCommands('cmd /c "gh pr \\\ncreate"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "git -C x \\\npush"')).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "gh pr `\ncreate"', "powershell")).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("gh pr create \\\n--help")).toEqual([]);
+  });
+
+  it("reads a directory change in any case, and PowerShell's cd..", () => {
+    expect(gatedCommands("CD ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("set-location ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+    expect(gatedCommands("cd..; git push", "powershell")).toEqual([{ kind: "push", cwd: ".." }]);
+    expect(gatedCommands('cd..; cmd /c "git push"', "powershell")).toEqual([
+      { kind: "push-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('CD ../wt && cmd /c "gh pr create"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("refuses a mentioned PR create after GH_REPO or GH_HOST is set in any case", () => {
+    expect(gatedCommands('$env:gh_repo = "o/r"; cmd /c "gh pr create"', "powershell")).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('export GH_HOST=example.test; cmd /c "gh pr create"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("export GH_HOST=example.test; gh pr create")).toEqual([
+      { kind: "pr-elsewhere", cwd: null },
+    ]);
+  });
+
   it("ignores --help", () => {
     expect(gatedCommands("gh pr create --help")).toEqual([]);
     expect(gatedCommands("git push -h")).toEqual([]);
