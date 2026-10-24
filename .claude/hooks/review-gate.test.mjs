@@ -195,6 +195,43 @@ describe("review-gate", { timeout: 30000 }, () => {
     expect(gate("pwsh -enc ZwBpAHQA", { tool: "PowerShell" }).status).toBe(2);
   });
 
+  it("says that a message naming a cd, -R or -H next to a PR create counts as elsewhere", () => {
+    const { status, stderr } = gate('git commit -m "docs: run gh pr create without -R"');
+    expect(status).toBe(2);
+    expect(stderr).toContain(
+      "a title, body or message that mentions a cd, -R, --repo, -H, --head, GH_REPO or GH_HOST counts too",
+    );
+    expect(stderr).toContain("--body-file");
+    expect(stderr).not.toContain("checked as if it ran");
+  });
+
+  it("gives each synthetic payload its intended exit code", () => {
+    writeReview({ mutation: false });
+    const cases = [
+      ["gh pr create --fill", "Bash", 2],
+      ["gh pr new", "Bash", 2],
+      ["gh pr create --help", "Bash", 0],
+      ['gh pr edit 5 --title "new title"', "Bash", 0],
+      ['gh pr comment 5 --body "will create later"', "Bash", 0],
+      ['gh pr list --search "new"', "Bash", 0],
+      ["gh pr -R o/r create", "Bash", 2],
+      ["gh pr --repo o/r create", "Bash", 2],
+      ["gh pr --repo=o/r create", "Bash", 2],
+      ['cmd /c "gh pr \\\ncreate"', "Bash", 2],
+      ["gh pr \\\ncreate --fill", "Bash", 2],
+      ["gh pr `\ncreate --fill", "PowerShell", 2],
+      ['gh pr edit 5 --title "new title"', "PowerShell", 0],
+      ['$env:GH_REPO = "o/r"; gh pr create', "PowerShell", 2],
+      ['cd..; cmd /c "gh pr create"', "PowerShell", 2],
+      ["gh pr $(echo create) --fill", "Bash", 2],
+      ['cmd /c "gh pr \\"create\\" --fill"', "Bash", 2],
+      ["gh pr cre\\\nate --fill", "Bash", 2],
+    ];
+    for (const [command, tool, status] of cases) {
+      expect(gate(command, { tool }).status, `${tool}: ${command}`).toBe(status);
+    }
+  });
+
   it("refuses when its input can't be read, rather than letting the command run", () => {
     const { status, stderr } = gate("", { stdin: "not json" });
     expect(status).toBe(2);

@@ -30,7 +30,7 @@ git log --oneline origin/main..HEAD
 Read `.reviews/<branch>.md` (`/` in the branch name becomes `-`):
 
 - **Its `Reviewed commit:` equals HEAD**: the review already covers this code. Go on to step 3 and say so in the report.
-- **HEAD has moved since**: review what changed since the reviewed sha: a fix round if the new commits are fixes, otherwise a `Review:` line (a merge of `main` is reviewed by its own changes only), as the [/code-review section](../../../docs/agents/skill-overrides.md#code-review) says.
+- **HEAD has moved since**: review what changed since the reviewed sha: a fix round if the new commits are fixes, otherwise a `Review:` line, as the [/code-review section](../../../docs/agents/skill-overrides.md#code-review) says (including how a merge of `main` is reviewed).
 - **No file**: run `/mattpocock-skills:code-review main` with the inputs that section lists, and write the file.
 
 Fix Critical and Important findings in fix rounds, with the two-round limit in that section. If the limit is reached with findings left, stop here: list them in the file and in chat and ask the owner.
