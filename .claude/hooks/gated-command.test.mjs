@@ -547,10 +547,30 @@ describe("gatedCommands", () => {
     ]);
   });
 
-  it("doesn't read a -R or --repo value as a substituted subcommand", () => {
-    expect(gatedCommands('gh pr --repo "$REPO" comment 5 --body "new round"')).toEqual([]);
-    expect(gatedCommands("gh pr -R $R view 5 --comments create")).toEqual([]);
+  it("finds a PR create after a substituted -R value, at the cost of a rare over-block", () => {
+    for (const command of [
+      "gh pr -R $(echo o/r) create --fill",
+      'gh pr -R $(echo "o/r create")',
+      'cmd /c "gh pr -R $(echo o/r) create"',
+    ]) {
+      expect(gatedCommands(command), command).toContainEqual({
+        kind: "pr-elsewhere",
+        cwd: null,
+        mentioned: true,
+      });
+    }
+    // Accepted: a variable -R value followed by another subcommand naming create or new.
+    expect(gatedCommands('gh pr --repo "$REPO" comment 5 --body "new round"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
     expect(gatedCommands("gh pr view $N")).toEqual([]);
+  });
+
+  it("stays linear on a long run of whitespace after -R", () => {
+    const start = performance.now();
+    gatedCommands(`git push && gh pr -R${" ".repeat(260000)}x`);
+    gatedCommands(`gh pr --repo${"\t".repeat(120000)}x`);
+    expect(performance.now() - start).toBeLessThan(2000);
   });
 
   it("matches a mention under both joinings, so a PowerShell backslash can't hide one", () => {
@@ -567,6 +587,29 @@ describe("gatedCommands", () => {
     expect(gatedCommands("builtin cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("command cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
     expect(gatedCommands("cd -P ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("cd -LP ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+  });
+
+  it("reads only the cd options each shell accepts", () => {
+    // Bash rejects `cd -p` and `-path`, and PowerShell finds `-p` and `-e` ambiguous: the cd fails
+    // and the folder stays. The gate reads the option as the folder, where git then fails, so the
+    // hook refuses; it must never read the next word as the folder.
+    for (const [command, shell] of [
+      ["cd -p ../wt; git push", "bash"],
+      ["cd -l ../wt; git push", "bash"],
+      ["cd -E ../wt; git push", "bash"],
+      ["cd -path ../wt; git push", "bash"],
+      ["cd -p ../wt; git push", "powershell"],
+      ["cd -e ../wt; git push", "powershell"],
+    ]) {
+      expect(gatedCommands(command, shell), `${shell}: ${command}`).not.toContainEqual({
+        kind: "push",
+        cwd: "../wt",
+      });
+    }
+    expect(gatedCommands("cd -Path ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
     expect(gatedCommands("& 'Set-Location' ../wt; git push", "powershell")).toEqual([
       { kind: "push", cwd: "../wt" },
     ]);

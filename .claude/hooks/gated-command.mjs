@@ -11,8 +11,8 @@
 // full shell parser, so where it can't be sure it errs towards checking. A push is found after
 // any prefix word (`time`, `env`, `if`, `sudo`…), and an unquoted `echo git push` counts. A quote
 // left open, an encoded PowerShell command, a push whose target isn't a plain branch name
-// (`$BRANCH`, `$(…)`), or a `gh pr` whose subcommand is substituted is "unclear", which the hook
-// refuses. And text that names either command
+// (`$BRANCH`, `$(…)`), or a `gh` whose `pr` word or subcommand is substituted is "unclear", which
+// the hook refuses. And text that names either command
 // where the reading above doesn't find it runs (a quoted message, a heredoc, `cmd /c "…"`,
 // `node -e "…"`, a pipe into a shell) is still reported, marked `mentioned`, so the hook checks
 // it as if it ran: only that keeps every wrapper covered. A mentioned one next to a directory
@@ -47,7 +47,11 @@ const CD_PREFIXES = new Set([
   "builtin",
   "command",
 ]);
-const CD_OPTIONS = new Set(["--", "-p", "-l", "-e", "-@", "-path", "-literalpath"]);
+// The options each shell's cd takes before its directory: bash's, case-sensitive and combinable
+// (`-LP`); PowerShell's, in any case, but not `-p` or `-e`, which it finds ambiguous. An option a
+// shell rejects fails the cd, so it isn't skipped: read as the folder, git fails there.
+const BASH_CD_OPTION = /^(?:--|-[LPe@]+)$/;
+const PS_CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
 const HELP = new Set(["--help", "-h"]);
 // Global options whose value is the next word.
 const GIT_VALUE_OPTIONS = new Set([
@@ -81,12 +85,13 @@ const PLAIN_REF = /^[\w./-]+$/;
 // the subcommand, so only flags, each with an optional value (`-R o/r`, `--repo=o/r`), may sit
 // between them: `gh pr edit 5 --title "new title"` names no PR create. A full path may be quoted,
 // and so may the subcommand (`\"create\"`); a subcommand word with a `$` or backtick in it
-// (`$(echo create)`) may hold it within the next 200 characters of the line, unless the word is
-// a `-R` or `--repo` value. A substituted word may sit before `pr` (`gh $EMPTY pr`). A value
-// can't start with `-`, so each word has one reading, and the lazy middles are bounded, so long
-// input stays near linear.
+// (`$(echo create)`) may hold it within the next 200 characters of the line. That includes a
+// substituted `-R` value, which may hide the subcommand (`-R $(echo o/r) create`), so
+// `gh pr --repo "$REPO" comment … "new"` is refused too: a rare over-block, accepted. A
+// substituted word may sit before `pr` (`gh $EMPTY pr`). A value can't start with `-`, so each
+// word has one reading, and the lazy middles are bounded, so long input stays near linear.
 const PR_MENTION =
-  /\bgh(?:\.exe)?["']?\s+(?:[^\s;&|]*[$`][^\s;&|]*\s+)?pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:[\\"'`]*|(?<!\s(?:-R|--repo)\s+)[^\s;&|-]*[$`][^\n;&|]{0,200}?)(?:create|new)\b/gi;
+  /\bgh(?:\.exe)?["']?\s+(?:[^\s;&|]*[$`][^\s;&|]*\s+)?pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:[\\"'`]*|[^\s;&|-]*[$`][^\n;&|]{0,200}?)(?:create|new)\b/gi;
 const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]{0,2000}?\s)?push(?![\w-])/gi;
 // A bare help call is the one form that opens or pushes nothing.
 const HELP_CALL =
@@ -397,7 +402,9 @@ export function simpleCommands(items, shell) {
       }
       if ((ps ? CD : BASH_CD).has(name)) {
         let dir = at + 1;
-        while (words[dir] && CD_OPTIONS.has(words[dir].text.toLowerCase())) dir++;
+        const isOption = (text) =>
+          ps ? PS_CD_OPTIONS.has(text.toLowerCase()) : BASH_CD_OPTION.test(text);
+        while (words[dir] && isOption(words[dir].text)) dir++;
         if (PUSHD.has(name)) pushed.push(cwd);
         if (words[dir]) cwd = join(cwd, words[dir].text);
         continue;
