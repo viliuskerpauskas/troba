@@ -53,6 +53,7 @@ const CD_PREFIXES = new Set([
 // ambiguous. An option a shell rejects fails the cd, so it isn't skipped: read as the folder,
 // git fails there.
 const BASH_CD_OPTION = /^(?:--|-[LPe]+)$/;
+const BASH_PUSHD_OPTIONS = new Set(["--"]);
 const PS_CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
 const HELP = new Set(["--help", "-h"]);
 // Global options whose value is the next word.
@@ -406,7 +407,7 @@ export function simpleCommands(items, shell) {
         let dir = at + 1;
         const isOption = (text) => {
           if (ps) return PS_CD_OPTIONS.has(text.toLowerCase());
-          return name === "pushd" ? text === "--" : BASH_CD_OPTION.test(text);
+          return name === "pushd" ? BASH_PUSHD_OPTIONS.has(text) : BASH_CD_OPTION.test(text);
         };
         while (words[dir] && isOption(words[dir].text)) dir++;
         if (PUSHD.has(name)) pushed.push(cwd);
