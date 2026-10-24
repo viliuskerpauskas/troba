@@ -3,7 +3,7 @@ import type { Browser, Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { adminEmail } from "./global-setup";
-import { expect, expectLinkFitsPhone, test } from "./test";
+import { expect, expectLinkFitsPhone, expectPageFitsPhone, field, test } from "./test";
 
 const invalidHeading = "This reset link doesn't work";
 
@@ -44,8 +44,8 @@ async function adminPage(browser: Browser) {
   return page;
 }
 
-function userRow(page: Page, email: string) {
-  return page.getByRole("row", { name: new RegExp(email) });
+function userItem(page: Page, email: string) {
+  return page.getByRole("list", { name: "Users" }).getByRole("listitem").filter({ hasText: email });
 }
 
 async function expectSignedOut(page: Page) {
@@ -59,18 +59,18 @@ test("an admin disables a user, who is signed out and can't sign in until enable
   const user = await createUser("e2e-disabled@example.test");
   const usersLaptop = await signedIn(browser, user.email, user.password);
   const admin = await adminPage(browser);
-  const row = userRow(admin, user.email);
+  const row = userItem(admin, user.email);
 
   await row.getByRole("button", { name: "Disable" }).click();
 
-  await expect(row.getByRole("cell", { name: "disabled", exact: true })).toBeVisible();
+  await expect(field(row, "Status")).toHaveText("disabled");
   await expectSignedOut(usersLaptop);
   const refused = await signIn(browser, user.email, user.password);
   await expect(refused.getByText("Email or password is incorrect.")).toBeVisible();
 
   await row.getByRole("button", { name: "Enable" }).click();
 
-  await expect(row.getByRole("cell", { name: "active", exact: true })).toBeVisible();
+  await expect(field(row, "Status")).toHaveText("active");
   await signedIn(browser, user.email, user.password);
 });
 
@@ -81,11 +81,11 @@ test("an admin creates a reset link, and the user sets a new password with it on
   const usersPhone = await signedIn(browser, user.email, user.password);
   const admin = await adminPage(browser);
 
-  const createLink = userRow(admin, user.email).getByRole("button", { name: "Create reset link" });
+  const createLink = userItem(admin, user.email).getByRole("button", { name: "Create reset link" });
   await createLink.click();
   const link = admin.getByLabel(`Reset link for ${user.email}`);
   await expect(link).toHaveValue(/\/reset\/[A-Za-z0-9_-]{43}$/);
-  // It shows below the table, out of the row's sight, so focus moves to it, and again for a
+  // It shows below the list, out of the item's sight, so focus moves to it, and again for a
   // new link.
   await expect(link).toBeFocused();
   const firstLink = await link.inputValue();
@@ -122,7 +122,7 @@ test("a reset link created before the page's scripts run still shows", async ({ 
   ).newPage();
   await noScripts.goto("/admin/users");
 
-  await userRow(noScripts, user.email).getByRole("button", { name: "Create reset link" }).click();
+  await userItem(noScripts, user.email).getByRole("button", { name: "Create reset link" }).click();
 
   await expect(noScripts.getByLabel(`Reset link for ${user.email}`)).toHaveValue(
     /\/reset\/[A-Za-z0-9_-]{43}$/,
@@ -138,4 +138,26 @@ test("a signed-in non-admin gets 403 on the admin pages", async ({ browser }) =>
     expect(response?.status(), path).toBe(403);
   }
   await expect(page.getByRole("link", { name: "Users" })).toHaveCount(0);
+});
+
+test("the users page fits a phone with long emails, and every action can be used", async ({
+  browser,
+}) => {
+  const emails = [1, 2, 3].map(
+    (n) => `manageduserwithaverylongemailaddressnumber${n}a2b3c4d@example.test`,
+  );
+  for (const email of emails) await createUser(email);
+  const admin = await adminPage(browser);
+  await admin.setViewportSize({ width: 375, height: 812 });
+  await admin.reload();
+
+  await expect(userItem(admin, emails[2]!)).toBeVisible();
+  await expectPageFitsPhone(admin);
+
+  const item = userItem(admin, emails[0]!);
+  await item.getByRole("button", { name: "Disable" }).click();
+  await expect(field(item, "Status")).toHaveText("disabled");
+  await item.getByRole("button", { name: "Create reset link" }).click();
+  await expect(admin.getByLabel(`Reset link for ${emails[0]}`)).toBeFocused();
+  await expectPageFitsPhone(admin);
 });

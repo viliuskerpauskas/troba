@@ -1,4 +1,5 @@
-import { type Locator, test as base, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { type Locator, type Page, test as base, expect } from "@playwright/test";
 import { db } from "../src/server/db";
 
 export { expect } from "@playwright/test";
@@ -33,4 +34,34 @@ export async function expectLinkFitsPhone(link: Locator) {
     input.value.length,
   ]);
   expect([start, end], "focus selects the link").toEqual([0, length]);
+}
+
+// A page at phone width: nothing scrolls sideways, every button is on screen, and axe finds no
+// WCAG 2.1 A or AA violation.
+export async function expectPageFitsPhone(page: Page) {
+  const viewport = page.viewportSize()!.width;
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(width, "no sideways scrolling").toBeLessThanOrEqual(viewport);
+  for (const button of await page.getByRole("button").all()) {
+    const box = (await button.boundingBox())!;
+    expect(box.x + box.width, `${await button.innerText()} is on screen`).toBeLessThanOrEqual(
+      viewport,
+    );
+  }
+
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  expect(
+    violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((node) => node.target.join(" ")) })),
+    "axe violations",
+  ).toEqual([]);
+}
+
+// The value of a field in a description list: the dd that follows the dt named term.
+export function field(scope: Locator, term: string) {
+  return scope
+    .locator("dt")
+    .filter({ hasText: new RegExp(`^${term}$`) })
+    .locator("xpath=following-sibling::dd[1]");
 }

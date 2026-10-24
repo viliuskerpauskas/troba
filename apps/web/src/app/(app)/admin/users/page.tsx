@@ -19,51 +19,46 @@ export default async function UsersPage() {
 
   return (
     <main>
-      <h1>Users</h1>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Email</th>
-            <th scope="col">Role</th>
-            <th scope="col">Status</th>
-            <th scope="col">Created</th>
-            <th scope="col">Last active</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((user) => (
-            <tr key={user.id}>
-              <td>{user.name}</td>
-              <td>{user.email}</td>
-              <td>{user.role}</td>
-              <td>{user.disabled ? "disabled" : "active"}</td>
-              <td>
+      <h1 id="users-heading">Users</h1>
+      {/* A list, not a table: seven columns don't fit a phone screen, and each field keeps its
+          label (dt) for screen readers. */}
+      <ul aria-labelledby="users-heading">
+        {users.map((user) => (
+          <li key={user.id}>
+            <h2>
+              {user.name}
+              {user.id === admin.userId && " (you)"}
+            </h2>
+            <dl>
+              <dt>Email</dt>
+              <dd style={{ overflowWrap: "anywhere" }}>{user.email}</dd>
+              <dt>Role</dt>
+              <dd>{user.role}</dd>
+              <dt>Status</dt>
+              <dd>{user.disabled ? "disabled" : "active"}</dd>
+              <dt>Created</dt>
+              <dd>
                 <Day value={user.createdAt} />
-              </td>
-              <td>
+              </dd>
+              <dt>Last active</dt>
+              <dd>
                 <Day value={user.lastActiveAt} />
-              </td>
-              <td>
-                {user.id === admin.userId ? (
-                  "You"
-                ) : (
-                  <>
-                    {/* Keyed on the status, so a toggle starts without the previous answer. */}
-                    <DisableToggle
-                      key={String(user.disabled)}
-                      userId={user.id}
-                      disabled={user.disabled}
-                    />
-                    <ResetLinkForm userId={user.id} email={user.email} />
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </dd>
+            </dl>
+            {user.id !== admin.userId && (
+              <>
+                {/* Keyed on the status, so a toggle starts without the previous answer. */}
+                <DisableToggle
+                  key={String(user.disabled)}
+                  userId={user.id}
+                  disabled={user.disabled}
+                />
+                <ResetLinkForm userId={user.id} email={user.email} />
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
       <div id={resetLinksContainerId} />
     </main>
   );
