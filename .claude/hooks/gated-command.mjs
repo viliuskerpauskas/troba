@@ -10,8 +10,9 @@
 // `pwsh -Command` and `Invoke-Expression`. It's a guardrail for the agent's usual commands, not a
 // full shell parser, so where it can't be sure it errs towards checking. A push is found after
 // any prefix word (`time`, `env`, `if`, `sudo`…), and an unquoted `echo git push` counts. A quote
-// left open, an encoded PowerShell command, or a push whose target isn't a plain branch name
-// (`$BRANCH`, `$(…)`) is "unclear", which the hook refuses. And text that names either command
+// left open, an encoded PowerShell command, a push whose target isn't a plain branch name
+// (`$BRANCH`, `$(…)`), or a `gh pr` whose subcommand is substituted is "unclear", which the hook
+// refuses. And text that names either command
 // where the reading above doesn't find it runs (a quoted message, a heredoc, `cmd /c "…"`,
 // `node -e "…"`, a pipe into a shell) is still reported, marked `mentioned`, so the hook checks
 // it as if it ran: only that keeps every wrapper covered. A mentioned one next to a directory
@@ -20,9 +21,18 @@
 
 import process from "node:process";
 
+// PowerShell's directory changes, in any case, and its `cd..` and `cd\` shorthands. Bash's are
+// builtins, found only by their exact name: in bash, `CD`, `cd..` or `Set-Location` fails, and
+// the folder stays where it was.
 const CD = new Set(["cd", "pushd", "chdir", "set-location", "sl", "push-location"]);
 const PUSHD = new Set(["pushd", "push-location"]);
 const POPD = new Set(["popd", "pop-location"]);
+const CD_SHORTHANDS = new Map([
+  ["cd..", ".."],
+  ["cd\\", "\\"],
+]);
+const BASH_CD = new Set(["cd", "pushd"]);
+const BASH_POPD = new Set(["popd"]);
 // Words that can come before a `cd`, and the options a `cd` can take before its directory.
 const CD_PREFIXES = new Set(["{", "!", "if", "then", "else", "elif", "do", "while", "until"]);
 const CD_OPTIONS = new Set(["--", "-path", "-literalpath"]);
@@ -57,23 +67,25 @@ const ELSEWHERE_ENV = /env:GH_(?:REPO|HOST)\b|^GH_(?:REPO|HOST)=/i;
 const PLAIN_REF = /^[\w./-]+$/;
 // Main's gate before this parser: any mention, wherever it sits. gh takes flags between `pr` and
 // the subcommand, so only flags, each with an optional value (`-R o/r`, `--repo=o/r`), may sit
-// between them: `gh pr edit 5 --title "new title"` names no PR create. A full path may be quoted.
-// A value can't start with `-`, so each word has one reading and the match stays linear.
+// between them: `gh pr edit 5 --title "new title"` names no PR create. A full path may be quoted,
+// and so may the subcommand (`\"create\"`); a subcommand word with a `$` or backtick in it
+// (`$(echo create)`) may run anything up to the line's end. A value can't start with `-`, so each
+// word has one reading, and the lazy middles are bounded, so long input stays near linear.
 const PR_MENTION =
-  /\bgh(?:\.exe)?["']?\s+pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:create|new)\b/gi;
-const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]*?\s)?push(?![\w-])/gi;
+  /\bgh(?:\.exe)?["']?\s+pr(?:\s+-[\w-]+(?:=[^\s;&|]+|\s+[^\s;&|-][^\s;&|]*)?)*\s+(?:[\\"'`]*|[^\s;&|-]*[$`][^\n;&|]{0,200}?)(?:create|new)\b/gi;
+const PUSH_MENTION = /\bgit(?:\.exe)?["']?\s+(?:[^\n;&|]{0,2000}?\s)?push(?![\w-])/gi;
 // A bare help call is the one form that opens or pushes nothing.
 const HELP_CALL =
   /^\s*(?:gh(?:\.exe)?\s+pr\s+(?:create|new)|git(?:\.exe)?\s+push)\s+(?:--help|-h)\s*$/i;
-// A directory change anywhere, in either shell's spelling and any case (PowerShell's `cd..`
-// too), also just inside a quote (`cmd /c "cd ../wt && …"`): a mention next to one can't be
-// placed in a folder.
+// A directory change anywhere, in either shell's spelling and any case (PowerShell's `cd..` and
+// `cd\` too), also just inside a quote (`cmd /c "cd ../wt && …"`): a mention next to one can't
+// be placed in a folder.
 const CD_MENTION = new RegExp(
-  String.raw`(?:^|[\s;&|({\`"'])(?:${[...CD, ...POPD].join("|")}|cd\.\.)(?:[\s;&|)}\`"']|$)`,
+  String.raw`(?:^|[\s;&|({\`"'])(?:${[...CD, ...POPD].join("|")}|cd\.\.|cd\\)(?:[\s;&|)}\`"']|$)`,
   "i",
 );
 // Environment variable names are case-insensitive in PowerShell; gh's flags aren't.
-const ELSEWHERE_MENTION = (text) =>
+const mentionsElsewhere = (text) =>
   /GH_(?:REPO|HOST)\b/i.test(text) || /--repo\b|--head\b|\s-[RH](\s|\S)/.test(text);
 // A redirection (`2>&1`, `>&2`, `&>log`, `>| log`, `> log`, `*>&1`) is no branch. A bare one
 // (`>`, `2>`, `>|`) takes the next word as its target.
@@ -93,9 +105,12 @@ function dropBodies(command) {
     .replace(/@(['"])\r?\n[\s\S]*?\r?\n\1@/g, "''");
 }
 
-// A backslash (bash) or backtick (PowerShell) before a newline continues the line.
+// A backslash before a newline continues a bash line, and bash drops the pair, even inside a
+// word (`git pu\<newline>sh` is `git push`); a backtick before one continues a PowerShell line,
+// read as a space. With no shell, as for mentions, both are joined.
 function joinLines(command, shell) {
-  return command.replace(shell === "powershell" ? /`\r?\n/g : /\\\r?\n/g, " ");
+  const joined = shell === "powershell" ? command : command.replace(/\\\r?\n/g, "");
+  return shell === "bash" ? joined : joined.replace(/`\r?\n/g, " ");
 }
 
 // Splits a command into a list of commands, each a list of words ({ text, quoted, bare }, where
@@ -256,7 +271,9 @@ function pushTargets(words, at) {
   return { ...(all && { all }), ...(branches.length && { branches }) };
 }
 
-// Whether the gh at words[at] runs `pr create` or `pr new`, with options before or after `pr`.
+// Whether the gh at words[at] runs `pr create` or `pr new`, with options before or after `pr`,
+// or "unclear" when its subcommand is substituted (`$(…)`, a backtick, `${…}`, `$sub`) and could
+// be either.
 function isPrCreate(words, at) {
   let i = at + 1;
   const skipOptions = () => {
@@ -266,6 +283,7 @@ function isPrCreate(words, at) {
   if (words[i]?.text !== "pr") return false;
   i++;
   skipOptions();
+  if (/[$`]/.test(words[i]?.text ?? "")) return "unclear"; // `"$sub"` expands too.
   return words[i]?.text === "create" || words[i]?.text === "new";
 }
 
@@ -315,7 +333,10 @@ function gatedIn(words, start, cwd) {
         if (targets.unclear) return [{ kind: "unclear", cwd: null }];
         return [{ kind: "push", cwd: git.cwd, ...targets }];
       }
-    } else if (name === "gh" && isPrCreate(words, i)) {
+    } else if (name === "gh") {
+      const pr = isPrCreate(words, i);
+      if (pr === "unclear") return [{ kind: "unclear", cwd: null }];
+      if (!pr) continue;
       const elsewhere = words.slice(i + 1).some((w) => !w.quoted && ELSEWHERE.test(w.text));
       return [{ kind: elsewhere ? "pr-elsewhere" : "pr-create", cwd }];
     }
@@ -331,7 +352,8 @@ export function parse(command, shell) {
 
 // Each simple command in tokenized items, other than a directory change or a help call: its
 // words, where the program starts (after any `NAME=value`), and the directory a cd moved to.
-export function simpleCommands(items) {
+export function simpleCommands(items, shell) {
+  const ps = shell === "powershell";
   const commands = [];
   let cwd = null;
   const subshells = [];
@@ -345,16 +367,18 @@ export function simpleCommands(items) {
       if (start === -1 || words.some((w) => !w.quoted && HELP.has(w.text))) continue;
       let at = start;
       while (at < words.length - 1 && !words[at].quoted && CD_PREFIXES.has(words[at].text)) at++;
-      const name = words[at].quoted ? "" : program(words[at]);
-      if (POPD.has(name)) {
+      const word = words[at];
+      const name = word.quoted ? "" : ps ? program(word) : word.text;
+      const shorthand = ps && !word.quoted && CD_SHORTHANDS.get(word.text.toLowerCase());
+      if (shorthand) {
+        cwd = join(cwd, shorthand);
+        continue;
+      }
+      if ((ps ? POPD : BASH_POPD).has(name)) {
         if (pushed.length) cwd = pushed.pop();
         continue;
       }
-      if (name === "cd..") {
-        cwd = join(cwd, ".."); // PowerShell's shorthand for `cd ..`.
-        continue;
-      }
-      if (CD.has(name)) {
+      if ((ps ? CD : BASH_CD).has(name)) {
         let dir = at + 1;
         while (words[dir] && CD_OPTIONS.has(words[dir].text.toLowerCase())) dir++;
         if (PUSHD.has(name)) pushed.push(cwd);
@@ -371,7 +395,7 @@ function read(command, shell) {
   const { text, items, unbalanced } = parse(command, shell);
   if (unbalanced) return mentionsGated(text) ? [{ kind: "unclear", cwd: null }] : [];
 
-  const found = simpleCommands(items).flatMap(({ words, start, cwd }) =>
+  const found = simpleCommands(items, shell).flatMap(({ words, start, cwd }) =>
     gatedIn(words, start, cwd),
   );
   // A GH_REPO or GH_HOST set anywhere, inline or exported, points gh at another repository. Its
@@ -384,23 +408,23 @@ function read(command, shell) {
     : found;
 }
 
-export function gatedCommands(original, shell = "bash") {
-  const found = read(original, shell);
+export function gatedCommands(command, shell = "bash") {
+  const found = read(command, shell);
   // Mentions are matched with every continuation joined, in either shell's spelling, so a
   // command split across lines is still named. Joining one that isn't a continuation only
   // checks more.
-  const command = original.replace(/[\\`]\r?\n/g, " ");
-  if (HELP_CALL.test(command) || found.some((f) => f.kind === "unclear")) return found;
+  const mentionText = joinLines(command);
+  if (HELP_CALL.test(mentionText) || found.some((f) => f.kind === "unclear")) return found;
   // A mention the reading didn't place: the text names the command more often than the reading
   // found it run, so one sits somewhere it can't read. Counting, rather than asking whether any
   // was found, keeps `git push origin main && cmd /c "git push"` from hiding the second.
   const count = (...kinds) => found.filter((f) => kinds.includes(f.kind)).length;
-  const cd = CD_MENTION.test(command);
-  if ([...command.matchAll(PR_MENTION)].length > count("pr-create", "pr-elsewhere")) {
-    const kind = cd || ELSEWHERE_MENTION(command) ? "pr-elsewhere" : "pr-create";
+  const cd = CD_MENTION.test(mentionText);
+  if ([...mentionText.matchAll(PR_MENTION)].length > count("pr-create", "pr-elsewhere")) {
+    const kind = cd || mentionsElsewhere(mentionText) ? "pr-elsewhere" : "pr-create";
     found.push({ kind, cwd: null, mentioned: true });
   }
-  if ([...command.matchAll(PUSH_MENTION)].length > count("push")) {
+  if ([...mentionText.matchAll(PUSH_MENTION)].length > count("push")) {
     // Next to a cd it may run in another folder, so it can't be checked in the session's.
     found.push({ kind: cd ? "push-elsewhere" : "push", cwd: null, mentioned: true });
   }

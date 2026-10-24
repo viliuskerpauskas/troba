@@ -198,7 +198,9 @@ describe("review-gate", { timeout: 30000 }, () => {
   it("says that a message naming a cd, -R or -H next to a PR create counts as elsewhere", () => {
     const { status, stderr } = gate('git commit -m "docs: run gh pr create without -R"');
     expect(status).toBe(2);
-    expect(stderr).toContain("a title, body or message that mentions a cd, -R or -H counts too");
+    expect(stderr).toContain(
+      "a title, body or message that mentions a cd, -R, --repo, -H, --head, GH_REPO or GH_HOST counts too",
+    );
     expect(stderr).toContain("--body-file");
     expect(stderr).not.toContain("checked as if it ran");
   });
@@ -221,6 +223,9 @@ describe("review-gate", { timeout: 30000 }, () => {
       ['gh pr edit 5 --title "new title"', "PowerShell", 0],
       ['$env:GH_REPO = "o/r"; gh pr create', "PowerShell", 2],
       ['cd..; cmd /c "gh pr create"', "PowerShell", 2],
+      ["gh pr $(echo create) --fill", "Bash", 2],
+      ['cmd /c "gh pr \\"create\\" --fill"', "Bash", 2],
+      ["gh pr cre\\\nate --fill", "Bash", 2],
     ];
     for (const [command, tool, status] of cases) {
       expect(gate(command, { tool }).status, `${tool}: ${command}`).toBe(status);
