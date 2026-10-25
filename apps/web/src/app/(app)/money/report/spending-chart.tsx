@@ -19,7 +19,7 @@ const barHeight = 36;
 export function SpendingChart({ bars, title }: { bars: ChartBar[]; title: string }) {
   return (
     <figure role="img" aria-label={title} className="m-0 w-full">
-      <ChartContainer config={{}} height={bars.length * barHeight + 16} className="aspect-auto">
+      <ChartContainer height={bars.length * barHeight + 16} className="aspect-auto">
         <BarChart data={bars} layout="vertical" margin={{ top: 8, right: 96, bottom: 8, left: 8 }}>
           <XAxis type="number" dataKey="shareBasisPoints" hide />
           <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} />

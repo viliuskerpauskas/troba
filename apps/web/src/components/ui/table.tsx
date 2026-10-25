@@ -1,7 +1,5 @@
-"use client";
-
 import * as React from "react";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 // containerProps go on the wrapper that scrolls a table wider than the screen. A table that can
 // overflow gives it a role, a name and a tabIndex, so keyboard users can scroll it too.

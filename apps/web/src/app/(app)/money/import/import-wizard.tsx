@@ -243,7 +243,7 @@ function MappingForm({
               max={100}
               defaultValue={value("skipLines")}
               aria-describedby="profile-skip-lines-hint"
-              className="w-24"
+              className="max-w-24"
             />
             <FieldDescription id="profile-skip-lines-hint">
               Banks may put a title above the column names. Change it if the headers below look

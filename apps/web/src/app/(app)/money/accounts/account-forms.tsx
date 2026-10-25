@@ -50,7 +50,7 @@ export function CreateAccountForm() {
             maxLength={3}
             autoCapitalize="characters"
             required
-            className="w-20"
+            className="max-w-20"
           />
         </Field>
         <Field>

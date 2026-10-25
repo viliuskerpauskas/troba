@@ -77,7 +77,7 @@ export function TransactionForm(props: Props) {
                 type="date"
                 defaultValue={values.bookedOn}
                 required
-                className="w-auto"
+                className="max-w-fit"
               />
             </Field>
             <FieldSet>
@@ -108,7 +108,7 @@ export function TransactionForm(props: Props) {
                 maxLength={32}
                 required
                 aria-describedby="tx-amount-hint"
-                className="w-40"
+                className="max-w-40"
               />
               <FieldDescription id="tx-amount-hint">
                 Without a sign, such as 12.50.

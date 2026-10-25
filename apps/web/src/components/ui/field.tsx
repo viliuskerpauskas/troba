@@ -1,8 +1,8 @@
-"use client";
+// A server component: shadcn's copy is a client one only for FieldError's useMemo, which a
+// plain computation replaces.
 
-import { useMemo } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -54,6 +54,8 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
 const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-destructive", {
   variants: {
     orientation: {
+      // Every child takes the full width, over any w-* class of its own: cap a narrower control
+      // with max-w-* instead.
       vertical: "flex-col *:w-full [&>.sr-only]:w-auto",
       horizontal:
         "flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
@@ -172,7 +174,7 @@ function FieldError({
 }: React.ComponentProps<"div"> & {
   errors?: Array<{ message?: string } | undefined>;
 }) {
-  const content = useMemo(() => {
+  const content = (() => {
     if (children) {
       return children;
     }
@@ -192,7 +194,7 @@ function FieldError({
         {uniqueErrors.map((error, index) => error?.message && <li key={index}>{error.message}</li>)}
       </ul>
     );
-  }, [children, errors]);
+  })();
 
   if (!content) {
     return null;
