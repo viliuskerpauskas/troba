@@ -1,3 +1,6 @@
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+
 // A one-time link (an invite or a password reset) shown once for the admin to copy. The input
 // takes the full width so it fits a phone screen, the link scrolling inside it, and focusing it
 // selects the whole link. A label naming a long email wraps anywhere for the same reason.
@@ -17,22 +20,19 @@ export function OneTimeLink({
   const hintId = `${id}-hint`;
 
   return (
-    <p>
-      <label htmlFor={id} style={{ overflowWrap: "anywhere" }}>
+    <Field>
+      <FieldLabel htmlFor={id} className="[overflow-wrap:anywhere]">
         {label}
-      </label>
-      <br />
-      <input
+      </FieldLabel>
+      <Input
         id={id}
         readOnly
         value={link}
         aria-describedby={hintId}
-        style={{ width: "100%", boxSizing: "border-box" }}
         autoFocus={autoFocus}
         onFocus={(event) => event.currentTarget.select()}
       />
-      <br />
-      <small id={hintId}>{hint}</small>
-    </p>
+      <FieldDescription id={hintId}>{hint}</FieldDescription>
+    </Field>
   );
 }

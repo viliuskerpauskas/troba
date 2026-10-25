@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import type { ReactNode } from "react";
 import { gitSha } from "@/server/env";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "troba",
@@ -15,9 +16,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
 
   return (
     <html lang="en">
-      <body>
+      <body className="flex min-h-dvh flex-col">
         {children}
-        <footer>Version {gitSha()}</footer>
+        <footer className="mt-auto px-4 py-6 text-center text-xs text-muted-foreground">
+          Version {gitSha()}
+        </footer>
       </body>
     </html>
   );

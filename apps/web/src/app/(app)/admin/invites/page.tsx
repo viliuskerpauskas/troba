@@ -1,5 +1,9 @@
 import { listInvites } from "@troba/core";
 import type { Metadata } from "next";
+import { DescriptionList } from "@/components/description-list";
+import { Page } from "@/components/page";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/server/db";
 import { requireAdmin } from "@/server/session";
 import { revokeInviteAction } from "./actions";
@@ -18,50 +22,58 @@ export default async function InvitesPage() {
   const invites = await listInvites(db());
 
   return (
-    <main>
+    <Page>
       <h1>Invites</h1>
       <CreateInviteForm />
 
       <h2 id="all-invites">All invites</h2>
       {invites.length === 0 ? (
-        <p>No invites yet.</p>
+        <p className="text-muted-foreground">No invites yet.</p>
       ) : (
         // A list, not a table, so it fits a phone screen; each field keeps its label (dt).
-        <ul aria-labelledby="all-invites">
+        <ul aria-labelledby="all-invites" className="flex flex-col gap-3">
           {invites.map((invite) => (
             <li key={invite.id}>
-              <h3 id={`invite-${invite.id}`} style={{ overflowWrap: "anywhere" }}>
-                {invite.email ?? "Anyone with the link"}
-              </h3>
-              <dl>
-                <dt>Status</dt>
-                <dd>{invite.status}</dd>
-                <dt>Created</dt>
-                <dd>
-                  <Time value={invite.createdAt} />
-                </dd>
-                <dt>Expires</dt>
-                <dd>
-                  <Time value={invite.expiresAt} />
-                </dd>
-                <dt>Used</dt>
-                <dd>
-                  <Time value={invite.usedAt} />
-                </dd>
-              </dl>
-              {invite.status === "pending" && (
-                <form action={revokeInviteAction}>
-                  <input type="hidden" name="id" value={invite.id} />
-                  {/* Described by its heading, so each Revoke names its invite. */}
-                  <button type="submit" aria-describedby={`invite-${invite.id}`}>
-                    Revoke
-                  </button>
-                </form>
-              )}
+              <Card size="sm">
+                <CardContent className="flex flex-col gap-3">
+                  <h3 id={`invite-${invite.id}`} className="[overflow-wrap:anywhere]">
+                    {invite.email ?? "Anyone with the link"}
+                  </h3>
+                  <DescriptionList>
+                    <dt>Status</dt>
+                    <dd>{invite.status}</dd>
+                    <dt>Created</dt>
+                    <dd>
+                      <Time value={invite.createdAt} />
+                    </dd>
+                    <dt>Expires</dt>
+                    <dd>
+                      <Time value={invite.expiresAt} />
+                    </dd>
+                    <dt>Used</dt>
+                    <dd>
+                      <Time value={invite.usedAt} />
+                    </dd>
+                  </DescriptionList>
+                  {invite.status === "pending" && (
+                    <form action={revokeInviteAction}>
+                      <input type="hidden" name="id" value={invite.id} />
+                      {/* Described by its heading, so each Revoke names its invite. */}
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        aria-describedby={`invite-${invite.id}`}
+                      >
+                        Revoke
+                      </Button>
+                    </form>
+                  )}
+                </CardContent>
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </Page>
   );
 }

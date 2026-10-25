@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { Page } from "@/components/page";
+import { buttonVariants } from "@/components/ui/button";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../../format";
@@ -47,7 +49,7 @@ export default async function ReportTransactionsPage({
     `&category=${category.data}&page=${to}`;
 
   return (
-    <main>
+    <Page>
       <h1>
         {categoryName} spending in {month} ({currency.data})
       </h1>
@@ -56,30 +58,50 @@ export default async function ReportTransactionsPage({
       </p>
 
       {transactions.length === 0 ? (
-        <p>No transactions.</p>
+        <p className="text-muted-foreground">No transactions.</p>
       ) : (
-        <ol aria-label={`${categoryName} transactions, newest first`}>
+        <ol
+          aria-label={`${categoryName} transactions, newest first`}
+          className="flex flex-col divide-y rounded-xl ring-1 ring-foreground/10"
+        >
           {transactions.map((transaction) => {
             const title =
               [transaction.counterparty, transaction.description].filter(Boolean).join(": ") ||
               "No description";
             return (
-              <li key={transaction.id}>
-                <Link href={`/money/transactions/${transaction.id}`}>
-                  <time dateTime={transaction.bookedOn}>{transaction.bookedOn}</time> {title}
+              <li key={transaction.id} className="flex flex-col gap-1 px-4 py-3">
+                <Link
+                  href={`/money/transactions/${transaction.id}`}
+                  className="font-medium [overflow-wrap:anywhere] hover:underline"
+                >
+                  <time dateTime={transaction.bookedOn} className="text-muted-foreground">
+                    {transaction.bookedOn}
+                  </time>{" "}
+                  {title}
                 </Link>
-                <br />
-                {transaction.accountName} ·{" "}
-                <strong>{formatAmount(transaction.amountCents, transaction.currency)}</strong>
+                <div className="text-sm text-muted-foreground">
+                  {transaction.accountName} ·{" "}
+                  <strong className="text-foreground">
+                    {formatAmount(transaction.amountCents, transaction.currency)}
+                  </strong>
+                </div>
               </li>
             );
           })}
         </ol>
       )}
-      <p>
-        {page > 1 && <Link href={pageHref(page - 1)}>Newer</Link>}{" "}
-        {rows.length > transactionListLimit && <Link href={pageHref(page + 1)}>Older</Link>}
-      </p>
-    </main>
+      <div className="flex gap-2">
+        {page > 1 && (
+          <Link href={pageHref(page - 1)} className={buttonVariants({ variant: "outline" })}>
+            Newer
+          </Link>
+        )}
+        {rows.length > transactionListLimit && (
+          <Link href={pageHref(page + 1)} className={buttonVariants({ variant: "outline" })}>
+            Older
+          </Link>
+        )}
+      </div>
+    </Page>
   );
 }

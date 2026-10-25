@@ -2,6 +2,8 @@ import { getTransaction, listCategories, listRules, ruleDraftFrom } from "@troba
 import type { Metadata } from "next";
 import Link from "next/link";
 import { z } from "zod";
+import { Page } from "@/components/page";
+import { Button } from "@/components/ui/button";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { deleteRuleAction, moveRuleAction } from "./actions";
@@ -24,51 +26,67 @@ export default async function RulesPage({ searchParams }: PageProps<"/money/rule
   ]);
 
   return (
-    <main>
+    <Page>
       <h1>Rules</h1>
-      <p>
+      <p className="text-muted-foreground">
         Rules categorize imported transactions, and uncategorized ones when you apply them. The
         first rule that matches wins. A category you set by hand is never changed.
       </p>
 
-      <section aria-labelledby="your-rules">
+      <section aria-labelledby="your-rules" className="flex flex-col gap-3">
         <h2 id="your-rules">Your rules</h2>
         {rules.length === 0 ? (
-          <p>No rules yet. Add one below.</p>
+          <p className="text-muted-foreground">No rules yet. Add one below.</p>
         ) : (
-          <ol aria-label="Rules, first match wins">
+          <ol
+            aria-label="Rules, first match wins"
+            className="flex list-inside list-decimal flex-col divide-y rounded-xl ring-1 ring-foreground/10"
+          >
             {rules.map((rule, index) => {
               const name = `${fieldLabels[rule.field]} contains “${rule.pattern}”`;
               return (
-                <li key={rule.id}>
-                  {name} → {rule.categoryName}{" "}
-                  <form action={moveRuleAction} style={{ display: "inline" }}>
-                    <input type="hidden" name="ruleId" value={rule.id} />
-                    <button
-                      type="submit"
-                      name="direction"
-                      value="up"
-                      disabled={index === 0}
-                      aria-label={`Move up: ${name}`}
-                    >
-                      Up
-                    </button>{" "}
-                    <button
-                      type="submit"
-                      name="direction"
-                      value="down"
-                      disabled={index === rules.length - 1}
-                      aria-label={`Move down: ${name}`}
-                    >
-                      Down
-                    </button>
-                  </form>{" "}
-                  <form action={deleteRuleAction} style={{ display: "inline" }}>
-                    <input type="hidden" name="ruleId" value={rule.id} />
-                    <button type="submit" aria-label={`Delete: ${name}`}>
-                      Delete
-                    </button>
-                  </form>
+                <li key={rule.id} className="px-4 py-3">
+                  <span className="[overflow-wrap:anywhere]">
+                    {name} → {rule.categoryName}{" "}
+                  </span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <form action={moveRuleAction} className="flex gap-2">
+                      <input type="hidden" name="ruleId" value={rule.id} />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="sm"
+                        name="direction"
+                        value="up"
+                        disabled={index === 0}
+                        aria-label={`Move up: ${name}`}
+                      >
+                        Up
+                      </Button>
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="sm"
+                        name="direction"
+                        value="down"
+                        disabled={index === rules.length - 1}
+                        aria-label={`Move down: ${name}`}
+                      >
+                        Down
+                      </Button>
+                    </form>
+                    <form action={deleteRuleAction}>
+                      <input type="hidden" name="ruleId" value={rule.id} />
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Delete: ${name}`}
+                      >
+                        Delete
+                      </Button>
+                    </form>
+                  </div>
                 </li>
               );
             })}
@@ -77,7 +95,7 @@ export default async function RulesPage({ searchParams }: PageProps<"/money/rule
         <ApplyRules />
       </section>
 
-      <section aria-labelledby="new-rule">
+      <section aria-labelledby="new-rule" className="flex flex-col gap-3">
         <h2 id="new-rule">New rule</h2>
         {transaction && (
           <p>
@@ -93,6 +111,6 @@ export default async function RulesPage({ searchParams }: PageProps<"/money/rule
           initial={transaction ? ruleDraftFrom(transaction) : {}}
         />
       </section>
-    </main>
+    </Page>
   );
 }

@@ -1,6 +1,10 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { FormError, FormStatus } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   createCategoryAction,
   deleteCategoryAction,
@@ -15,17 +19,16 @@ export function CreateCategoryForm() {
   );
 
   return (
-    <form action={action}>
-      <p>
-        <label htmlFor="category-name">Name</label>
-        <br />
-        <input id="category-name" name="name" maxLength={100} required />
-      </p>
-      {state.error && <p role="alert">{state.error}</p>}
-      {state.message && <p role="status">{state.message}</p>}
-      <button type="submit" disabled={pending}>
+    <form action={action} className="flex flex-col gap-4">
+      <Field>
+        <FieldLabel htmlFor="category-name">Name</FieldLabel>
+        <Input id="category-name" name="name" maxLength={100} required />
+      </Field>
+      {state.error && <FormError>{state.error}</FormError>}
+      {state.message && <FormStatus>{state.message}</FormStatus>}
+      <Button type="submit" disabled={pending} className="self-start">
         Add category
-      </button>
+      </Button>
     </form>
   );
 }
@@ -37,20 +40,21 @@ export function RenameCategoryForm({ categoryId, name }: { categoryId: string; n
   );
 
   return (
-    <form action={action}>
+    <form action={action} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="categoryId" value={categoryId} />
-      <input
+      <Input
         name="name"
         defaultValue={name}
         aria-label={`Name of ${name}`}
         maxLength={100}
         required
-      />{" "}
-      <button type="submit" disabled={pending} aria-label={`Rename ${name}`}>
+        className="w-auto flex-1"
+      />
+      <Button type="submit" variant="outline" disabled={pending} aria-label={`Rename ${name}`}>
         Rename
-      </button>
-      {state.error && <span role="alert"> {state.error}</span>}
-      {state.message && <span role="status"> {state.message}</span>}
+      </Button>
+      {state.error && <FormError className="basis-full">{state.error}</FormError>}
+      {state.message && <FormStatus className="basis-full">{state.message}</FormStatus>}
     </form>
   );
 }
@@ -62,24 +66,37 @@ export function DeleteCategory({ categoryId, name }: { categoryId: string; name:
 
   if (step !== "confirming") {
     return (
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         autoFocus={step === "cancelled"}
         onClick={() => setStep("confirming")}
         aria-label={`Delete ${name}`}
+        className="self-start"
       >
         Delete
-      </button>
+      </Button>
     );
   }
   return (
-    <form action={deleteCategoryAction}>
+    <form action={deleteCategoryAction} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="categoryId" value={categoryId} />
-      <p role="alert">Delete {name}? Its transactions become uncategorized.</p>
-      <button type="submit">Yes, delete</button>{" "}
-      <button type="button" autoFocus onClick={() => setStep("cancelled")}>
+      <p role="alert" className="basis-full">
+        Delete {name}? Its transactions become uncategorized.
+      </p>
+      <Button type="submit" variant="destructive" size="sm">
+        Yes, delete
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        autoFocus
+        onClick={() => setStep("cancelled")}
+      >
         Cancel
-      </button>
+      </Button>
     </form>
   );
 }

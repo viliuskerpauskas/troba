@@ -1,5 +1,6 @@
 import { dateFormats, listImportProfiles, maxImportFileBytes } from "@troba/core";
 import type { Metadata } from "next";
+import { Page } from "@/components/page";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { ImportWizard } from "./import-wizard";
@@ -11,13 +12,13 @@ export default async function ImportPage() {
   const profiles = await listImportProfiles(db(), userId);
 
   return (
-    <main>
+    <Page>
       <h1>Import a bank statement</h1>
       <ImportWizard
         profiles={profiles.map(({ id, name }) => ({ id, name }))}
         dateFormats={dateFormats}
         maxBytes={maxImportFileBytes}
       />
-    </main>
+    </Page>
   );
 }

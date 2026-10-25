@@ -1,6 +1,7 @@
 import { findPendingInvite } from "@troba/core";
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { AuthCard } from "@/components/auth-card";
 import { db } from "@/server/db";
 import { SignUpForm } from "./sign-up-form";
 
@@ -18,17 +19,17 @@ export default async function InvitePage(props: PageProps<"/invite/[token]">) {
   // Unknown, expired, used and revoked invites all get this same page.
   if (!invite) {
     return (
-      <main>
-        <h1>This invite link doesn&apos;t work</h1>
-        <p>It may have expired, been used or been revoked. Ask whoever sent it for a new one.</p>
-      </main>
+      <AuthCard title="This invite link doesn't work">
+        <p className="text-muted-foreground">
+          It may have expired, been used or been revoked. Ask whoever sent it for a new one.
+        </p>
+      </AuthCard>
     );
   }
 
   return (
-    <main>
-      <h1>Join troba</h1>
+    <AuthCard title="Join troba">
       <SignUpForm token={token} email={invite.email} />
-    </main>
+    </AuthCard>
   );
 }

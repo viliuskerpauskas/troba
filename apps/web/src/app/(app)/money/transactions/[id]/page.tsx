@@ -11,6 +11,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { DescriptionList } from "@/components/description-list";
+import { Page } from "@/components/page";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../../format";
@@ -40,35 +43,43 @@ export default async function EditTransactionPage({
   const amountCents = transaction.amountCents;
 
   return (
-    <main>
+    <Page>
       <h1>Edit transaction</h1>
       <p>
         <Link href="/money/transactions">Back to transactions</Link>
       </p>
       {imported && (
         <section aria-labelledby="as-imported">
-          <h2 id="as-imported">As the bank reported it</h2>
-          <p>Imported transactions keep their date, amount and counterparty.</p>
-          <dl>
-            <dt>Account</dt>
-            <dd>{transaction.accountName}</dd>
-            <dt>Date</dt>
-            <dd>{transaction.bookedOn}</dd>
-            <dt>Amount</dt>
-            <dd>{formatAmount(amountCents, transaction.currency)}</dd>
-            {transaction.counterparty && (
-              <>
-                <dt>Counterparty</dt>
-                <dd>{transaction.counterparty}</dd>
-              </>
-            )}
-            {transaction.description && (
-              <>
-                <dt>Description</dt>
-                <dd>{transaction.description}</dd>
-              </>
-            )}
-          </dl>
+          <Card>
+            <CardHeader>
+              <h2 id="as-imported">As the bank reported it</h2>
+              <CardDescription>
+                Imported transactions keep their date, amount and counterparty.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DescriptionList>
+                <dt>Account</dt>
+                <dd>{transaction.accountName}</dd>
+                <dt>Date</dt>
+                <dd>{transaction.bookedOn}</dd>
+                <dt>Amount</dt>
+                <dd>{formatAmount(amountCents, transaction.currency)}</dd>
+                {transaction.counterparty && (
+                  <>
+                    <dt>Counterparty</dt>
+                    <dd>{transaction.counterparty}</dd>
+                  </>
+                )}
+                {transaction.description && (
+                  <>
+                    <dt>Description</dt>
+                    <dd>{transaction.description}</dd>
+                  </>
+                )}
+              </DescriptionList>
+            </CardContent>
+          </Card>
         </section>
       )}
       <TransactionForm
@@ -100,6 +111,6 @@ export default async function EditTransactionPage({
         </p>
       )}
       <DeleteTransaction transactionId={transaction.id} />
-    </main>
+    </Page>
   );
 }
