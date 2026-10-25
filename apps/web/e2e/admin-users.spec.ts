@@ -59,18 +59,18 @@ test("an admin disables a user, who is signed out and can't sign in until enable
   const user = await createUser("e2e-disabled@example.test");
   const usersLaptop = await signedIn(browser, user.email, user.password);
   const admin = await adminPage(browser);
-  const row = userItem(admin, user.email);
+  const item = userItem(admin, user.email);
 
-  await row.getByRole("button", { name: "Disable" }).click();
+  await item.getByRole("button", { name: "Disable" }).click();
 
-  await expect(field(row, "Status")).toHaveText("disabled");
+  await expect(field(item, "Status")).toHaveText("disabled");
   await expectSignedOut(usersLaptop);
   const refused = await signIn(browser, user.email, user.password);
   await expect(refused.getByText("Email or password is incorrect.")).toBeVisible();
 
-  await row.getByRole("button", { name: "Enable" }).click();
+  await item.getByRole("button", { name: "Enable" }).click();
 
-  await expect(field(row, "Status")).toHaveText("active");
+  await expect(field(item, "Status")).toHaveText("active");
   await signedIn(browser, user.email, user.password);
 });
 
@@ -154,7 +154,18 @@ test("the users page fits a phone with long emails, and every action can be used
   await expect(userItem(admin, emails[2]!)).toBeVisible();
   await expectPageFitsPhone(admin);
 
+  const own = userItem(admin, adminEmail);
+  await expect(own.getByRole("heading")).toContainText("(you)");
+  await expect(own.getByRole("button")).toHaveCount(0);
+
+  // Each action is described by its user's email, so the buttons can be told apart.
   const item = userItem(admin, emails[0]!);
+  await expect(item.getByRole("button", { name: "Disable" })).toHaveAccessibleDescription(
+    emails[0]!,
+  );
+  await expect(item.getByRole("button", { name: "Create reset link" })).toHaveAccessibleDescription(
+    emails[0]!,
+  );
   await item.getByRole("button", { name: "Disable" }).click();
   await expect(field(item, "Status")).toHaveText("disabled");
   await item.getByRole("button", { name: "Create reset link" }).click();

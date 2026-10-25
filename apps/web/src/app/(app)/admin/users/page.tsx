@@ -12,6 +12,9 @@ function Day({ value }: { value: Date | null }) {
   return value ? <time dateTime={value.toISOString()}>{date.format(value)}</time> : "Never";
 }
 
+// The element showing a user's email, which describes their action buttons.
+const emailId = (userId: string) => `user-${userId}-email`;
+
 // Accounts only (SPEC-identity I6): no admin view of anyone's data and no impersonation.
 export default async function UsersPage() {
   const admin = await requireAdmin();
@@ -31,7 +34,9 @@ export default async function UsersPage() {
             </h2>
             <dl>
               <dt>Email</dt>
-              <dd style={{ overflowWrap: "anywhere" }}>{user.email}</dd>
+              <dd id={emailId(user.id)} style={{ overflowWrap: "anywhere" }}>
+                {user.email}
+              </dd>
               <dt>Role</dt>
               <dd>{user.role}</dd>
               <dt>Status</dt>
@@ -51,9 +56,10 @@ export default async function UsersPage() {
                 <DisableToggle
                   key={String(user.disabled)}
                   userId={user.id}
+                  emailId={emailId(user.id)}
                   disabled={user.disabled}
                 />
-                <ResetLinkForm userId={user.id} email={user.email} />
+                <ResetLinkForm userId={user.id} email={user.email} emailId={emailId(user.id)} />
               </>
             )}
           </li>

@@ -30,7 +30,9 @@ export default async function InvitesPage() {
         <ul aria-labelledby="all-invites">
           {invites.map((invite) => (
             <li key={invite.id}>
-              <h3 style={{ overflowWrap: "anywhere" }}>{invite.email ?? "Anyone with the link"}</h3>
+              <h3 id={`invite-${invite.id}`} style={{ overflowWrap: "anywhere" }}>
+                {invite.email ?? "Anyone with the link"}
+              </h3>
               <dl>
                 <dt>Status</dt>
                 <dd>{invite.status}</dd>
@@ -50,7 +52,10 @@ export default async function InvitesPage() {
               {invite.status === "pending" && (
                 <form action={revokeInviteAction}>
                   <input type="hidden" name="id" value={invite.id} />
-                  <button type="submit">Revoke</button>
+                  {/* Described by its heading, so each Revoke names its invite. */}
+                  <button type="submit" aria-describedby={`invite-${invite.id}`}>
+                    Revoke
+                  </button>
                 </form>
               )}
             </li>

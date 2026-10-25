@@ -84,9 +84,9 @@ test("a bound invite pre-fills and locks the email, and shows as used", async ({
   await expect(friend).toHaveURL("/money");
 
   await page.reload();
-  const row = inviteItem(page, email);
-  await expect(field(row, "Status")).toHaveText("used");
-  await expect(row.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+  const item = inviteItem(page, email);
+  await expect(field(item, "Status")).toHaveText("used");
+  await expect(item.getByRole("button", { name: "Revoke" })).toHaveCount(0);
 });
 
 test("a revoked invite shows the same page as an unknown one", async ({ page, browser }) => {
@@ -94,9 +94,9 @@ test("a revoked invite shows the same page as an unknown one", async ({ page, br
   const email = uniqueEmail("revoked");
   const path = await createInvite(page, email);
 
-  const row = inviteItem(page, email);
-  await row.getByRole("button", { name: "Revoke" }).click();
-  await expect(field(row, "Status")).toHaveText("revoked");
+  const item = inviteItem(page, email);
+  await item.getByRole("button", { name: "Revoke" }).click();
+  await expect(field(item, "Status")).toHaveText("revoked");
 
   const friend = await friendPage(browser);
   await friend.goto(path);
@@ -137,6 +137,9 @@ test("the invites page fits a phone with long emails, and every action can be us
   await expectPageFitsPhone(page);
 
   const item = inviteItem(page, emails[0]!);
+  await expect(item.getByRole("button", { name: "Revoke" })).toHaveAccessibleDescription(
+    emails[0]!,
+  );
   await item.getByRole("button", { name: "Revoke" }).click();
   await expect(field(item, "Status")).toHaveText("revoked");
   await expectPageFitsPhone(page);

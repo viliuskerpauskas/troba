@@ -11,7 +11,17 @@ import {
   type UserActionState,
 } from "./actions";
 
-export function DisableToggle({ userId, disabled }: { userId: string; disabled: boolean }) {
+// Each action button is described by its user's email (emailId, the element that shows it), so a
+// screen reader's list of buttons can tell one user's "Disable" from another's.
+export function DisableToggle({
+  userId,
+  emailId,
+  disabled,
+}: {
+  userId: string;
+  emailId: string;
+  disabled: boolean;
+}) {
   const [state, action, pending] = useActionState<UserActionState, FormData>(
     disabled ? enableUserAction : disableUserAction,
     {},
@@ -20,7 +30,7 @@ export function DisableToggle({ userId, disabled }: { userId: string; disabled: 
   return (
     <form action={action}>
       <input type="hidden" name="userId" value={userId} />
-      <button type="submit" disabled={pending}>
+      <button type="submit" disabled={pending} aria-describedby={emailId}>
         {disabled ? "Enable" : "Disable"}
       </button>
       {state.error && <span role="alert"> {state.error}</span>}
@@ -38,7 +48,15 @@ const noSubscription = () => () => {};
 const findContainer = () => document.getElementById(resetLinksContainerId);
 const noContainer = () => null;
 
-export function ResetLinkForm({ userId, email }: { userId: string; email: string }) {
+export function ResetLinkForm({
+  userId,
+  email,
+  emailId,
+}: {
+  userId: string;
+  email: string;
+  emailId: string;
+}) {
   const [state, action, pending] = useActionState<ResetLinkState, FormData>(
     createResetLinkAction,
     {},
@@ -59,7 +77,7 @@ export function ResetLinkForm({ userId, email }: { userId: string; email: string
   return (
     <form action={action}>
       <input type="hidden" name="userId" value={userId} />
-      <button type="submit" disabled={pending}>
+      <button type="submit" disabled={pending} aria-describedby={emailId}>
         Create reset link
       </button>
       {state.error && <span role="alert"> {state.error}</span>}

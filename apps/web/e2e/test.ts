@@ -36,19 +36,22 @@ export async function expectLinkFitsPhone(link: Locator) {
   expect([start, end], "focus selects the link").toEqual([0, length]);
 }
 
-// A page at phone width: nothing scrolls sideways, every button is on screen, and axe finds no
-// WCAG 2.1 A or AA violation.
+// A page at phone width: nothing scrolls sideways, every visible button is on screen, and axe
+// finds no WCAG 2.1 A or AA violation.
 export async function expectPageFitsPhone(page: Page) {
   const viewport = page.viewportSize()!.width;
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width, "no sideways scrolling").toBeLessThanOrEqual(viewport);
-  for (const button of await page.getByRole("button").all()) {
+  for (const button of await page.getByRole("button").filter({ visible: true }).all()) {
     const box = (await button.boundingBox())!;
     expect(box.x + box.width, `${await button.innerText()} is on screen`).toBeLessThanOrEqual(
       viewport,
     );
   }
+  await expectNoAxeViolations(page);
+}
 
+export async function expectNoAxeViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
