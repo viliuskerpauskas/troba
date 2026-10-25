@@ -1,10 +1,9 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
-import { expect, test } from "./test";
+import { expect, expectNoAxeViolations, test } from "./test";
 
 // The money module's v1 as a whole (SPEC-money success criteria 4 and 6): the import flow with
 // rules feeding the monthly view, and every money page on a phone, labelled and keyboard-operable.
@@ -295,13 +294,7 @@ async function checkPage(page: Page, name: string) {
     const width = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(width, "no sideways scrolling").toBeLessThanOrEqual(page.viewportSize()!.width);
 
-    const { violations } = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-      .analyze();
-    expect(
-      violations.map((v) => ({ rule: v.id, nodes: v.nodes.map((node) => node.target.join(" ")) })),
-      "axe violations",
-    ).toEqual([]);
+    await expectNoAxeViolations(page);
 
     await expectTabReachesEveryControl(page);
   });

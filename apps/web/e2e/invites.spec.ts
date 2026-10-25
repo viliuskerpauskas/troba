@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { Browser, Page } from "@playwright/test";
 import { adminEmail } from "./global-setup";
-import { expect, expectLinkFitsPhone, test } from "./test";
+import { expect, expectLinkFitsPhone, expectPageFitsPhone, field, test } from "./test";
 
 const invalidHeading = "This invite link doesn't work";
 
@@ -25,6 +25,13 @@ async function createInvite(page: Page, email = "") {
 // The friend uses their own browser: a fresh context shares no cookies with the admin's.
 async function friendPage(browser: Browser) {
   return (await browser.newContext()).newPage();
+}
+
+function inviteItem(page: Page, email: string) {
+  return page
+    .getByRole("list", { name: "All invites" })
+    .getByRole("listitem")
+    .filter({ hasText: email });
 }
 
 function uniqueEmail(name: string) {
@@ -77,9 +84,9 @@ test("a bound invite pre-fills and locks the email, and shows as used", async ({
   await expect(friend).toHaveURL("/money");
 
   await page.reload();
-  const row = page.getByRole("row", { name: new RegExp(email) });
-  await expect(row.getByRole("cell", { name: "used", exact: true })).toBeVisible();
-  await expect(row.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+  const item = inviteItem(page, email);
+  await expect(field(item, "Status")).toHaveText("used");
+  await expect(item.getByRole("button", { name: "Revoke" })).toHaveCount(0);
 });
 
 test("a revoked invite shows the same page as an unknown one", async ({ page, browser }) => {
@@ -87,10 +94,9 @@ test("a revoked invite shows the same page as an unknown one", async ({ page, br
   const email = uniqueEmail("revoked");
   const path = await createInvite(page, email);
 
-  const row = page.getByRole("row", { name: new RegExp(email) });
-  await row.getByRole("button", { name: "Revoke" }).click();
-  // Exact, or the email cell ("revoked-…@example.test") matches before the revoke lands.
-  await expect(row.getByRole("cell", { name: "revoked", exact: true })).toBeVisible();
+  const item = inviteItem(page, email);
+  await item.getByRole("button", { name: "Revoke" }).click();
+  await expect(field(item, "Status")).toHaveText("revoked");
 
   const friend = await friendPage(browser);
   await friend.goto(path);
@@ -114,4 +120,27 @@ test("a signed-in non-admin can't open the invites page", async ({ page, browser
   const response = await friend.goto("/admin/invites");
 
   expect(response?.status()).toBe(403);
+});
+
+test("the invites page fits a phone with long emails, and every action can be used", async ({
+  page,
+}) => {
+  await signInAsAdmin(page);
+  const emails = [1, 2, 3].map((n) =>
+    uniqueEmail(`boundfriendwithaverylongemailaddressnumber${n}`),
+  );
+  for (const email of emails) await createInvite(page, email);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.reload();
+
+  await expect(inviteItem(page, emails[2]!)).toBeVisible();
+  await expectPageFitsPhone(page);
+
+  const item = inviteItem(page, emails[0]!);
+  await expect(item.getByRole("button", { name: "Revoke" })).toHaveAccessibleDescription(
+    emails[0]!,
+  );
+  await item.getByRole("button", { name: "Revoke" }).click();
+  await expect(field(item, "Status")).toHaveText("revoked");
+  await expectPageFitsPhone(page);
 });

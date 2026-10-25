@@ -1,6 +1,6 @@
 // A one-time link (an invite or a password reset) shown once for the admin to copy. The input
 // takes the full width so it fits a phone screen, the link scrolling inside it, and focusing it
-// selects the whole link.
+// selects the whole link. A label naming a long email wraps anywhere for the same reason.
 export function OneTimeLink({
   id,
   label,
@@ -18,7 +18,9 @@ export function OneTimeLink({
 
   return (
     <p>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} style={{ overflowWrap: "anywhere" }}>
+        {label}
+      </label>
       <br />
       <input
         id={id}

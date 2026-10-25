@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Invites · troba" };
 const dateTime = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
 
 function Time({ value }: { value: Date | null }) {
-  return value ? <time dateTime={value.toISOString()}>{dateTime.format(value)}</time> : null;
+  return value ? <time dateTime={value.toISOString()}>{dateTime.format(value)}</time> : "Never";
 }
 
 export default async function InvitesPage() {
@@ -22,47 +22,45 @@ export default async function InvitesPage() {
       <h1>Invites</h1>
       <CreateInviteForm />
 
-      <h2>All invites</h2>
+      <h2 id="all-invites">All invites</h2>
       {invites.length === 0 ? (
         <p>No invites yet.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Email</th>
-              <th scope="col">Status</th>
-              <th scope="col">Created</th>
-              <th scope="col">Expires</th>
-              <th scope="col">Used</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invites.map((invite) => (
-              <tr key={invite.id}>
-                <td>{invite.email ?? "Anyone with the link"}</td>
-                <td>{invite.status}</td>
-                <td>
+        // A list, not a table, so it fits a phone screen; each field keeps its label (dt).
+        <ul aria-labelledby="all-invites">
+          {invites.map((invite) => (
+            <li key={invite.id}>
+              <h3 id={`invite-${invite.id}`} style={{ overflowWrap: "anywhere" }}>
+                {invite.email ?? "Anyone with the link"}
+              </h3>
+              <dl>
+                <dt>Status</dt>
+                <dd>{invite.status}</dd>
+                <dt>Created</dt>
+                <dd>
                   <Time value={invite.createdAt} />
-                </td>
-                <td>
+                </dd>
+                <dt>Expires</dt>
+                <dd>
                   <Time value={invite.expiresAt} />
-                </td>
-                <td>
+                </dd>
+                <dt>Used</dt>
+                <dd>
                   <Time value={invite.usedAt} />
-                </td>
-                <td>
-                  {invite.status === "pending" && (
-                    <form action={revokeInviteAction}>
-                      <input type="hidden" name="id" value={invite.id} />
-                      <button type="submit">Revoke</button>
-                    </form>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </dd>
+              </dl>
+              {invite.status === "pending" && (
+                <form action={revokeInviteAction}>
+                  <input type="hidden" name="id" value={invite.id} />
+                  {/* Described by its heading, so each Revoke names its invite. */}
+                  <button type="submit" aria-describedby={`invite-${invite.id}`}>
+                    Revoke
+                  </button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </main>
   );
