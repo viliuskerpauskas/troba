@@ -67,8 +67,12 @@ function mentions(text, file) {
 }
 
 const isPage = (file) => file.startsWith("apps/web/src/app/") || file === "apps/web/next.config.ts";
+// pnpm-workspace.yaml holds auditConfig.ignoreGhsas, so a change there can hide an audit finding.
 const isDependencies = (file) =>
-  file === "pnpm-lock.yaml" || file === "package.json" || file.endsWith("/package.json");
+  file === "pnpm-lock.yaml" ||
+  file === "pnpm-workspace.yaml" ||
+  file === "package.json" ||
+  file.endsWith("/package.json");
 
 // The lines labelled `label` whose text starts like a sha, with that text. Only these count, so
 // prose such as "Pass: all checks green" or "Reviewed commit: matches HEAD." is left alone,

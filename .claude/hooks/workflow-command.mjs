@@ -119,7 +119,7 @@ export function guardedCommands(command, shell = "bash") {
   });
   const restore = (text) => text.replace(PLACEHOLDER, (_, n) => bodies[Number(n)]);
   const { items } = parse(kept, shell);
-  return simpleCommands(items).flatMap(({ words, start, cwd }) =>
+  return simpleCommands(items, shell).flatMap(({ words, start, cwd }) =>
     guardedIn(words, start, cwd, command, restore),
   );
 }

@@ -167,17 +167,24 @@ try {
       block(
         "it can't tell what this command runs: it has an unclosed quote, quotes nested inside " +
           "a `$(…)` in double quotes, an encoded PowerShell command, or a push whose target " +
-          "isn't a plain branch name (a variable or `$(…)`), and it mentions `git push` or " +
-          "`gh pr create`. Close the quote, use single quotes inside the `$(…)`, name the " +
-          "branch, or split the command up.",
+          "isn't a plain branch name (a variable or `$(…)`), or a `gh` whose `pr` word or " +
+          "subcommand is a variable or `$(…)`, so it may run `git push` or `gh pr create`. " +
+          "Close the quote, use single quotes inside the `$(…)`, name the branch or " +
+          "subcommand, or split the command up.",
       );
     }
     if (kind === "pr-elsewhere") {
+      const targets = "-R, --repo, -H, --head, GH_REPO or GH_HOST";
+      const hint = mentioned
+        ? " This command names `gh pr create` where the gate can't tell whether it runs, next " +
+          `to a cd or one of those, so it can't be placed: a title, body or message that ` +
+          `mentions a cd, ${targets} counts too. If it only names it, put that text in a file ` +
+          "(`--body-file`, `git commit -F <file>`) or reword it."
+        : "";
+      mentioned = false; // The hint above already says what to do about the mention.
       block(
-        "open the PR from the feature worktree for its current branch, without -R, --repo, " +
-          "-H, --head, GH_REPO or GH_HOST" +
-          (mentioned ? " (and, for a command the gate can't read, without a cd)" : "") +
-          ": the review file only vouches for this folder's branch.",
+        "open the PR from the feature worktree for its current branch, without " +
+          `${targets}: the review file only vouches for this folder's branch.${hint}`,
       );
     }
     if (kind === "push-elsewhere") {

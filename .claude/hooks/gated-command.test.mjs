@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import { gatedCommands } from "./gated-command.mjs";
 
@@ -466,6 +467,210 @@ describe("gatedCommands", () => {
     ]);
     expect(gatedCommands('git commit -m "GH_REPO=o/r"; gh pr create')).toEqual([
       { kind: "pr-create", cwd: null },
+    ]);
+  });
+
+  it("ignores other gh pr subcommands whose text says create or new", () => {
+    for (const command of [
+      'gh pr edit 5 --title "new title"',
+      'gh pr comment 5 --body "will create later"',
+      'gh pr list --search "new"',
+      'cmd /c "gh pr edit 5 --title new"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([]);
+    }
+  });
+
+  it("still finds a mentioned PR create with flags between pr and the subcommand", () => {
+    for (const command of [
+      'cmd /c "gh pr -R o/r create"',
+      'cmd /c "gh pr --repo o/r create"',
+      'cmd /c "gh pr --repo=o/r create"',
+    ]) {
+      expect(gatedCommands(command), command).toEqual([
+        { kind: "pr-elsewhere", cwd: null, mentioned: true },
+      ]);
+    }
+    expect(gatedCommands('cmd /c "gh pr --web new"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("finds a mention split across lines by a continuation", () => {
+    expect(gatedCommands('cmd /c "gh pr \\\ncreate"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "git -C x \\\npush"')).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "gh pr `\ncreate"', "powershell")).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("gh pr create \\\n--help")).toEqual([]);
+  });
+
+  it("calls a PR create whose subcommand is substituted unclear", () => {
+    for (const [command, shell] of [
+      ["gh pr $(echo create) --fill", "bash"],
+      ["gh pr `echo create` --fill", "bash"],
+      ["gh pr ${X:-create} --fill", "bash"],
+      ["gh pr $(echo create)", "powershell"],
+      ["gh pr $sub --fill", "powershell"],
+      ['gh pr "$sub" --fill', "bash"],
+    ]) {
+      expect(gatedCommands(command, shell), command).toContainEqual({ kind: "unclear", cwd: null });
+    }
+  });
+
+  it("finds a mentioned PR create whose subcommand is quoted, escaped or substituted", () => {
+    for (const [command, shell] of [
+      ['cmd /c "gh pr \\"create\\" --fill"', "bash"],
+      ["cmd /c 'gh pr \"create\" --fill'", "powershell"],
+      ["node -e \"require('child_process').execSync('gh pr \\'create\\'')\"", "bash"],
+      ["cmd /c 'gh pr $(echo create)'", "bash"],
+    ]) {
+      expect(gatedCommands(command, shell), command).toEqual([
+        { kind: "pr-create", cwd: null, mentioned: true },
+      ]);
+    }
+  });
+
+  it("calls a gh whose pr word is substituted unclear", () => {
+    for (const command of [
+      "gh $(echo pr) create --fill",
+      "gh $EMPTY pr create --fill",
+      "gh ${P:-pr} create --fill",
+    ]) {
+      expect(gatedCommands(command), command).toContainEqual({ kind: "unclear", cwd: null });
+    }
+    expect(gatedCommands('cmd /c "gh $EMPTY pr create"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("finds a PR create after a substituted -R value, at the cost of a rare over-block", () => {
+    for (const command of [
+      "gh pr -R $(echo o/r) create --fill",
+      'gh pr -R $(echo "o/r create")',
+      'cmd /c "gh pr -R $(echo o/r) create"',
+    ]) {
+      expect(gatedCommands(command), command).toContainEqual({
+        kind: "pr-elsewhere",
+        cwd: null,
+        mentioned: true,
+      });
+    }
+    // Accepted: a variable -R value followed by another subcommand naming create or new.
+    expect(gatedCommands('gh pr --repo "$REPO" comment 5 --body "new round"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("gh pr view $N")).toEqual([]);
+  });
+
+  it("stays linear on a long run of whitespace after -R", () => {
+    const start = performance.now();
+    gatedCommands(`git push && gh pr -R${" ".repeat(260000)}x`);
+    gatedCommands(`gh pr --repo${"\t".repeat(120000)}x`);
+    expect(performance.now() - start).toBeLessThan(2000);
+  });
+
+  it("matches a mention under both joinings, so a PowerShell backslash can't hide one", () => {
+    expect(gatedCommands("@'\nC:\\x\\\ngit push\n'@ | powershell -", "powershell")).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "gh pr cre\\\nate"', "powershell")).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("reads a quoted or prefixed cd, and bash cd's options", () => {
+    expect(gatedCommands('"cd" ../wt && git push')).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("builtin cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("command cd ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("cd -P ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("cd -LP ../wt && git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+  });
+
+  it("reads only the cd options each shell accepts", () => {
+    // Bash rejects `cd -p` and `-path`, and PowerShell finds `-p` and `-e` ambiguous: the cd fails
+    // and the folder stays. The gate reads the option as the folder, where git then fails, so the
+    // hook refuses; it must never read the next word as the folder.
+    for (const [command, shell] of [
+      ["cd -p ../wt; git push", "bash"],
+      ["cd -l ../wt; git push", "bash"],
+      ["cd -E ../wt; git push", "bash"],
+      ["cd -path ../wt; git push", "bash"],
+      ["cd -@ ../wt; git push", "bash"],
+      ["cd -L@ ../wt; git push", "bash"],
+      ["pushd -P ../wt; git push", "bash"],
+      ["pushd -L ../wt; git push", "bash"],
+      ["pushd -e ../wt; git push", "bash"],
+      ["cd -p ../wt; git push", "powershell"],
+      ["cd -e ../wt; git push", "powershell"],
+    ]) {
+      expect(gatedCommands(command, shell), `${shell}: ${command}`).not.toContainEqual({
+        kind: "push",
+        cwd: "../wt",
+      });
+    }
+    expect(gatedCommands("pushd -- ../wt; git push")).toEqual([{ kind: "push", cwd: "../wt" }]);
+    expect(gatedCommands("cd -Path ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+    expect(gatedCommands("& 'Set-Location' ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+  });
+
+  it("joins a bash continuation without a space, even inside a word", () => {
+    expect(gatedCommands("git pu\\\nsh")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("gh pr cre\\\nate")).toEqual([{ kind: "pr-create", cwd: null }]);
+    expect(gatedCommands('cmd /c "git pu\\\nsh"')).toEqual([
+      { kind: "push", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cmd /c "gh pr cre\\\nate"')).toEqual([
+      { kind: "pr-create", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("reads bash's directory change only by its exact name, which it is in bash", () => {
+    // Bash has no `CD`, `cd..` or `Set-Location`: the command fails and the folder stays.
+    expect(gatedCommands("CD ../wt && git push")).toEqual([{ kind: "push", cwd: null }]);
+    expect(gatedCommands("cd..; git push")).toEqual([{ kind: "push", cwd: null }]);
+    for (const cd of ["Set-Location", "set-location", "sl", "chdir", "push-location"]) {
+      expect(gatedCommands(`${cd} ../wt; git push`), cd).toEqual([{ kind: "push", cwd: null }]);
+    }
+  });
+
+  it("reads PowerShell's directory change in any case, with cd.. and cd\\", () => {
+    expect(gatedCommands("CD ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+    expect(gatedCommands("set-location ../wt; git push", "powershell")).toEqual([
+      { kind: "push", cwd: "../wt" },
+    ]);
+    expect(gatedCommands("cd..; git push", "powershell")).toEqual([{ kind: "push", cwd: ".." }]);
+    expect(gatedCommands("cd\\; git push", "powershell")).toEqual([{ kind: "push", cwd: "\\" }]);
+    expect(gatedCommands('cd\\; cmd /c "git push"', "powershell")).toEqual([
+      { kind: "push-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('cd..; cmd /c "git push"', "powershell")).toEqual([
+      { kind: "push-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('CD ../wt && cmd /c "gh pr create"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+  });
+
+  it("refuses a mentioned PR create after GH_REPO or GH_HOST is set in any case", () => {
+    expect(gatedCommands('$env:gh_repo = "o/r"; cmd /c "gh pr create"', "powershell")).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands('export GH_HOST=example.test; cmd /c "gh pr create"')).toEqual([
+      { kind: "pr-elsewhere", cwd: null, mentioned: true },
+    ]);
+    expect(gatedCommands("export GH_HOST=example.test; gh pr create")).toEqual([
+      { kind: "pr-elsewhere", cwd: null },
     ]);
   });
 
