@@ -1,16 +1,16 @@
 name: CI
 
+# PRs run it here; pushes to main and dev run it from deliver.yml, before the image is built.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  # A new push to a PR cancels its stale run. Each push to main gets its own group, because a
-  # shared group would cancel queued main runs and leave commits without a check.
+  # A new push to a PR cancels its stale run. Each push to main or dev gets its own group, because
+  # a shared group would cancel queued runs and leave commits without a check.
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 

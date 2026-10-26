@@ -38,7 +38,7 @@ beforeAll(() => {
   stub = path.join(root, "gh-stub.mjs");
   writeFileSync(stub, "process.exit(1);\n");
   mkdirSync(repo);
-  git(repo, "init", "-q", "-b", "main");
+  git(repo, "init", "-q", "-b", "dev");
   git(repo, "config", "user.email", "test@example.test");
   git(repo, "config", "user.name", "Test");
   writeFileSync(path.join(repo, "notes.md"), "notes\n");
@@ -48,7 +48,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
-  git(repo, "switch", "-q", "main");
+  git(repo, "switch", "-q", "dev");
   git(repo, "checkout", "-q", "--", ".");
   if (git(repo, "branch", "--list", "feat/y")) git(repo, "branch", "-qD", "feat/y");
   git(linked, "checkout", "-q", "--", ".");
@@ -57,22 +57,22 @@ afterEach(() => {
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe("session-status", { timeout: 30000 }, () => {
-  it("warns in the main checkout on a branch other than main, listing the worktrees", () => {
+  it("warns in the main checkout on a branch other than dev, listing the worktrees", () => {
     git(repo, "switch", "-qc", "feat/y");
     const out = status(repo);
     expect(out).toContain("another session may be using this checkout");
-    expect(out).toContain("git worktree add <path> -b <branch> main");
+    expect(out).toContain("git worktree add <path> -b <branch> dev");
     expect(out).toMatch(/linked\s+\w+ \[feat\/x\]/);
   });
 
-  it("warns in the main checkout on main with an uncommitted change", () => {
+  it("warns in the main checkout on dev with an uncommitted change", () => {
     writeFileSync(path.join(repo, "notes.md"), "edited\n");
     const out = status(repo);
-    expect(out).toContain("it is on main with uncommitted changes");
+    expect(out).toContain("it is on dev with uncommitted changes");
     expect(out).toMatch(/linked\s+\w+ \[feat\/x\]/);
   });
 
-  it("stays quiet in a clean main checkout on main, and in a linked worktree", () => {
+  it("stays quiet in a clean main checkout on dev, and in a linked worktree", () => {
     expect(status(repo)).not.toMatch(/Warning|Checkout:/);
     writeFileSync(path.join(linked, "notes.md"), "edited\n");
     expect(status(linked)).not.toMatch(/Warning|Checkout:/);

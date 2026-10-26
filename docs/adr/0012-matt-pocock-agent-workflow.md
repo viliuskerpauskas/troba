@@ -62,4 +62,6 @@ Additions and departures from the approved proposal, made while building it:
 
 ## More Information
 
+The PR per feature and the review gate were superseded by [ADR-0013](0013-dev-branch-to-staging.md): features land on `dev` through `/wrap`, and the review is optional.
+
 Superseded process: the agent-skills workflow described in the Workflow section of `AGENTS.md` before this ADR. The upstream skills are `mattpocock-skills` 1.3.1, enabled for this project in `.claude/settings.json`.

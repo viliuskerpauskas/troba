@@ -7,8 +7,8 @@
 // by `--track` or guessed from a remote branch, switching the main checkout to an existing branch,
 // a message typed in an editor, `--amend` keeping an old message, a directory git can't open
 // (a `~` or `$VAR` in it), and anything the tokenizer can't read.
-// Unlike the review gate, an error in the hook itself lets the command through (exit 1): it's
-// a guardrail, and one bug shouldn't stop every command.
+// An error in the hook itself lets the command through (exit 1): it's a guardrail, and one bug
+// shouldn't stop every command.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -50,10 +50,10 @@ try {
     if (found.kind === "branch" && isMainCheckout(cwd)) {
       const folder = found.branch.split("/").pop().toLowerCase();
       block(
-        `this creates ${found.branch} in the main checkout, which stays on main: every session ` +
+        `this creates ${found.branch} in the main checkout, which stays on dev: every session ` +
           "sharing its working tree would move onto the new branch. Create a worktree for it " +
           `instead, from the main checkout: \`git worktree add .claude/worktrees/${folder} ` +
-          `-b ${found.branch} main\`, then set it up as docs/agents/skill-overrides.md#worktrees ` +
+          `-b ${found.branch} dev\`, then set it up as docs/agents/skill-overrides.md#worktrees ` +
           "says and work there.",
       );
     }

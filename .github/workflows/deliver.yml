@@ -1,19 +1,25 @@
 name: Deliver
 
-# Every push to main builds ghcr.io/<owner>/troba-web:<sha> once. release-please keeps a release
-# PR open. Merging that PR creates a release, and the release commit's image gets the :<version>
-# tag without a rebuild (ADR-0009). Each image built from main is deployed to staging. A release
-# is then deployed to production, the image staging ran and passed with, once the owner approves.
+# Every push to dev or main runs CI, then builds ghcr.io/<owner>/troba-web:<sha> once and deploys it
+# to staging (ADR-0013). On main, release-please keeps a release PR open. Merging that PR creates a
+# release, and the release commit's image gets the :<version> tag without a rebuild (ADR-0009). That
+# release is then deployed to production, the image staging ran and passed with, once the owner
+# approves, and main is merged back into dev.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   contents: read
 
 jobs:
+  # Pushes to dev skip the PR checks, so staging only gets a commit that passed them here.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   image:
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -66,7 +72,8 @@ jobs:
     environment: staging
     # One deploy at a time, never cancelled midway. A newer run waiting here replaces an older one
     # that hasn't started. Runs queue in the order their images finish, so if two pushes' builds
-    # finish out of order, staging stays on the older sha until the next push.
+    # finish out of order, staging stays on the older sha until the next push. Pushes to dev and
+    # main share it, so staging runs whichever was deployed last.
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
@@ -90,6 +97,7 @@ jobs:
             "deploy@$SSH_HOST" "$GITHUB_SHA"
 
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Two runs editing the release PR at once would race; queue them instead.
@@ -111,6 +119,9 @@ jobs:
       # branch. Close and reopen it right before merging to run the checks.
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
+        with:
+          # It defaults to the repository's default branch, which is dev.
+          target-branch: main
 
   # A release is reported only once. If this job fails, use "Re-run failed jobs" (it keeps the
   # release outputs); "Re-run all jobs" would find the release already created and skip it.
@@ -205,3 +216,30 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             "deploy@$SSH_HOST" "$GITHUB_SHA"
+
+  # The release commits (CHANGELOG.md, the version) land on main only. Merge them into dev so the
+  # next dev -> main PR is up to date with main, as the ruleset requires. GITHUB_TOKEN's push
+  # triggers no workflow, so staging keeps the release it just ran. A conflict fails this job:
+  # merge origin/main into dev by hand.
+  sync-dev:
+    # Not after deploy-prod: dev shouldn't wait on the prod approval.
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      # Keeps the token in .git/config, which the push below needs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Merge main into dev
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit -m "chore: merge main into dev after release" origin/main
+          git push origin HEAD:dev

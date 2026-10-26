@@ -43,7 +43,7 @@ function gitStatus() {
   };
 }
 
-// The main checkout stays on a clean `main` (AGENTS.md, "Worktrees"). When it isn't, another
+// The main checkout stays on a clean `dev` (AGENTS.md, "Worktrees"). When it isn't, another
 // session is probably working in it, and a second one branching there ends up committing onto
 // the first one's branch.
 function checkoutInUse({ branch, dirty }) {
@@ -53,13 +53,13 @@ function checkoutInUse({ branch, dirty }) {
   // A linked worktree has its own git dir under the common one; it is never the shared checkout.
   if (path.resolve(gitDir) !== path.resolve(commonDir)) return null;
   if (dirty === null) return "Checkout: unknown whether it is in use (git status failed).";
-  if (branch === "main" && dirty === 0) return null;
+  if (branch === "dev" && dirty === 0) return null;
   const state =
-    branch === "main" ? "on main with uncommitted changes" : `on ${branch ?? "a detached HEAD"}`;
+    branch === "dev" ? "on dev with uncommitted changes" : `on ${branch ?? "a detached HEAD"}`;
   const list = run("git", ["worktree", "list"]);
   return (
     `Warning: this is the main checkout and it is ${state}, so another session may be using ` +
-    "this checkout. Start this task in its own worktree (`git worktree add <path> -b <branch> main`) " +
+    "this checkout. Start this task in its own worktree (`git worktree add <path> -b <branch> dev`) " +
     "rather than branching here.\n" +
     (list.ok
       ? `Worktrees:\n${list.out
@@ -88,9 +88,10 @@ function prStatus(branch) {
   if (!branch || branch === "main") return null;
   const r = run("gh", ["pr", "view", "--json", "number,title,state,isDraft,statusCheckRollup"]);
   if (!r.ok) {
-    return /no pull requests found/i.test(r.err)
-      ? "No PR for this branch yet."
-      : "PR/CI: unknown (gh lookup failed; check `gh pr status` before acting).";
+    if (/no pull requests found/i.test(r.err)) {
+      return branch === "dev" ? "No dev -> main release PR open." : "No PR for this branch yet.";
+    }
+    return "PR/CI: unknown (gh lookup failed; check `gh pr status` before acting).";
   }
   const p = JSON.parse(r.out);
   const state = p.isDraft ? "draft" : p.state.toLowerCase();
