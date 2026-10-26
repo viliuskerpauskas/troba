@@ -49,7 +49,7 @@ describe("workflow-guard hook", () => {
     for (const command of ["git switch -c chore/x", "git checkout -b chore/x"]) {
       const r = guard(command);
       expect(r.status, command).toBe(2);
-      expect(r.stderr).toContain("git worktree add .claude/worktrees/x -b chore/x main");
+      expect(r.stderr).toContain("git worktree add .claude/worktrees/x -b chore/x dev");
     }
   });
 

@@ -40,6 +40,8 @@ Chosen option: "release-please on Conventional Commits, image promoted by tag", 
 - Bad, because commit messages must follow the convention; a bad type means a wrong version bump.
 - Bad, because the deliver workflow carries both the staging and the prod path, so it's longer than two separate workflows.
 
+Amended by [ADR-0013](0013-dev-branch-to-staging.md): work lands on `dev`, whose pushes also deploy to staging, and reaches `main` through a merge-commit PR `dev → main`. Amended again by [ADR-0014](0014-merge-to-main-deploys-prod.md): every push to `main` deploys prod with no approval step, and a release only tags a version.
+
 ### Confirmation
 
 The release-please PR shows the expected bump; prod's `/api/health` reports the released sha.

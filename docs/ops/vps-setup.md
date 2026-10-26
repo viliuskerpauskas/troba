@@ -2,7 +2,7 @@
 
 How the one VPS that runs troba is set up by hand, and how a deploy works. The design is in [SPEC-platform.md](../../SPEC-platform.md) (P5, P7) and [ADR-0008](../adr/0008-vps-docker-compose-caddy.md). Commands assume Ubuntu 24.04 LTS; another Debian-family release works the same way.
 
-Placeholders: `<vps>` is the server's IP address, `<domain>` the domain, `<sha>` a full 40-character commit sha on `main`. Nothing real goes into this file or the repo: the domain, IP, emails and secrets live only on the VPS.
+Placeholders: `<vps>` is the server's IP address, `<domain>` the domain, `<sha>` a full 40-character commit sha on `dev` or `main`. Nothing real goes into this file or the repo: the domain, IP, emails and secrets live only on the VPS.
 
 ## What runs where
 
@@ -157,7 +157,7 @@ EOF
 ls -l /srv/troba/<env>/.env   # -rw------- deploy deploy
 ```
 
-For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to prod. `TROBA_IMAGE` stays the same in both, so prod deploys the very image staging ran.
+For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to prod. `TROBA_IMAGE` stays the same in both.
 
 `POSTGRES_PASSWORD` is set when the database volume is first created. Changing it later in `.env` doesn't change the database's password; do that with `ALTER USER` in `psql` first.
 
@@ -186,11 +186,11 @@ Going back to an older release by hand is just `deploy.sh <env> <older sha>`, as
 
 ### Deploys from GitHub
 
-Every push to `main` builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time, in the order their images finish building, and a waiting one is replaced by a newer one. Two pushes whose builds finish out of order leave staging on the older sha until the next push; redeploy by hand or push again.
+Every push to `dev` runs CI, builds its image, then the Deliver workflow's `deploy-staging` job runs `deploy.sh staging <sha>` over SSH and fails if the deploy does (a failed health check rolls staging back first). Deploys queue one at a time, in the order their images finish building, and a waiting one is replaced by a newer one. Two pushes whose builds finish out of order leave staging on the older sha until the next push; redeploy by hand or push again.
 
-Merging the release PR is such a push. Once its staging deploy has passed and release-please has created the release, the `deploy-prod` job waits for your approval (Actions → the run → **Review deployments**), then runs `deploy.sh prod <sha>` with the same sha, so prod starts the image staging ran and passed with.
+Every push to `main`, which only your merge of a `dev → main` PR (or of release-please's release PR) makes, does the same for prod: CI, its image, then `deploy-prod` runs `deploy.sh prod <sha>`. The merge is the approval; nothing asks again ([ADR-0014](../adr/0014-merge-to-main-deploys-prod.md)). The merge commit's tree is the `dev` tip staging ran, under a new sha, so prod gets an image built from the same code rather than the same image.
 
-If the release run's `deploy-staging` failed or was cancelled (a newer push replaced it while it waited), `deploy-prod` is skipped and nothing asks for approval. Use **Re-run failed jobs** on that run: it deploys the release sha to staging again, then waits for your approval for prod. Staging stays on that sha until the next push. If the release turns up in a later run than its merge (its own run's `release` job failed), `deploy-prod` refuses, because staging ran a different sha there: deploy the release by hand with `deploy.sh prod <release sha>`.
+If a `main` run's CI, `image` or `deploy-prod` fails, prod stays on its last good sha (a failed health check rolls it back first). Fix it on `dev`, then merge another `dev → main` PR, or use **Re-run failed jobs** on that run for a transient failure.
 
 Each job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy.sh](../../deploy/ci-deploy.sh), which fixes the environment and takes nothing from the client but the sha. GitHub holds the key, the host and its host key, and nothing else from the VPS. Each environment gets its own key, so the staging key can't deploy prod. To set one up, for `<env>` = `staging` (GitHub environment `staging`), or `prod` (GitHub environment `production`), once [deploy/](../../deploy/) on the VPS includes `ci-deploy.sh`:
 
@@ -217,7 +217,7 @@ Each job's SSH key may only deploy: its `authorized_keys` line forces [ci-deploy
 
    For prod, only once `/srv/troba/prod/.env` exists and a first `deploy.sh prod <sha>` by hand has passed: before that, `<sha>` has nothing to redeploy.
 
-4. In GitHub: Settings → Environments → New environment `staging` or `production`. Under **Deployment branches and tags**, choose **Selected branches and tags** and add `main`, so no other branch's workflow gets these secrets. For `production`, also tick **Required reviewers** and add yourself, and leave **Prevent self-review** off (you merge the release PR and approve its deploy). Add three environment secrets:
+4. In GitHub: Settings → Environments → New environment `staging` or `production`. Under **Deployment branches and tags**, choose **Selected branches and tags** and add `main` (and, for `staging` only, `dev`), so no other branch's workflow gets these secrets. Leave **Required reviewers** off for `production`: merging into `main` is the approval. Add three environment secrets:
 
    | Secret | Value |
    |---|---|
@@ -254,28 +254,26 @@ Off-VPS backups (nightly `pg_dump` and the `uploads` volume) are not set up yet;
 
 Run these once the VPS exists, and again after changing the firewall, Docker or `deploy/`. Record the date and result under [Results](#results).
 
-**A known sha on staging.** Pick the newest sha on `main` whose image is in GHCR (the Deliver workflow's `image` job built it), and:
+**A known sha on staging.** Pick the newest sha on `dev` or `main` whose image is in GHCR (the Deliver workflow's `image` job built it), and:
 
 ```bash
 /srv/troba/deploy/deploy.sh staging <sha>
 curl -s https://staging.<domain>/api/health   # {"status":"ok","version":"<sha>","db":"ok"}
 ```
 
-**A merge deploys itself.** Merge a PR to `main`, then within 10 minutes and with no manual step, the Deliver run's `deploy-staging` job is green and staging reports the merge's sha:
+**A push deploys itself.** Push to `dev`, then within 20 minutes (CI runs first) and with no manual step, the Deliver run's `deploy-staging` job is green and staging reports the pushed sha:
 
 ```bash
-curl -s https://staging.<domain>/api/health   # "version" is the merge commit's sha
+curl -s https://staging.<domain>/api/health   # "version" is the pushed sha
 ```
 
 The page footer of `https://staging.<domain>/` shows the same sha.
 
-**A release deploys to prod after approval.** Merge the release PR. In its Deliver run, `deploy-staging` and `release-image` go green, then `deploy-prod` waits with **Review deployments**. Approve it; the job goes green and prod reports the release commit's sha:
+**A merge to main deploys prod.** Merge a `dev → main` PR. In its Deliver run, `ci`, `image` and `deploy-prod` go green with no further step, and prod reports the merge commit's sha:
 
 ```bash
-curl -s https://<domain>/api/health   # "version" is the release commit's sha
+curl -s https://<domain>/api/health   # "version" is the merge commit's sha
 ```
-
-If nothing has been pushed to `main` since, both environments run one image on the VPS: `docker inspect --format '{{.Image}}' troba-staging-web-1 troba-prod-web-1` prints the same id twice.
 
 **A broken image rolls back.** With a healthy deploy in place, build an image that exits on start, tagged with a sha that isn't real, and deploy it. Its migrations are the good image's, so only the health check fails.
 

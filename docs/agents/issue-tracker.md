@@ -72,11 +72,11 @@ Add each new issue to the project board (`gh project item-add 3 --owner "@me" --
 
 ## When a skill resolves an issue from a commit
 
-Matt's code-review reads `Closes #<n>` and `Refs #<n>` in commit messages. Ticket commits carry `Refs #<M>` in the footer. GitHub closes issues from the **PR body**, so `Closes #<N>` and one `Closes #<M>` per ticket go there, written by `/wrap`.
+Matt's code-review reads `Closes #<n>` and `Refs #<n>` in commit messages. Ticket commits carry `Refs #<M>` in the footer. GitHub closes an issue when a commit whose message says `Closes #<n>` reaches the default branch, which is `dev`, so `/wrap`'s merge message carries `Closes #<N>` and one `Closes #<M>` per ticket, and a small task's commit on `dev` carries its own.
 
 ## Closing work
 
-Work is closed by merging its PR, which the owner does. Agents close nothing by hand, and never close or edit the spec's plan sections. The one edit to a spec body is appending **What actually happened** at `/wrap`.
+Work is closed by its `Closes` lines landing on `dev`, which `/wrap` does with the owner's go-ahead. Agents close nothing by hand, and never close or edit the spec's plan sections. The one edit to a spec body is appending **What actually happened** at `/wrap`.
 
 ## Labels
 

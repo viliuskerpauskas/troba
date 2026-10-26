@@ -2,7 +2,7 @@
 // branch created by `git switch` or `git checkout`, and each `git commit`, with the directory it
 // runs in when the command names one. It reads commands with gated-command.mjs's tokenizer, so
 // text that only mentions them (a quoted message, a grep pattern, a heredoc body) isn't a command.
-// Like the review gate, it finds git after any word, so an unquoted `echo git switch -c x` counts.
+// It finds git after any word, so an unquoted `echo git switch -c x` counts.
 
 import {
   gitSubcommand,
