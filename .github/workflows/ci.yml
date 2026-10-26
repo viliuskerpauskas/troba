@@ -19,7 +19,7 @@ jobs:
     # The ruleset requires this check by name; renaming it drops the requirement.
     name: ci
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -85,8 +85,10 @@ jobs:
           GIT_SHA: ""
 
       # Headless runs only use the headless shell; full Chrome is ~190 MiB more and has stalled.
+      # --with-deps fetches a few apt packages, and Azure's Ubuntu mirror sometimes serves them at
+      # about a minute each, so a healthy install can take over 5 minutes.
       - run: pnpm exec playwright install --with-deps --only-shell chromium
-        timeout-minutes: 5
+        timeout-minutes: 15
 
       - run: pnpm test:e2e
 
