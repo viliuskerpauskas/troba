@@ -59,4 +59,6 @@ A push to `dev` runs Deliver: `ci`, `image` and `deploy-staging` go green and st
 
 ## More Information
 
+Point 4 (prod deploys only a release, after approval) was superseded the same day by [ADR-0014](0014-merge-to-main-deploys-prod.md): every push to `main` deploys prod, and the merge is the approval.
+
 Supersedes the PR-per-feature and review-gate parts of [ADR-0012](0012-matt-pocock-agent-workflow.md), and point 2 of [ADR-0009](0009-release-flow.md) ("each merge to `main` deploys to staging" now also covers each push to `dev`). GitHub settings changed with it: the default branch is `dev`, the `main` ruleset targets `refs/heads/main` explicitly (it targeted the default branch) and allows merge commits, and the `staging` environment allows deploys from `dev` as well as `main`.

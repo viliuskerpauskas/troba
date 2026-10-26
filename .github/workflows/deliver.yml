@@ -1,10 +1,10 @@
 name: Deliver
 
-# Every push to dev or main runs CI, then builds ghcr.io/<owner>/troba-web:<sha> once and deploys it
-# to staging (ADR-0013). On main, release-please keeps a release PR open. Merging that PR creates a
-# release, and the release commit's image gets the :<version> tag without a rebuild (ADR-0009). That
-# release is then deployed to production, the image staging ran and passed with, once the owner
-# approves, and main is merged back into dev.
+# Every push to dev or main runs CI, then builds ghcr.io/<owner>/troba-web:<sha> once. A push to dev
+# deploys it to staging (ADR-0013); a push to main, which only the owner's merge of a dev -> main PR
+# makes, deploys it to production (ADR-0014), and main is merged back into dev. On main,
+# release-please also keeps a release PR open; merging it creates a release, and the release
+# commit's image gets the :<version> tag without a rebuild (ADR-0009).
 
 on:
   push:
@@ -66,14 +66,14 @@ jobs:
   # (deploy/ci-deploy.sh) fixes the environment, so all this job sends is the sha.
   deploy-staging:
     needs: image
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     # A deploy that fails its health check and rolls back takes about 5 minutes.
     timeout-minutes: 10
     environment: staging
     # One deploy at a time, never cancelled midway. A newer run waiting here replaces an older one
     # that hasn't started. Runs queue in the order their images finish, so if two pushes' builds
-    # finish out of order, staging stays on the older sha until the next push. Pushes to dev and
-    # main share it, so staging runs whichever was deployed last.
+    # finish out of order, staging stays on the older sha until the next push.
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
@@ -168,20 +168,15 @@ jobs:
             exit 1
           fi
 
-  # The release PR's merge is a push to main like any other, so by the time this job asks for
-  # approval, the same run has deployed that commit's image to staging and it passed its health
-  # check there. Prod gets the same sha, and so the same image: both environments run on one Docker
-  # host with one TROBA_IMAGE, and deploy.sh pulls a sha tag only when it's missing, so prod starts
-  # the image staging pulled, digest for digest (release-image checked the version tag points to it
-  # too).
+  # Merging into main is the owner's approval, so prod deploys with no further step. Staging ran
+  # dev's tip; main's merge commit has the same tree under a new sha, so it gets its own CI run and
+  # image here. Each release-please PR merge is a push too, and redeploys with the new version.
   deploy-prod:
-    needs: [release, release-image, deploy-staging]
-    # Implies success() of every need: a staging deploy that failed or was cancelled (a newer push
-    # replaced it while it waited) skips prod. "Re-run failed jobs" retries both (docs/ops).
-    if: needs.release.outputs.release_created == 'true'
+    needs: image
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Required reviewers on the "production" environment hold the job here until the owner approves.
+    # The "production" environment only accepts deploys from main.
     environment: production
     # One prod deploy at a time, never cancelled midway, as for staging.
     concurrency:
@@ -190,18 +185,6 @@ jobs:
     permissions: {}
 
     steps:
-      - name: Check staging ran the release commit
-        # release-please can report a release in a later run than the release PR's merge, if that
-        # run's release job failed and a newer push created it. That run's staging deploy was a
-        # different sha, so stop: deploy the release by hand once staging has run it.
-        env:
-          RELEASE_SHA: ${{ needs.release.outputs.sha }}
-        run: |
-          if [ "$RELEASE_SHA" != "$GITHUB_SHA" ]; then
-            echo "::error::the release is $RELEASE_SHA, but this run deployed $GITHUB_SHA to staging"
-            exit 1
-          fi
-
       - name: Deploy over SSH
         # Environment secrets of "production", for a key forced to run ci-deploy.sh prod. Keepalives
         # as for staging.
@@ -217,14 +200,12 @@ jobs:
             -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             "deploy@$SSH_HOST" "$GITHUB_SHA"
 
-  # The release commits (CHANGELOG.md, the version) land on main only. Merge them into dev so the
-  # next dev -> main PR is up to date with main, as the ruleset requires. GITHUB_TOKEN's push
-  # triggers no workflow, so staging keeps the release it just ran. A conflict fails this job:
-  # merge origin/main into dev by hand.
+  # main gets commits dev doesn't have: each dev -> main PR's merge commit, and release-please's
+  # release commits. Merge them into dev so the next dev -> main PR is up to date with main, as the
+  # ruleset requires; usually that's a fast-forward. GITHUB_TOKEN's push triggers no workflow, so
+  # staging isn't redeployed for it. A conflict fails this job: merge origin/main into dev by hand.
   sync-dev:
-    # Not after deploy-prod: dev shouldn't wait on the prod approval.
-    needs: release
-    if: needs.release.outputs.release_created == 'true'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -241,5 +222,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git merge --no-edit -m "chore: merge main into dev after release" origin/main
+          git merge --no-edit -m "chore: merge main into dev" origin/main
           git push origin HEAD:dev

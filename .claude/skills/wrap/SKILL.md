@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Turns a finished feature or task branch into a merge on `dev`, with its record written. Run it in the **feature worktree** (`.claude/worktrees/t<N>-<slug>`, on `feat/T<N>-<slug>`, or a standalone task's own worktree). [docs/agents/skill-overrides.md](../../../docs/agents/skill-overrides.md) defines the names and is the authority where this file is unclear. Pushing `dev` deploys it to staging ([ADR-0013](../../../docs/adr/0013-dev-branch-to-staging.md)).
 
-**The owner typing `/wrap` is permission to edit this work's issues as steps 3 and 4 say, merge the branch into `dev` and push `dev`.** The `dev → main` release PR, its merge and the production approval stay with the owner, always.
+**The owner typing `/wrap` is permission to edit this work's issues as steps 3 and 4 say, merge the branch into `dev` and push `dev`.** The `dev → main` PR and its merge, which deploys prod, stay with the owner, always.
 
 ## Step 1: find the work
 
@@ -80,4 +80,4 @@ A push or `gh` call that fails leaves the commits in place: that is a recoverabl
 
 ## Step 6: report
 
-Find the push's run with `gh run list --branch dev --workflow Deliver --limit 1` (don't poll it). One message: the merge sha on `dev`, the run's link, what step 2 ran, which issue items are left for the owner, and the next step: *"Deliver runs CI and then deploys to staging; check the change there. Then remove this worktree, its database and the feature and ticket branches, and `git pull --ff-only` on `dev` in the main checkout. When staging has what should ship, open a PR `dev → main` and merge it with a merge commit."*
+Find the push's run with `gh run list --branch dev --workflow Deliver --limit 1` (don't poll it). One message: the merge sha on `dev`, the run's link, what step 2 ran, which issue items are left for the owner, and the next step: *"Deliver runs CI and then deploys to staging; check the change there. Then remove this worktree, its database and the feature and ticket branches, and `git pull --ff-only` on `dev` in the main checkout. When staging has what should go to prod, open a PR `dev → main` and merge it with a merge commit: that deploys prod."*

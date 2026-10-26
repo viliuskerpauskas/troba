@@ -163,7 +163,7 @@ The last stage, in the feature worktree, typed by the owner. A project skill: [.
 
 ## /pr
 
-Only for the release PR `dev → main`, which the owner asks for. Write its body with this skill's template (Summary, Evidence, Merge Danger), summarising what `dev` has that `main` doesn't (`git log --oneline origin/main..origin/dev`), and saying which staging run it was checked on. Title it `chore: release` or similar: it's merged with a merge commit, so release-please builds the release notes from the commits on `dev`, not from the PR title. Open it with `gh pr create --base main --head dev --body-file <file>`; merging is the owner's.
+Only for the PR `dev → main`, which the owner asks for; merging it deploys prod ([ADR-0014](../adr/0014-merge-to-main-deploys-prod.md)). Write its body with this skill's template (Summary, Evidence, Merge Danger), summarising what `dev` has that `main` doesn't (`git log --oneline origin/main..origin/dev`), and saying which staging run it was checked on. Title it `chore: ship to prod` or similar: it's merged with a merge commit, so release-please builds the release notes from the commits on `dev`, not from the PR title. Open it with `gh pr create --base main --head dev --body-file <file>`; merging is the owner's.
 
 ## Setup and the other skills
 

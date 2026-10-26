@@ -12,10 +12,11 @@ Decisions in [MADR 4](https://adr.github.io/madr/) format. Copy [0000-template.m
 | [0006](0006-better-auth.md) | Better Auth for authentication | accepted |
 | [0007](0007-tailwind-shadcn-base-ui.md) | Tailwind with shadcn/ui on Base UI, Recharts and Zod | accepted |
 | [0008](0008-vps-docker-compose-caddy.md) | One VPS with Docker Compose and Caddy | accepted |
-| [0009](0009-release-flow.md) | Release flow: Conventional Commits, release-please, one image per commit | accepted, amended by 0013 |
+| [0009](0009-release-flow.md) | Release flow: Conventional Commits, release-please, one image per commit | accepted, amended by 0013 and 0014 |
 | [0010](0010-vitest-and-playwright.md) | Vitest against real Postgres, and Playwright end to end | accepted |
 | [0011](0011-pnpm-workspaces-monorepo.md) | pnpm workspaces monorepo with source-only packages | accepted |
 | [0012](0012-matt-pocock-agent-workflow.md) | Agent workflow on Matt Pocock's engineering skills | accepted, PR and review gate superseded by 0013 |
-| [0013](0013-dev-branch-to-staging.md) | Work lands on dev, which deploys to staging; main is the release branch | accepted |
+| [0013](0013-dev-branch-to-staging.md) | Work lands on dev, which deploys to staging; main is the release branch | accepted, prod path superseded by 0014 |
+| [0014](0014-merge-to-main-deploys-prod.md) | Merging into main deploys prod; release-please only versions | accepted |
 
 Background and rejected alternatives: [docs/ideas/stack-options.md](../ideas/stack-options.md).
