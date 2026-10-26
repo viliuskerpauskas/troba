@@ -2,6 +2,8 @@
 
 import { useActionState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { FormError } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
 import { OneTimeLink } from "../one-time-link";
 import {
   createResetLinkAction,
@@ -28,12 +30,18 @@ export function DisableToggle({
   );
 
   return (
-    <form action={action}>
+    <form action={action} className="flex flex-col gap-2">
       <input type="hidden" name="userId" value={userId} />
-      <button type="submit" disabled={pending} aria-describedby={emailId}>
+      <Button
+        type="submit"
+        variant="outline"
+        disabled={pending}
+        aria-describedby={emailId}
+        className="self-start"
+      >
         {disabled ? "Enable" : "Disable"}
-      </button>
-      {state.error && <span role="alert"> {state.error}</span>}
+      </Button>
+      {state.error && <FormError>{state.error}</FormError>}
     </form>
   );
 }
@@ -75,12 +83,18 @@ export function ResetLinkForm({
   );
 
   return (
-    <form action={action}>
+    <form action={action} className="flex flex-col gap-2">
       <input type="hidden" name="userId" value={userId} />
-      <button type="submit" disabled={pending} aria-describedby={emailId}>
+      <Button
+        type="submit"
+        variant="outline"
+        disabled={pending}
+        aria-describedby={emailId}
+        className="self-start"
+      >
         Create reset link
-      </button>
-      {state.error && <span role="alert"> {state.error}</span>}
+      </Button>
+      {state.error && <FormError>{state.error}</FormError>}
       {/* Below the list, not in the user's item, where it has the page's full width. Focus moves
           to it, out of the item's sight. */}
       {container && link ? createPortal(link, container) : link}

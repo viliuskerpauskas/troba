@@ -78,3 +78,8 @@ Excluded: Tailwind Plus / Catalyst (paid).
 ## More Information
 
 Checked 2026-10-11: since July 2026 `shadcn init` defaults to Base UI; Radix stays supported with `-b radix` ([changelog](https://ui.shadcn.com/docs/changelog/2026-07-base-ui-default)). This settles the stack-options note that sources disagreed on the default; pass the Base UI choice explicitly anyway in any scripted init. On npm, `shadcn` is 4.21.4 and `@base-ui/react` is 1.9.0.
+
+Set up 2026-10-26 (T117) with `shadcn` 4.22.1 and the `base-nova` style. Two details came with it:
+
+- Its components merge classes with `cn`, shadcn's own package that replaces clsx and tailwind-merge.
+- The shadcn CLI is not a dependency: the state variants its stylesheet adds are copied into `apps/web/src/app/globals.css`, and components are added with `pnpm dlx shadcn@<version> add`, run from `apps/web`.

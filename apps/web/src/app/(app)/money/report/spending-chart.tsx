@@ -1,6 +1,7 @@
 "use client";
 
-import { Bar, BarChart, LabelList, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, LabelList, XAxis, YAxis } from "recharts";
+import { ChartContainer } from "@/components/ui/chart";
 
 type ChartBar = {
   name: string;
@@ -13,19 +14,25 @@ type ChartBar = {
 const barHeight = 36;
 
 // A client component because Recharts measures and draws in the browser. The table beside it
-// carries the same figures, so the chart is one image to assistive technology.
+// carries the same figures, so the chart is one image to assistive technology. Bars take the
+// primary color, which contrasts with the background in light and dark.
 export function SpendingChart({ bars, title }: { bars: ChartBar[]; title: string }) {
   return (
-    <figure role="img" aria-label={title} style={{ margin: 0, width: "100%" }}>
-      <ResponsiveContainer width="100%" height={bars.length * barHeight + 16}>
+    <figure role="img" aria-label={title} className="m-0 w-full">
+      <ChartContainer height={bars.length * barHeight + 16} className="aspect-auto">
         <BarChart data={bars} layout="vertical" margin={{ top: 8, right: 96, bottom: 8, left: 8 }}>
           <XAxis type="number" dataKey="shareBasisPoints" hide />
           <YAxis type="category" dataKey="name" width={110} tickLine={false} axisLine={false} />
-          <Bar dataKey="shareBasisPoints" fill="currentColor" isAnimationActive={false}>
-            <LabelList dataKey="label" position="right" />
+          <Bar
+            dataKey="shareBasisPoints"
+            fill="var(--color-primary)"
+            radius={4}
+            isAnimationActive={false}
+          >
+            <LabelList dataKey="label" position="right" className="fill-foreground" />
           </Bar>
         </BarChart>
-      </ResponsiveContainer>
+      </ChartContainer>
     </figure>
   );
 }

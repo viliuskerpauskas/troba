@@ -9,9 +9,13 @@
     "start": "next start"
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
     "@troba/core": "workspace:*",
     "@troba/db": "workspace:*",
     "better-auth": "1.7.7",
+    "class-variance-authority": "0.7.1",
+    "cn": "0.5.0",
+    "lucide-react": "1.61.0",
     "next": "16.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -19,10 +23,12 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "esbuild": "0.28.2",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "tailwindcss": "4.3.3"
   }
 }

@@ -1,6 +1,7 @@
 import { listAccounts, listCategories } from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Page } from "@/components/page";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { TransactionForm } from "../transaction-form";
@@ -15,7 +16,7 @@ export default async function NewTransactionPage() {
   ]);
 
   return (
-    <main>
+    <Page>
       <h1>Add transaction</h1>
       <p>
         <Link href="/money/transactions">Back to transactions</Link>
@@ -33,6 +34,6 @@ export default async function NewTransactionPage() {
           initial={{ bookedOn: new Date().toISOString().slice(0, 10) }}
         />
       )}
-    </main>
+    </Page>
   );
 }

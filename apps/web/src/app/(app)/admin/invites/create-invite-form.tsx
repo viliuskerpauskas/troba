@@ -1,6 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
+import { FormError } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { OneTimeLink } from "../one-time-link";
 import { createInviteAction, type CreateInviteState } from "./actions";
 
@@ -11,21 +15,19 @@ export function CreateInviteForm() {
   );
 
   return (
-    <>
-      <form action={action}>
-        <p>
-          <label htmlFor="invite-email">Email (optional)</label>
-          <br />
-          <input id="invite-email" name="email" type="email" aria-describedby="invite-email-hint" />
-          <br />
-          <small id="invite-email-hint">
+    <FieldGroup>
+      <form action={action} className="flex flex-col gap-4">
+        <Field>
+          <FieldLabel htmlFor="invite-email">Email (optional)</FieldLabel>
+          <Input id="invite-email" name="email" type="email" aria-describedby="invite-email-hint" />
+          <FieldDescription id="invite-email-hint">
             If set, only this email can sign up with the link. Invites expire after 7 days.
-          </small>
-        </p>
-        {state.error && <p role="alert">{state.error}</p>}
-        <button type="submit" disabled={pending}>
+          </FieldDescription>
+        </Field>
+        {state.error && <FormError>{state.error}</FormError>}
+        <Button type="submit" disabled={pending} className="self-start">
           Create invite
-        </button>
+        </Button>
       </form>
       {state.link && (
         <OneTimeLink
@@ -35,6 +37,6 @@ export function CreateInviteForm() {
           hint="Copy it now and send it yourself. It won't be shown again."
         />
       )}
-    </>
+    </FieldGroup>
   );
 }

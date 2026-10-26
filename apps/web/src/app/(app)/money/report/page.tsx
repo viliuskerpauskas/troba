@@ -9,6 +9,21 @@ import {
 } from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DescriptionList } from "@/components/description-list";
+import { Page } from "@/components/page";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { db } from "@/server/db";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
@@ -36,21 +51,43 @@ export default async function ReportPage({ searchParams }: PageProps<"/money/rep
     .map((month) => (isMonth(month) ? month : null));
 
   return (
-    <main>
+    <Page>
       <h1>Monthly spending</h1>
-      <form method="get">
-        <label>
-          Month <input type="month" name="month" defaultValue={query.month} required />
-        </label>{" "}
-        <button type="submit">Show</button>
+      <form method="get" className="flex flex-wrap items-center gap-2">
+        <FieldLabel htmlFor="report-month">Month</FieldLabel>
+        <Input
+          id="report-month"
+          type="month"
+          name="month"
+          defaultValue={query.month}
+          required
+          className="w-auto"
+        />
+        <Button type="submit" variant="secondary">
+          Show
+        </Button>
       </form>
-      <p>
-        {previous && <Link href={reportHref({ ...query, month: previous })}>Previous month</Link>}{" "}
-        {next && <Link href={reportHref({ ...query, month: next })}>Next month</Link>}
-      </p>
+      <div className="flex gap-2">
+        {previous && (
+          <Link
+            href={reportHref({ ...query, month: previous })}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Previous month
+          </Link>
+        )}
+        {next && (
+          <Link
+            href={reportHref({ ...query, month: next })}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            Next month
+          </Link>
+        )}
+      </div>
 
       {reports.length === 0 ? (
-        <p>No transactions in {query.month}.</p>
+        <p className="text-muted-foreground">No transactions in {query.month}.</p>
       ) : (
         reports.map((report) => (
           <CurrencySection
@@ -61,8 +98,10 @@ export default async function ReportPage({ searchParams }: PageProps<"/money/rep
           />
         ))
       )}
-      <p>Transfers between your own accounts aren&apos;t counted.</p>
-    </main>
+      <p className="text-sm text-muted-foreground">
+        Transfers between your own accounts aren&apos;t counted.
+      </p>
+    </Page>
   );
 }
 
@@ -85,49 +124,63 @@ function CurrencySection({
 
   return (
     <section aria-labelledby={headingId}>
-      <h2 id={headingId}>{multiCurrency ? `In ${currency}` : "Totals"}</h2>
-      <dl>
-        <dt>Total spent</dt>
-        <dd>{formatAmount(report.spentCents, currency, unsigned)}</dd>
-        <dt>Total income</dt>
-        <dd>{formatAmount(report.incomeCents, currency, unsigned)}</dd>
-      </dl>
+      <Card>
+        <CardHeader>
+          <h2 id={headingId}>{multiCurrency ? `In ${currency}` : "Totals"}</h2>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <DescriptionList className="text-base">
+            <dt>Total spent</dt>
+            <dd className="font-semibold">{formatAmount(report.spentCents, currency, unsigned)}</dd>
+            <dt>Total income</dt>
+            <dd className="font-semibold">
+              {formatAmount(report.incomeCents, currency, unsigned)}
+            </dd>
+          </DescriptionList>
 
-      {report.categories.length > 0 && (
-        <>
-          <SpendingChart
-            title={`Spending by category in ${currency}`}
-            bars={report.categories.map((category) => ({
-              name: name(category),
-              shareBasisPoints: category.shareBasisPoints,
-              label: formatAmount(category.spentCents, currency, unsigned),
-            }))}
-          />
-          <table>
-            <caption>Spending by category in {currency}</caption>
-            <thead>
-              <tr>
-                <th scope="col">Category</th>
-                <SortHeader label="Amount" sortKey="amount" query={query} />
-                <SortHeader label="%" sortKey="share" query={query} />
-                <SortHeader label="Count" sortKey="count" query={query} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortReportCategories(report.categories, query.sort, query.dir).map((category) => (
-                <tr key={category.categoryId ?? "uncategorized"}>
-                  <th scope="row">
-                    <Link href={href(category)}>{name(category)}</Link>
-                  </th>
-                  <td>{formatAmount(category.spentCents, currency, unsigned)}</td>
-                  <td>{formatShare(category.shareBasisPoints)}</td>
-                  <td>{category.transactionCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+          {report.categories.length > 0 && (
+            <>
+              <SpendingChart
+                title={`Spending by category in ${currency}`}
+                bars={report.categories.map((category) => ({
+                  name: name(category),
+                  shareBasisPoints: category.shareBasisPoints,
+                  label: formatAmount(category.spentCents, currency, unsigned),
+                }))}
+              />
+              <Table>
+                <TableCaption>Spending by category in {currency}</TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">Category</TableHead>
+                    <SortHeader label="Amount" sortKey="amount" query={query} />
+                    <SortHeader label="%" sortKey="share" query={query} />
+                    <SortHeader label="Count" sortKey="count" query={query} />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sortReportCategories(report.categories, query.sort, query.dir).map(
+                    (category) => (
+                      <TableRow key={category.categoryId ?? "uncategorized"}>
+                        <TableHead scope="row" className="whitespace-normal">
+                          <Link href={href(category)}>{name(category)}</Link>
+                        </TableHead>
+                        <TableCell className="text-right">
+                          {formatAmount(category.spentCents, currency, unsigned)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatShare(category.shareBasisPoints)}
+                        </TableCell>
+                        <TableCell className="text-right">{category.transactionCount}</TableCell>
+                      </TableRow>
+                    ),
+                  )}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </section>
   );
 }
@@ -150,12 +203,16 @@ function SortHeader({
   const active = query.sort === sortKey;
   const dir: SortDirection = active && query.dir === "desc" ? "asc" : "desc";
   return (
-    <th scope="col" aria-sort={active ? directions[query.dir].ariaSort : "none"}>
+    <TableHead
+      scope="col"
+      aria-sort={active ? directions[query.dir].ariaSort : "none"}
+      className="text-right"
+    >
       <Link href={reportHref({ ...query, sort: sortKey, dir })}>
         {label}
         {active && directions[query.dir].arrow}
       </Link>
-    </th>
+    </TableHead>
   );
 }
 

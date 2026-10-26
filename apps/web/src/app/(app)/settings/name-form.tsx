@@ -1,17 +1,20 @@
 "use client";
 
 import { useActionState } from "react";
+import { FormError, FormStatus } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { updateName, type FormState } from "./actions";
 
 export function NameForm({ name }: { name: string }) {
   const [state, action, pending] = useActionState<FormState, FormData>(updateName, {});
 
   return (
-    <form action={action}>
-      <p>
-        <label htmlFor="name">Name</label>
-        <br />
-        <input
+    <form action={action} className="flex flex-col gap-4">
+      <Field>
+        <FieldLabel htmlFor="name">Name</FieldLabel>
+        <Input
           id="name"
           name="name"
           defaultValue={name}
@@ -19,12 +22,12 @@ export function NameForm({ name }: { name: string }) {
           maxLength={100}
           required
         />
-      </p>
-      {state.error && <p role="alert">{state.error}</p>}
-      {state.message && <p role="status">{state.message}</p>}
-      <button type="submit" disabled={pending}>
+      </Field>
+      {state.error && <FormError>{state.error}</FormError>}
+      {state.message && <FormStatus>{state.message}</FormStatus>}
+      <Button type="submit" disabled={pending} className="self-start">
         Save name
-      </button>
+      </Button>
     </form>
   );
 }

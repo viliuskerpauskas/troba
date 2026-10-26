@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
+import { FormError, FormStatus } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { passwordLength } from "@/server/password-length";
 import { setNewPassword, type ResetState } from "./actions";
 
@@ -13,10 +17,10 @@ export function ResetForm({ token, email }: { token: string; email: string }) {
 
   if (state.done) {
     return (
-      <p role="status">
+      <FormStatus>
         Your password is set and you&apos;re signed out everywhere.{" "}
         <Link href="/sign-in">Sign in</Link> with the new password.
-      </p>
+      </FormStatus>
     );
   }
 
@@ -24,39 +28,40 @@ export function ResetForm({ token, email }: { token: string; email: string }) {
     <form action={action}>
       {/* Lets password managers save the new password for the right account. */}
       <input type="email" name="email" autoComplete="username" value={email} readOnly hidden />
-      <p>
-        <label htmlFor="password">New password</label>
-        <br />
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-          minLength={passwordLength.min}
-          maxLength={passwordLength.max}
-          aria-describedby="password-hint"
-          required
-        />
-        <br />
-        <small id="password-hint">At least {passwordLength.min} characters.</small>
-      </p>
-      <p>
-        <label htmlFor="confirmPassword">Confirm new password</label>
-        <br />
-        <input
-          id="confirmPassword"
-          name="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={passwordLength.min}
-          maxLength={passwordLength.max}
-          required
-        />
-      </p>
-      {state.error && <p role="alert">{state.error}</p>}
-      <button type="submit" disabled={pending}>
-        Set password
-      </button>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="password">New password</FieldLabel>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            minLength={passwordLength.min}
+            maxLength={passwordLength.max}
+            aria-describedby="password-hint"
+            required
+          />
+          <FieldDescription id="password-hint">
+            At least {passwordLength.min} characters.
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="confirmPassword">Confirm new password</FieldLabel>
+          <Input
+            id="confirmPassword"
+            name="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            minLength={passwordLength.min}
+            maxLength={passwordLength.max}
+            required
+          />
+        </Field>
+        {state.error && <FormError>{state.error}</FormError>}
+        <Button type="submit" disabled={pending}>
+          Set password
+        </Button>
+      </FieldGroup>
     </form>
   );
 }

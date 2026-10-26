@@ -10,6 +10,28 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { DescriptionList } from "@/components/description-list";
+import { FormError, FormStatus } from "@/components/form-message";
+import { Button } from "@/components/ui/button";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   commitImportAction,
   createImportAccountAction,
@@ -82,7 +104,7 @@ export function ImportWizard({
   }
 
   return (
-    <div ref={stepStart} tabIndex={-1}>
+    <div ref={stepStart} tabIndex={-1} className="outline-none">
       {renderStep()}
     </div>
   );
@@ -92,38 +114,44 @@ export function ImportWizard({
       case "upload":
         return (
           <form onSubmit={submit}>
-            <p>
-              <label htmlFor="import-file">CSV file from your bank</label>
-              <br />
-              <input
-                id="import-file"
-                type="file"
-                name="file"
-                accept=".csv,text/csv"
-                required
-                onChange={(event) => {
-                  setFile(event.currentTarget.files?.[0] ?? null);
-                  setTooLarge(false);
-                }}
-              />
-            </p>
-            <p>
-              <label htmlFor="import-profile">Import profile</label>
-              <br />
-              <select id="import-profile" name="profileId" defaultValue="">
-                <option value="">Find by the file&apos;s columns</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}
-                  </option>
-                ))}
-              </select>
-            </p>
-            {tooLarge && <p role="alert">{tooLargeMessage(maxBytes)}</p>}
-            {state.error && <p role="alert">{state.error}</p>}
-            <button type="submit" name="intent" value="start" disabled={pending}>
-              Continue
-            </button>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="import-file">CSV file from your bank</FieldLabel>
+                <Input
+                  id="import-file"
+                  type="file"
+                  name="file"
+                  accept=".csv,text/csv"
+                  required
+                  onChange={(event) => {
+                    setFile(event.currentTarget.files?.[0] ?? null);
+                    setTooLarge(false);
+                  }}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="import-profile">Import profile</FieldLabel>
+                <NativeSelect id="import-profile" name="profileId" defaultValue="">
+                  <NativeSelectOption value="">Find by the file&apos;s columns</NativeSelectOption>
+                  {profiles.map((profile) => (
+                    <NativeSelectOption key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              {tooLarge && <FormError>{tooLargeMessage(maxBytes)}</FormError>}
+              {state.error && <FormError>{state.error}</FormError>}
+              <Button
+                type="submit"
+                name="intent"
+                value="start"
+                disabled={pending}
+                className="self-start"
+              >
+                Continue
+              </Button>
+            </FieldGroup>
           </form>
         );
       case "mapping":
@@ -141,19 +169,26 @@ export function ImportWizard({
         return <PreviewForm state={state} pending={pending} onSubmit={submit} />;
       case "done":
         return (
-          <form onSubmit={submit}>
-            <p role="status">
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <FormStatus>
               Imported {count(state.rowsNew, "transaction")} into {state.accountName}.
               {state.rowsDuplicate > 0 &&
                 ` Skipped ${count(state.rowsDuplicate, "row")} already imported.`}
               {state.rowsFailed > 0 && ` ${count(state.rowsFailed, "row")} couldn't be read.`}
-            </p>
+            </FormStatus>
             <p>
               <Link href="/money/transactions">View transactions</Link>
             </p>
-            <button type="submit" name="intent" value="restart" onClick={() => setFile(null)}>
+            <Button
+              type="submit"
+              variant="outline"
+              name="intent"
+              value="restart"
+              onClick={() => setFile(null)}
+              className="self-start"
+            >
               Import another file
-            </button>
+            </Button>
           </form>
         );
     }
@@ -178,136 +213,143 @@ function MappingForm({
   return (
     <form onSubmit={onSubmit}>
       <input type="hidden" name="editing" value={state.profileId ?? ""} />
-      <h2>{state.profileId ? "Edit the import profile" : "Map the columns"}</h2>
-      {!state.profileId && (
-        <p>
-          troba hasn&apos;t seen this format yet. Say which column holds what, once: it&apos;s saved
-          as a profile, and later files with the same columns use it.
-        </p>
-      )}
-      <p>
-        <label htmlFor="profile-name">Profile name</label>
-        <br />
-        <input
-          id="profile-name"
-          name="name"
-          defaultValue={value("name")}
-          maxLength={100}
-          required
-        />
-      </p>
-      <fieldset>
-        <legend>Reading the file</legend>
-        <p>
-          <label htmlFor="profile-skip-lines">Lines above the header</label>
-          <br />
-          <input
-            id="profile-skip-lines"
-            name="skipLines"
-            type="number"
-            min={0}
-            max={100}
-            defaultValue={value("skipLines")}
-            aria-describedby="profile-skip-lines-hint"
+      <FieldGroup>
+        <h2>{state.profileId ? "Edit the import profile" : "Map the columns"}</h2>
+        {!state.profileId && (
+          <p className="text-muted-foreground">
+            troba hasn&apos;t seen this format yet. Say which column holds what, once: it&apos;s
+            saved as a profile, and later files with the same columns use it.
+          </p>
+        )}
+        <Field>
+          <FieldLabel htmlFor="profile-name">Profile name</FieldLabel>
+          <Input
+            id="profile-name"
+            name="name"
+            defaultValue={value("name")}
+            maxLength={100}
+            required
           />
-          <br />
-          <small id="profile-skip-lines-hint">
-            Banks may put a title above the column names. Change it if the headers below look wrong,
-            then read the file again.
-          </small>
-        </p>
-        <p>
-          <label htmlFor="profile-delimiter">Delimiter</label>
-          <br />
-          <select id="profile-delimiter" name="delimiter" defaultValue={value("delimiter")}>
-            <option value="detect">Detect</option>
-            <option value=";">Semicolon ;</option>
-            <option value=",">Comma ,</option>
-            <option value="tab">Tab</option>
-          </select>
-        </p>
-        <p>
-          <label htmlFor="profile-encoding">Encoding</label>
-          <br />
-          <input
-            id="profile-encoding"
-            name="encoding"
-            defaultValue={value("encoding")}
-            maxLength={40}
-            spellCheck={false}
-            aria-describedby="profile-encoding-hint"
-          />
-          <br />
-          <small id="profile-encoding-hint">
-            utf-8 for most banks; older ones may use a code page such as windows-1252.
-          </small>
-        </p>
-        {/* Before any column is mapped: the headers to map may be the wrong ones. */}
-        <button type="submit" name="intent" value="reread" disabled={pending} formNoValidate>
-          Read the file again
-        </button>
-      </fieldset>
-      {table && <FilePreview table={table} />}
-      <fieldset>
-        <legend>Numbers and dates</legend>
-        <p>
-          <label htmlFor="profile-decimal">Decimal separator</label>
-          <br />
-          <select
-            id="profile-decimal"
-            name="decimalSeparator"
-            defaultValue={value("decimalSeparator")}
+        </Field>
+        <FieldSet>
+          <FieldLegend>Reading the file</FieldLegend>
+          <Field>
+            <FieldLabel htmlFor="profile-skip-lines">Lines above the header</FieldLabel>
+            <Input
+              id="profile-skip-lines"
+              name="skipLines"
+              type="number"
+              min={0}
+              max={100}
+              defaultValue={value("skipLines")}
+              aria-describedby="profile-skip-lines-hint"
+              className="max-w-24"
+            />
+            <FieldDescription id="profile-skip-lines-hint">
+              Banks may put a title above the column names. Change it if the headers below look
+              wrong, then read the file again.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-delimiter">Delimiter</FieldLabel>
+            <NativeSelect id="profile-delimiter" name="delimiter" defaultValue={value("delimiter")}>
+              <NativeSelectOption value="detect">Detect</NativeSelectOption>
+              <NativeSelectOption value=";">Semicolon ;</NativeSelectOption>
+              <NativeSelectOption value=",">Comma ,</NativeSelectOption>
+              <NativeSelectOption value="tab">Tab</NativeSelectOption>
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-encoding">Encoding</FieldLabel>
+            <Input
+              id="profile-encoding"
+              name="encoding"
+              defaultValue={value("encoding")}
+              maxLength={40}
+              spellCheck={false}
+              aria-describedby="profile-encoding-hint"
+            />
+            <FieldDescription id="profile-encoding-hint">
+              utf-8 for most banks; older ones may use a code page such as windows-1252.
+            </FieldDescription>
+          </Field>
+          {/* Before any column is mapped: the headers to map may be the wrong ones. */}
+          <Button
+            type="submit"
+            variant="outline"
+            name="intent"
+            value="reread"
+            disabled={pending}
+            formNoValidate
+            className="self-start"
           >
-            <option value=".">Point: 1,234.56</option>
-            <option value=",">Comma: 1.234,56</option>
-          </select>
-        </p>
-        <p>
-          <label htmlFor="profile-date-format">Date format</label>
-          <br />
-          <select id="profile-date-format" name="dateFormat" defaultValue={value("dateFormat")}>
-            {dateFormats.map((format) => (
-              <option key={format} value={format}>
-                {format}
-              </option>
-            ))}
-          </select>
-        </p>
-      </fieldset>
-      <fieldset>
-        <legend>Columns</legend>
-        {(Object.keys(importFields) as ImportField[]).map((field) => (
-          <ColumnSelect
-            key={field}
-            field={field}
-            headers={table?.headers ?? []}
-            defaultValue={value(`column.${field}`)}
-          />
-        ))}
-        <p>
-          <label htmlFor="profile-debit-values">Debit values</label>
-          <br />
-          <input
-            id="profile-debit-values"
-            name="debitValues"
-            defaultValue={value("debitValues")}
-            maxLength={200}
-            aria-describedby="profile-debit-values-hint"
-          />
-          <br />
-          <small id="profile-debit-values-hint">
-            With a debit/credit column: the values that mean money went out, comma-separated, such
-            as D.
-          </small>
-        </p>
-      </fieldset>
-      {state.error && <p role="alert">{state.error}</p>}
-      <button type="submit" name="intent" value="save" disabled={pending || !table}>
-        Save profile and preview
-      </button>{" "}
-      <button type="submit" name="intent" value="restart" formNoValidate>
-        Start over
-      </button>
+            Read the file again
+          </Button>
+        </FieldSet>
+        {table && <FilePreview table={table} />}
+        <FieldSet>
+          <FieldLegend>Numbers and dates</FieldLegend>
+          <Field>
+            <FieldLabel htmlFor="profile-decimal">Decimal separator</FieldLabel>
+            <NativeSelect
+              id="profile-decimal"
+              name="decimalSeparator"
+              defaultValue={value("decimalSeparator")}
+            >
+              <NativeSelectOption value=".">Point: 1,234.56</NativeSelectOption>
+              <NativeSelectOption value=",">Comma: 1.234,56</NativeSelectOption>
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-date-format">Date format</FieldLabel>
+            <NativeSelect
+              id="profile-date-format"
+              name="dateFormat"
+              defaultValue={value("dateFormat")}
+            >
+              {dateFormats.map((format) => (
+                <NativeSelectOption key={format} value={format}>
+                  {format}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </Field>
+        </FieldSet>
+        <FieldSet>
+          <FieldLegend>Columns</FieldLegend>
+          {(Object.keys(importFields) as ImportField[]).map((field) => (
+            <ColumnSelect
+              key={field}
+              field={field}
+              headers={table?.headers ?? []}
+              defaultValue={value(`column.${field}`)}
+            />
+          ))}
+          <Field>
+            <FieldLabel htmlFor="profile-debit-values">Debit values</FieldLabel>
+            <Input
+              id="profile-debit-values"
+              name="debitValues"
+              defaultValue={value("debitValues")}
+              maxLength={200}
+              aria-describedby="profile-debit-values-hint"
+            />
+            <FieldDescription id="profile-debit-values-hint">
+              With a debit/credit column: the values that mean money went out, comma-separated, such
+              as D.
+            </FieldDescription>
+          </Field>
+        </FieldSet>
+        {state.error && <FormError>{state.error}</FormError>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" name="intent" value="save" disabled={pending || !table}>
+            Save profile and preview
+          </Button>
+          <Button type="submit" variant="outline" name="intent" value="restart" formNoValidate>
+            Start over
+          </Button>
+        </div>
+      </FieldGroup>
     </form>
   );
 }
@@ -325,61 +367,63 @@ function ColumnSelect({
   const id = `profile-column-${field}`;
   const required = requiredFields.has(field);
   return (
-    <p>
-      <label htmlFor={id}>{label}</label>
-      <br />
-      <select
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <NativeSelect
         id={id}
         name={`column.${field}`}
         defaultValue={headers.includes(defaultValue) ? defaultValue : ""}
         required={required}
         aria-describedby={hint ? `${id}-hint` : undefined}
+        className="w-full sm:w-fit"
       >
-        <option value="">{required ? "Pick a column" : "Not in this file"}</option>
+        <NativeSelectOption value="">
+          {required ? "Pick a column" : "Not in this file"}
+        </NativeSelectOption>
         {headers.map((header, i) => (
-          <option key={i} value={header}>
+          <NativeSelectOption key={i} value={header}>
             {header}
-          </option>
+          </NativeSelectOption>
         ))}
-      </select>
-      {hint && (
-        <>
-          <br />
-          <small id={`${id}-hint`}>{hint}</small>
-        </>
-      )}
-    </p>
+      </NativeSelect>
+      {hint && <FieldDescription id={`${id}-hint`}>{hint}</FieldDescription>}
+    </Field>
   );
 }
 
 function FilePreview({ table }: { table: MappingTable }) {
   return (
     // Scrolls on its own, so a wide statement doesn't widen the page on a phone.
-    <div role="region" aria-labelledby="file-preview" tabIndex={0} style={{ overflowX: "auto" }}>
-      <table>
-        <caption id="file-preview">
-          The file as read: {table.headers.length} columns, {delimiterNames[table.delimiter]}
-        </caption>
-        <thead>
-          <tr>
-            {table.headers.map((header, i) => (
-              <th key={i} scope="col">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {table.sampleRows.map((row, i) => (
-            <tr key={i}>
-              {table.headers.map((_, j) => (
-                <td key={j}>{row[j]}</td>
-              ))}
-            </tr>
+    <Table
+      containerProps={{
+        role: "region",
+        "aria-labelledby": "file-preview",
+        tabIndex: 0,
+        className: "rounded-xl ring-1 ring-foreground/10",
+      }}
+    >
+      <TableCaption id="file-preview" className="mb-2 caption-top">
+        The file as read: {table.headers.length} columns, {delimiterNames[table.delimiter]}
+      </TableCaption>
+      <TableHeader>
+        <TableRow>
+          {table.headers.map((header, i) => (
+            <TableHead key={i} scope="col">
+              {header}
+            </TableHead>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {table.sampleRows.map((row, i) => (
+          <TableRow key={i}>
+            {table.headers.map((_, j) => (
+              <TableCell key={j}>{row[j]}</TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -392,21 +436,29 @@ const delimiterNames: Record<MappingTable["delimiter"], string> = {
 function PreviewForm({ state, pending, onSubmit }: StepProps<"preview">) {
   const { preview } = state;
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="profileId" value={state.profile.id} />
       <h2>Preview</h2>
-      <p>
+      <p className="flex flex-wrap items-center gap-2">
         Read with the profile {state.profile.name}.{" "}
-        <button type="submit" name="intent" value="edit" disabled={pending} formNoValidate>
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          name="intent"
+          value="edit"
+          disabled={pending}
+          formNoValidate
+        >
           Edit profile
-        </button>
+        </Button>
       </p>
       <PreviewBody preview={preview} accountId={state.accountId} pending={pending} />
-      {state.error && <p role="alert">{state.error}</p>}
+      {state.error && <FormError>{state.error}</FormError>}
       <p>
-        <button type="submit" name="intent" value="restart" formNoValidate>
+        <Button type="submit" variant="outline" name="intent" value="restart" formNoValidate>
           Start over
-        </button>
+        </Button>
       </p>
     </form>
   );
@@ -426,24 +478,29 @@ function PreviewBody({
       case "unknown-account":
         return (
           <>
-            <p>
+            <p className="[overflow-wrap:anywhere]">
               This file is for the account with IBAN {preview.iban} ({preview.currency}), which you
               don&apos;t have in troba yet.
             </p>
-            <p>
-              <label htmlFor="import-account-name">Account name</label>
-              <br />
-              <input
+            <Field>
+              <FieldLabel htmlFor="import-account-name">Account name</FieldLabel>
+              <Input
                 id="import-account-name"
                 name="accountName"
                 maxLength={100}
                 defaultValue="Bank account"
                 required
               />
-            </p>
-            <button type="submit" name="intent" value="create-account" disabled={pending}>
+            </Field>
+            <Button
+              type="submit"
+              name="intent"
+              value="create-account"
+              disabled={pending}
+              className="self-start"
+            >
               Create the account and preview
-            </button>
+            </Button>
           </>
         );
       case "account-required":
@@ -457,27 +514,32 @@ function PreviewBody({
                 over.
               </p>
             )}
-            <p>
-              <label htmlFor="import-account">Account</label>
-              <br />
-              <select id="import-account" name="accountId" required defaultValue="">
-                <option value="" disabled>
+            <Field>
+              <FieldLabel htmlFor="import-account">Account</FieldLabel>
+              <NativeSelect id="import-account" name="accountId" required defaultValue="">
+                <NativeSelectOption value="" disabled>
                   Pick an account
-                </option>
+                </NativeSelectOption>
                 {preview.accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
+                  <NativeSelectOption key={account.id} value={account.id}>
                     {account.name}
-                  </option>
+                  </NativeSelectOption>
                 ))}
-              </select>
-            </p>
-            <button type="submit" name="intent" value="preview" disabled={pending}>
+              </NativeSelect>
+            </Field>
+            <Button
+              type="submit"
+              name="intent"
+              value="preview"
+              disabled={pending}
+              className="self-start"
+            >
               Preview
-            </button>
+            </Button>
           </>
         );
       case "refused":
-        return <p role="alert">{preview.message}</p>;
+        return <FormError>{preview.message}</FormError>;
     }
   }
 
@@ -486,7 +548,7 @@ function PreviewBody({
     <>
       <input type="hidden" name="accountId" value={accountId ?? ""} />
       <p>Account: {preview.account.name}</p>
-      <dl aria-label="Import summary">
+      <DescriptionList aria-label="Import summary">
         <dt>Rows in the file</dt>
         <dd>{preview.rowsParsed}</dd>
         <dt>New</dt>
@@ -495,11 +557,11 @@ function PreviewBody({
         <dd>{preview.rowsDuplicate}</dd>
         <dt>Can&apos;t be read</dt>
         <dd>{rowsFailed}</dd>
-      </dl>
+      </DescriptionList>
       {preview.debitCredit && (
         <>
           <p id="debit-credit">Debit/credit values in the file. Check they read the right way:</p>
-          <ul aria-labelledby="debit-credit">
+          <ul aria-labelledby="debit-credit" className="list-disc pl-6 text-sm">
             {preview.debitCredit.map(({ value, debit, rows }) => (
               <li key={value}>
                 {value}: {count(rows, "row")}, read as {debit ? "money out" : "money in"}
@@ -511,7 +573,7 @@ function PreviewBody({
       {rowsFailed > 0 && (
         <>
           <p id="failed-rows">These rows can&apos;t be read and won&apos;t be imported:</p>
-          <ul aria-labelledby="failed-rows">
+          <ul aria-labelledby="failed-rows" className="list-disc pl-6 text-sm">
             {failed.map(({ row, reason }) => (
               <li key={row}>
                 Row {row}: {failureReasons[reason]}
@@ -522,11 +584,17 @@ function PreviewBody({
         </>
       )}
       {preview.rowsNew > 0 ? (
-        <button type="submit" name="intent" value="commit" disabled={pending}>
+        <Button
+          type="submit"
+          name="intent"
+          value="commit"
+          disabled={pending}
+          className="self-start"
+        >
           Import {count(preview.rowsNew, "transaction")}
-        </button>
+        </Button>
       ) : (
-        <p role="status">Nothing new to import.</p>
+        <FormStatus>Nothing new to import.</FormStatus>
       )}
     </>
   );
