@@ -23,16 +23,16 @@
     "admin:create": "node apps/web/src/build-cli.ts apps/web/.cli && node --env-file-if-exists=.env.example --env-file-if-exists=.env apps/web/.cli/scripts/create-admin.js"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.13.0",
+    "@axe-core/playwright": "4.14.0",
     "@eslint/js": "9.39.5",
-    "@playwright/test": "1.64.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "24.19.2",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.4.1",
+    "eslint-config-next": "16.4.3",
     "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.71.2",
-    "vitest": "5.0.4"
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
   }
 }
