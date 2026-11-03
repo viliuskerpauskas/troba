@@ -29,7 +29,6 @@ describe("guardedCommands", () => {
       "echo 'git checkout -b chore/x'",
       "gh issue create --body-file - <<'EOF'\ngit switch -c chore/x\nEOF",
       "# git switch -c chore/x",
-      "git switch -c --help",
     ]) {
       expect(guardedCommands(command), command).toEqual([]);
     }
@@ -85,6 +84,31 @@ describe("guardedCommands", () => {
     ]) {
       const [found] = guardedCommands(command, shell);
       expect(found.messages, command).toContain(command);
+    }
+  });
+
+  it("reads a -h that is an option's value like any other word", () => {
+    const [found] = guardedCommands(
+      'git commit -m -h --trailer "Co-Authored-By: X <x@example.test>"',
+    );
+    expect(found).toEqual({
+      kind: "commit",
+      cwd: null,
+      messages: ["-h", "Co-Authored-By: X <x@example.test>"],
+      files: [],
+    });
+    expect(hasTrailer(found.messages.join("\n"))).toBe(true);
+    expect(guardedCommands("git switch -c -h")).toEqual([
+      { kind: "branch", cwd: null, branch: "-h" },
+    ]);
+    expect(guardedCommands("git commit -m x\n-h")).toEqual([
+      { kind: "commit", cwd: null, messages: ["x"], files: [] },
+    ]);
+  });
+
+  it("skips a whole-command help call", () => {
+    for (const command of ["git commit -h", "git switch --help", "git.exe checkout -h"]) {
+      expect(guardedCommands(command), command).toEqual([]);
     }
   });
 });

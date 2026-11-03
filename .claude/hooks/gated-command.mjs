@@ -375,6 +375,14 @@ export function parse(command, shell) {
   return { text, ...tokenize(text, shell) };
 }
 
+// A whole-command help call (`git commit -h`, `gh pr create --help`): the help word comes last
+// and no option before it, so it can't be an option's value (`git commit -m -h`).
+const isHelpCall = (words) =>
+  words.length > 1 &&
+  !words.at(-1).quoted &&
+  HELP.has(words.at(-1).text) &&
+  words.slice(0, -1).every((w) => !w.text.startsWith("-"));
+
 // Each simple command in tokenized items, other than a directory change or a help call: its
 // words, where the program starts (after any `NAME=value`), and the directory a cd moved to.
 export function simpleCommands(items, shell) {
@@ -389,7 +397,7 @@ export function simpleCommands(items, shell) {
     else {
       const words = item;
       const start = words.findIndex((w) => w.quoted || !/^[A-Za-z_]\w*=/.test(w.text));
-      if (start === -1 || words.some((w) => !w.quoted && HELP.has(w.text))) continue;
+      if (start === -1 || isHelpCall(words.slice(start))) continue;
       let at = start;
       while (at < words.length - 1 && !words[at].quoted && CD_PREFIXES.has(words[at].text)) at++;
       // A quoted name is the same command (`"cd"` is still bash's builtin).
