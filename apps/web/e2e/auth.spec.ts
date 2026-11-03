@@ -21,6 +21,22 @@ test("an unauthenticated visit to /money redirects to /sign-in", async ({ page }
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
 
+test("the home page links a signed-out visitor to /sign-in", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL("/sign-in");
+});
+
+test("the home page sends a signed-in user to /money", async ({ page }) => {
+  await signIn(page, adminEmail, process.env.E2E_ADMIN_PASSWORD!);
+  await expect(page).toHaveURL("/money");
+
+  await page.goto("/");
+
+  await expect(page).toHaveURL("/money");
+});
+
 test("the sign-in page can't be framed by another site", async ({ request }) => {
   const response = await request.get("/sign-in");
 
