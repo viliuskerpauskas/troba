@@ -154,9 +154,25 @@
   }
 }
 
+/* Centers content on the window rather than on the space beside the scrollbar, so it doesn't
+   shift sideways between pages that scroll and pages that don't. 100vw - 100% is the
+   scrollbar's width: zero on a short page, and on phones, whose scrollbars overlay the page.
+   Below 50rem the 48rem (max-w-3xl) column has no room to spare beside a scrollbar on each
+   side, so it's left alone there. */
+@utility center-on-viewport {
+  @media (width >= 50rem) {
+    padding-left: calc(100vw - 100%);
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  /* An element scrolled into view by focus lands below the sticky header, which wraps onto a
+     second line on a phone. */
+  html {
+    scroll-padding-top: 6rem;
   }
   body {
     @apply bg-background text-foreground antialiased;

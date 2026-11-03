@@ -15,7 +15,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <header className="border-b">
+      <header className="center-on-viewport sticky top-0 z-10 border-b bg-background">
         {/* The links wrap onto a second line on a phone, so no menu hides them. */}
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-4 py-2">
           <nav className="flex flex-wrap items-center gap-1">
@@ -43,7 +43,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </form>
         </div>
       </header>
-      {children}
+      <div className="center-on-viewport">{children}</div>
     </>
   );
 }
