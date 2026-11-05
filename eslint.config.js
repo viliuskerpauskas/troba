@@ -13,6 +13,8 @@ export default defineConfig([
     "**/test-results/",
     "**/playwright-report/",
     ".claude/worktrees/",
+    // Third-party agent skills, installed by `pnpm dlx skills add` and kept as published.
+    ".claude/skills/",
   ]),
   js.configs.recommended,
   tseslint.configs.recommended,
