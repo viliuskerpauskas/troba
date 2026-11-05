@@ -34,6 +34,7 @@ Alongside it:
 
 - **Charts:** Recharts, which shadcn's chart components wrap.
 - **Validation:** Zod, shared by forms, server actions and `/api/v1`.
+- **Icons:** Tabler (`@tabler/icons-react`, MIT), one of shadcn's supported icon libraries. It replaced lucide on 2026-11-05 to fit the app's look; `components.json` says `"iconLibrary": "tabler"`, so `shadcn add` generates Tabler imports.
 
 ### Consequences
 
