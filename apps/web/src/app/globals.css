@@ -63,9 +63,13 @@
   }
 }
 
-/* shadcn/ui theme tokens (base-nova, neutral). Dark follows prefers-color-scheme, Tailwind's
-   default dark variant, so there is no class to toggle. */
+/* shadcn/ui theme tokens, recolored after hops.ai: a warm off-white page with white cards on it,
+   near-black for primary actions and text, warm greys for the quiet parts, and a blue focus
+   ring. The chart colors are its pastel accents (blue, amber, green, coral, pink). Dark follows
+   prefers-color-scheme, Tailwind's default dark variant, so there is no class to toggle. */
 @theme inline {
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-cal-sans), var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -100,57 +104,57 @@
 
 :root {
   color-scheme: light dark;
-  --background: oklch(1 0 0);
+  --background: oklch(0.975 0.0017 68);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.34 0.008 68);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: oklch(0.94 0.0026 68);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --muted: oklch(0.94 0.0026 68);
+  --muted-foreground: oklch(0.48 0.0082 68);
+  --accent: oklch(0.94 0.0026 68);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
+  --border: oklch(0.91 0.006 68);
+  --input: oklch(0.88 0.006 68);
+  --ring: oklch(0.623 0.214 259.815);
+  --chart-1: oklch(0.8 0.105 261);
+  --chart-2: oklch(0.86 0.14 79.5);
+  --chart-3: oklch(0.84 0.1 150);
+  --chart-4: oklch(0.78 0.14 38);
+  --chart-5: oklch(0.81 0.09 327);
+  --radius: 0.8rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --background: oklch(0.17 0.004 68);
+    --foreground: oklch(0.975 0.0017 68);
+    --card: oklch(0.215 0.005 68);
+    --card-foreground: oklch(0.975 0.0017 68);
+    --popover: oklch(0.215 0.005 68);
+    --popover-foreground: oklch(0.975 0.0017 68);
+    --primary: oklch(0.88 0.006 68);
+    --primary-foreground: oklch(0.17 0.004 68);
+    --secondary: oklch(0.27 0.006 68);
+    --secondary-foreground: oklch(0.975 0.0017 68);
+    --muted: oklch(0.27 0.006 68);
+    --muted-foreground: oklch(0.72 0.008 68);
+    --accent: oklch(0.27 0.006 68);
+    --accent-foreground: oklch(0.975 0.0017 68);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    --ring: oklch(0.7 0.16 259.815);
+    --chart-1: oklch(0.8 0.105 261);
+    --chart-2: oklch(0.86 0.14 79.5);
+    --chart-3: oklch(0.84 0.1 150);
+    --chart-4: oklch(0.78 0.14 38);
+    --chart-5: oklch(0.81 0.09 327);
   }
 }
 
@@ -177,14 +181,18 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Cal Sans has one weight, already bold, so headings ask for 400 rather than have the browser
+     embolden it further. */
+  h1,
+  h2,
+  h3 {
+    @apply font-heading font-normal;
+  }
   h1 {
-    @apply text-2xl font-semibold tracking-tight;
+    @apply text-3xl tracking-tight;
   }
   h2 {
-    @apply text-lg font-semibold;
-  }
-  h3 {
-    @apply font-semibold;
+    @apply text-xl;
   }
   /* Links in running text. Styled links (navigation, buttons) carry classes of their own. */
   a:not([class]) {
