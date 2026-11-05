@@ -64,7 +64,7 @@
 }
 
 /* shadcn/ui theme tokens, recolored after hops.ai: a warm off-white page with white cards on it,
-   near-black for primary actions and text, warm greys for the quiet parts, and a blue focus
+   near-black for primary actions and text, warm greys for the quiet parts, and a warm grey focus
    ring. The chart colors are its pastel accents (blue, amber, green, coral, pink). Dark follows
    prefers-color-scheme, Tailwind's default dark variant, so there is no class to toggle. */
 @theme inline {
@@ -121,7 +121,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.91 0.006 68);
   --input: oklch(0.88 0.006 68);
-  --ring: oklch(0.623 0.214 259.815);
+  --ring: oklch(0.708 0.006 68);
   --chart-1: oklch(0.8 0.105 261);
   --chart-2: oklch(0.86 0.14 79.5);
   --chart-3: oklch(0.84 0.1 150);
@@ -149,7 +149,7 @@
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.7 0.16 259.815);
+    --ring: oklch(0.556 0.006 68);
     --chart-1: oklch(0.8 0.105 261);
     --chart-2: oklch(0.86 0.14 79.5);
     --chart-3: oklch(0.84 0.1 150);
@@ -169,17 +169,39 @@
   }
 }
 
+/* Focus rings fade in and out rather than snap. Unlayered, so it wins over the components'
+   transition-colors, which leaves out box-shadow, the property their rings are drawn with. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(a, button, input, select, textarea, summary, [tabindex]) {
+    transition-property:
+      color, background-color, border-color, outline-color, box-shadow, opacity, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  /* An element scrolled into view by focus lands below the sticky header, which wraps onto a
-     second line on a phone. */
-  html {
-    scroll-padding-top: 6rem;
-  }
   body {
     @apply bg-background text-foreground antialiased;
+  }
+  /* Room for the app's navigation (app-nav.tsx), so the page and its footer sit beside the
+     sidebar on a wide screen and above the tab bar on a phone. */
+  body:has([data-app-nav]) {
+    @media (width >= 48rem) {
+      padding-left: 14rem;
+    }
+    @media (width < 48rem) {
+      padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+    }
+  }
+  /* An element scrolled into view by focus lands above the phone's tab bar. */
+  html:has([data-app-nav]) {
+    @media (width < 48rem) {
+      scroll-padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+    }
   }
   /* Cal Sans has one weight, already bold, so headings ask for 400 rather than have the browser
      embolden it further. */
