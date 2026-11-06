@@ -19,6 +19,9 @@ export const dateFormats = [
   "DD/MM/YYYY",
   "DD-MM-YYYY",
   "MM/DD/YYYY",
+  // A date with a time part (a bank that writes when a payment started): the time is checked and
+  // then dropped, since a transaction is dated by its day.
+  "YYYY-MM-DD HH:mm:ss",
 ] as const;
 export type DateFormat = (typeof dateFormats)[number];
 
@@ -331,12 +334,16 @@ const datePatterns: Record<DateFormat, RegExp> = Object.fromEntries(
         .replace(/[./-]/g, "\\$&")
         .replace("YYYY", "(?<year>\\d{4})")
         .replace("MM", "(?<month>\\d{1,2})")
-        .replace("DD", "(?<day>\\d{1,2})")}$`,
+        .replace("DD", "(?<day>\\d{1,2})")
+        .replace("HH", "(?:[01]\\d|2[0-3])")
+        .replace("mm", "[0-5]\\d")
+        .replace("ss", "[0-5]\\d")}$`,
     ),
   ]),
 ) as Record<DateFormat, RegExp>;
 
-// YYYY-MM-DD, or null unless it is a real calendar date in the profile's format.
+// YYYY-MM-DD, or null unless it is a real calendar date (and, if the format has one, a real time
+// of day) in the profile's format.
 function parseDate(text: string, format: DateFormat): string | null {
   const groups = datePatterns[format].exec(text)?.groups;
   if (!groups) return null;
