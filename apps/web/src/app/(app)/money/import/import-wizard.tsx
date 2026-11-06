@@ -107,12 +107,13 @@ export function ImportWizard({
   }
 
   // The AI suggestion's note, spoken once when the mapping step arrives. It goes in a live region
-  // that is already on the page: one inserted together with its text is often not announced.
+  // that is already on the page: one inserted together with its text is often not announced. Not
+  // role="status", which the step's own messages (FormStatus) use.
   const suggestion = state.step === "mapping" ? state.suggestion : undefined;
 
   return (
     <>
-      <p role="status" className="sr-only">
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
         {suggestion && noteText(suggestion)}
       </p>
       <div ref={stepStart} tabIndex={-1} className="outline-none">
