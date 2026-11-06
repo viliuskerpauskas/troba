@@ -60,7 +60,7 @@ Env files live at the repo root. Real env vars win over `.env`; outside producti
 - **Every user-owned row carries `user_id`, and every query filters by it.** One user must never see another's data.
 - **Validate at boundaries with Zod:** form input, API bodies, imported bank files, uploads. Uploads also need a size limit, a MIME allowlist, and must be served only to their owner.
 - **Never commit secrets.** They go in GitHub Secrets / `.env` (gitignored). The repo is public.
-- **Zero personal information in the repo, issues, commits or PRs:** no bank names, countries, cities, real merchants, IBANs or real exports. Use fictional data ("Example Bank", "GROCERY MART"). Personal notes and real-format fixtures live only in gitignored `.private/`.
+- **Zero personal information in the repo, issues, commits or PRs:** no bank names, countries, cities, real merchants, IBANs or real exports. The one exception: bank names may appear in the import preset data files (the presets folder in `packages/core`), nowhere else ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)). Use fictional data ("Example Bank", "GROCERY MART"). Personal notes and real-format fixtures live only in gitignored `.private/`.
 - **Migrations are forward-only** and run automatically on deploy.
 
 ## Workflow
