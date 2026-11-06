@@ -41,3 +41,22 @@ export const failureReasons: Record<ImportRowFailure["reason"], string> = {
   "duplicate-transaction-id": "another row has the same transaction ID",
   "currency-mismatch": "the row's currency isn't the account's",
 };
+
+// How the AI suggestion for an unknown format went, shown above the mapping form: "ai" when the
+// form is filled from its proposal, "unavailable" when the model was asked and gave nothing usable,
+// "capped" when the user had used up the day's mappings and it was not asked.
+export const suggestions = ["ai", "unavailable", "capped"] as const;
+export type Suggestion = (typeof suggestions)[number];
+
+export const suggestionNotes: Record<Suggestion, { lead?: string; text: string }> = {
+  ai: {
+    lead: "Suggested by AI, check it.",
+    text: "This mapping is a guess made from the file's columns and a few masked rows. Nothing is saved or imported until you press save, and every field can be changed.",
+  },
+  unavailable: {
+    text: "AI couldn't suggest a mapping for this file, so the form is blank. Fill it in below.",
+  },
+  capped: {
+    text: "You've used today's AI mapping suggestions, so the form is blank. Fill it in below, or try again tomorrow.",
+  },
+};

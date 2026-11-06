@@ -310,6 +310,12 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   await signIn(page, "e2e-import-ai@example.test", "198.51.100.26");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
 
+  // The announcement region is on the page, empty, before the suggestion arrives: a live region
+  // inserted together with its text is often not announced.
+  const announcement = page.locator('p[aria-live="polite"]');
+  await expect(announcement).toBeAttached();
+  await expect(announcement).toBeEmpty();
+
   // The server has a key, so the upload step says what would be sent.
   const disclosure = page.getByText(/are sent to OpenAI to suggest how to map the columns/);
   await expect(disclosure).toBeVisible();
@@ -319,9 +325,13 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
   await page.getByRole("button", { name: "Continue" }).click();
 
-  // Prefilled, with a note that is announced and a form that is not saved yet.
+  // Prefilled, with a note that is announced (the same region, now filled), shown in the page and
+  // reachable by keyboard like the rest of the form, and a form that is not saved yet.
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Suggested by AI, check it.");
+  await expect(announcement).toContainText("Suggested by AI, check it.");
+  await expect(
+    page.getByText("Suggested by AI, check it.", { exact: false }).first(),
+  ).toBeVisible();
   await expect(page.getByLabel("Booking date")).toHaveValue("Booked");
   await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
   await expect(page.getByLabel("Counterparty", { exact: true })).toHaveValue("Who");
@@ -333,7 +343,7 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
 
   // Reading the file again keeps the suggestion and the note.
   await page.getByRole("button", { name: "Read the file again" }).click();
-  await expect(page.getByRole("status")).toContainText("Suggested by AI, check it.");
+  await expect(announcement).toContainText("Suggested by AI, check it.");
   await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
 
   // Any field can be changed before saving.
@@ -364,7 +374,12 @@ test("shows the plain mapping form, with a note, when the AI can't suggest one",
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("AI couldn't suggest a mapping");
+  await expect(page.locator('p[aria-live="polite"]')).toContainText(
+    "AI couldn't suggest a mapping",
+  );
+  await expect(
+    page.getByText("AI couldn't suggest a mapping", { exact: false }).first(),
+  ).toBeVisible();
   await expect(page.getByLabel("Booking date")).toHaveValue("");
   await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("");
 });
