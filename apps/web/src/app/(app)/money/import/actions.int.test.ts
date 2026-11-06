@@ -9,7 +9,7 @@ import {
 } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportState } from "./actions";
 
 // The wizard's first step with a fake model behind it (SPEC-money M3, ADR-0015): what the user is
@@ -136,6 +136,8 @@ beforeEach(async () => {
   server.client = null;
 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("startImportAction, for a file in an unknown format", () => {
   it("opens the mapping form filled in from the model's proposal, and saves nothing", async () => {
     const model = fakeModel(goodAnswer);
@@ -238,6 +240,108 @@ describe("startImportAction, for a file in an unknown format", () => {
 
     expect(state.suggestion).toBeUndefined();
     expect(state.values).toMatchObject({ "column.amount": "" });
+  });
+});
+
+describe("startImportAction, with the daily cap on AI mappings", () => {
+  const usesOf = async (userId: string) =>
+    (await db.select().from(schema.moneyAiMappingUses)).filter((use) => use.userId === userId);
+
+  async function newSession() {
+    const [user] = await db
+      .insert(schema.users)
+      .values({ name: "Example User", email: `wizard${++userCount}@example.test` })
+      .returning({ id: schema.users.id });
+    session.userId = user!.id;
+  }
+
+  it("shows the plain form with the cap note, and never calls the model, once the day's mappings are used", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "2");
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+    await actions.startImportAction(upload(unknownFile));
+    await actions.startImportAction(upload(unknownFile));
+    expect(model.requests).toHaveLength(2);
+
+    const state = mapping(await actions.startImportAction(upload(unknownFile)));
+
+    expect(model.requests).toHaveLength(2);
+    expect(state.suggestion).toBe("capped");
+    expect(state.values).toMatchObject({ "column.amount": "", "column.bookingDate": "" });
+    expect(state.table?.headers).toContain("Payee Account");
+  });
+
+  it("keeps the cap note while the user reads the file again", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
+    server.client = fakeModel(goodAnswer).client;
+    await actions.startImportAction(upload(unknownFile));
+    const capped = mapping(await actions.startImportAction(upload(unknownFile)));
+
+    const reread = mapping(await actions.rereadMappingAction(submitted(capped, unknownFile)));
+
+    expect(reread.suggestion).toBe("capped");
+  });
+
+  it("limits one user without affecting another", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+    await actions.startImportAction(upload(unknownFile));
+    expect(mapping(await actions.startImportAction(upload(unknownFile))).suggestion).toBe("capped");
+
+    await newSession();
+
+    expect(mapping(await actions.startImportAction(upload(unknownFile))).suggestion).toBe("ai");
+    expect(model.requests).toHaveLength(2);
+  });
+
+  it("counts a call that failed, since it reached the model", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
+    const model = fakeModel(new Error("HTTP 500"));
+    server.client = model.client;
+    expect(mapping(await actions.startImportAction(upload(unknownFile))).suggestion).toBe(
+      "unavailable",
+    );
+
+    expect(mapping(await actions.startImportAction(upload(unknownFile))).suggestion).toBe("capped");
+    expect(model.requests).toHaveLength(1);
+  });
+
+  it("doesn't count a file that never reaches the model", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+    const headerOnly = new TextEncoder().encode("Posted,Amount,Payee\n");
+    await actions.startImportAction(upload(headerOnly));
+    await actions.startImportAction(upload(headerOnly));
+
+    expect(mapping(await actions.startImportAction(upload(unknownFile))).suggestion).toBe("ai");
+    expect(model.requests).toHaveLength(1);
+  });
+
+  it("never counts or limits a known format", async () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+    for (let i = 0; i < 3; i++) {
+      expect((await actions.startImportAction(upload(presetFile))).step).toBe("preview");
+    }
+    const saved = mapping(await actions.startImportAction(upload(unknownFile)));
+    expect(saved.suggestion).toBe("ai");
+    await actions.saveProfileAction(submitted(saved, unknownFile));
+
+    // Over the cap now, but the saved profile is found first.
+    for (let i = 0; i < 3; i++) {
+      expect((await actions.startImportAction(upload(unknownFile))).step).toBe("preview");
+    }
+    expect(model.requests).toHaveLength(1);
+    expect(await usesOf(session.userId)).toHaveLength(1);
+  });
+
+  it("does not ask or count when no model is configured", async () => {
+    await actions.startImportAction(upload(unknownFile));
+
+    expect(await usesOf(session.userId)).toEqual([]);
   });
 });
 

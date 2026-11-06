@@ -2,6 +2,7 @@
 
 import {
   assertNever,
+  claimAiMappingUse,
   commitImport,
   createImportAccount,
   getImportProfile,
@@ -18,6 +19,7 @@ import {
   type ImportInput,
   type ImportRefusal,
   type ImportRowFailure,
+  type MappingModelClient,
   type PreviewImportResult,
   type ReadCsvOptions,
   type ResolvedImportFormat,
@@ -26,6 +28,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
+import { aiMappingDailyLimit } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { mappingModelClient } from "@/server/openai-mapping";
 import {
@@ -49,7 +52,7 @@ import {
 //
 // Descriptions and raw rows can hold masked card numbers: never log them.
 
-export type Suggestion = "ai" | "unavailable";
+export type Suggestion = "ai" | "unavailable" | "capped";
 
 export type MappingTable = {
   headers: string[];
@@ -69,7 +72,8 @@ export type ImportState =
       // The profile being edited; null for a new one.
       profileId: string | null;
       // Set for a format troba didn't know, when the AI was asked: "ai" when the form is filled
-      // from its proposal, "unavailable" when it gave nothing usable. Absent when the AI is off.
+      // from its proposal, "unavailable" when it gave nothing usable, "capped" when the user had
+      // used up the day's AI mappings and the model wasn't asked. Absent when the AI is off.
       suggestion?: Suggestion;
       error?: string;
     }
@@ -113,7 +117,7 @@ const Id = z.uuid();
 const OptionalId = z.union([z.uuid(), z.literal("")]).transform((id) => id || null);
 const AccountName = z.string().trim().min(1).max(100);
 // The mapping form sends its note along, so that it stays while the user works on the form.
-const SuggestionField = z.enum(["ai", "unavailable"]).optional().catch(undefined);
+const SuggestionField = z.enum(["ai", "unavailable", "capped"]).optional().catch(undefined);
 
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
@@ -166,11 +170,35 @@ export async function startImportAction(formData: FormData): Promise<ImportState
 
   const client = mappingModelClient();
   if (!client) return plainState();
-  const proposal = await proposeMapping(upload.bytes, { client, read: { encoding: "utf-8" } });
+  const capped = cappedClient(client, userId);
+  const proposal = await proposeMapping(upload.bytes, {
+    client: capped.client,
+    read: { encoding: "utf-8" },
+  });
+  if (capped.reached()) return { ...plainState(), suggestion: "capped" };
   if (!proposal) return { ...plainState(), suggestion: "unavailable" };
   // Only the form is filled: nothing is saved until the user presses save.
   const values = profileFormValues({ ...proposal.profile, name: startingName(upload) });
   return mappingState(upload, values, null, proposal.profile, "ai");
+}
+
+// The model client, counting each call against the user's daily cap just before it is made and
+// refusing it once the cap is reached. Counting here, rather than before proposeMapping, means a
+// file that never reaches the model (unreadable, no rows) costs nothing.
+function cappedClient(client: MappingModelClient, userId: string) {
+  let reached = false;
+  return {
+    client: {
+      async suggestMapping(request) {
+        if (!(await claimAiMappingUse(db(), userId, aiMappingDailyLimit()))) {
+          reached = true;
+          throw new Error("The daily limit on AI mappings is reached.");
+        }
+        return client.suggestMapping(request);
+      },
+    } satisfies MappingModelClient,
+    reached: () => reached,
+  };
 }
 
 // The name a new profile starts with, for the user to change.

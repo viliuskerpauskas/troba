@@ -1,7 +1,14 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { aiMappingEnabled, defaultOpenAiModel, openAiConfig, uploadsDir } from "./env";
+import {
+  aiMappingDailyLimit,
+  aiMappingEnabled,
+  defaultAiMappingDailyLimit,
+  defaultOpenAiModel,
+  openAiConfig,
+  uploadsDir,
+} from "./env";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../..");
 
@@ -65,5 +72,23 @@ describe("openAiConfig", () => {
 
     vi.stubEnv("OPENAI_MODEL", "other-model");
     expect(openAiConfig()?.model).toBe("other-model");
+  });
+});
+
+describe("aiMappingDailyLimit", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is 20 a day unless AI_MAPPING_DAILY_LIMIT says otherwise", () => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", undefined);
+    expect(defaultAiMappingDailyLimit).toBe(20);
+    expect(aiMappingDailyLimit()).toBe(20);
+
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", " 5 ");
+    expect(aiMappingDailyLimit()).toBe(5);
+  });
+
+  it.each(["", "0", "-3", "2.5", "many", "1e999"])("ignores %j", (value) => {
+    vi.stubEnv("AI_MAPPING_DAILY_LIMIT", value);
+    expect(aiMappingDailyLimit()).toBe(20);
   });
 });
