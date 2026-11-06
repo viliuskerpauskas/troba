@@ -7,10 +7,10 @@ import {
   getImportProfile,
   isCsvUpload,
   listAccounts,
-  matchImportProfile,
   maxImportFileBytes,
   previewImport,
   readCsv,
+  resolveImportFormat,
   saveImportProfile,
   type Account,
   type Delimiter,
@@ -127,10 +127,15 @@ export async function startImportAction(formData: FormData): Promise<ImportState
   const profileId = OptionalId.safeParse(formData.get("profileId") ?? "");
   if (!profileId.success) return { step: "upload", error: startAgainMessage };
 
-  const profile = profileId.data
-    ? await getImportProfile(db(), userId, profileId.data)
-    : await matchImportProfile(db(), userId, upload.bytes);
-  if (profileId.data && !profile) return { step: "upload", error: startAgainMessage };
+  // A picked profile, else the format found from the file: the user's own profile or a preset.
+  let profile: SavedImportProfile | null = null;
+  if (profileId.data) {
+    profile = await getImportProfile(db(), userId, profileId.data);
+    if (!profile) return { step: "upload", error: startAgainMessage };
+  } else {
+    const resolved = await resolveImportFormat(db(), userId, upload.bytes);
+    if (resolved.kind === "profile") profile = resolved.profile;
+  }
   if (profile) return previewState(userId, profile, upload, null);
 
   // An unknown format: the mapping step, starting from what the file itself shows.
