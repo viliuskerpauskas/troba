@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/viliuskerpauskas/troba/compare/v0.3.0...v0.4.0) (2026-10-26)
+
+
+### Features
+
+* content security policy for scripts and HSTS ([#96](https://github.com/viliuskerpauskas/troba/issues/96)) ([8497315](https://github.com/viliuskerpauskas/troba/commit/849731576030a4fd0472149d147ac7551c5f860e)), closes [#43](https://github.com/viliuskerpauskas/troba/issues/43)
+* **identity:** delete expired sessions ([#93](https://github.com/viliuskerpauskas/troba/issues/93)) ([7d4186b](https://github.com/viliuskerpauskas/troba/commit/7d4186b1063d2908cff15daf60e28e30b643dd53)), closes [#44](https://github.com/viliuskerpauskas/troba/issues/44)
+* **money:** auto-categorization rules ([#87](https://github.com/viliuskerpauskas/troba/issues/87)) ([b64a889](https://github.com/viliuskerpauskas/troba/commit/b64a8892c75717468aa3d7836dd4bd974241dc4b)), closes [#22](https://github.com/viliuskerpauskas/troba/issues/22)
+* **money:** filter, search and page the transaction list ([#91](https://github.com/viliuskerpauskas/troba/issues/91)) ([53eeef0](https://github.com/viliuskerpauskas/troba/commit/53eeef0841e71662e950d773839714b1dd17c47e)), closes [#24](https://github.com/viliuskerpauskas/troba/issues/24)
+* **money:** import UI with column mapping ([#92](https://github.com/viliuskerpauskas/troba/issues/92)) ([24a1abd](https://github.com/viliuskerpauskas/troba/commit/24a1abd10b4e4601eeee313ea9972e34d7eb3f1e)), closes [#21](https://github.com/viliuskerpauskas/troba/issues/21)
+* **money:** receipt attachments ([#94](https://github.com/viliuskerpauskas/troba/issues/94)) ([fc2d9df](https://github.com/viliuskerpauskas/troba/commit/fc2d9df64b36483e4d208b50d3bf4f53270eb7a6)), closes [#25](https://github.com/viliuskerpauskas/troba/issues/25)
+
+
+### Bug Fixes
+
+* deflake the invites revoke check and sign-in waits ([#99](https://github.com/viliuskerpauskas/troba/issues/99)) ([04da09b](https://github.com/viliuskerpauskas/troba/commit/04da09b92b99958549a73d64f714988be1b88715)), closes [#58](https://github.com/viliuskerpauskas/troba/issues/58)
+* **identity:** accept only a bare IP address from X-Forwarded-For ([#107](https://github.com/viliuskerpauskas/troba/issues/107)) ([319689d](https://github.com/viliuskerpauskas/troba/commit/319689de3406a58961a3e7badb349e5c6cb7833c)), closes [#78](https://github.com/viliuskerpauskas/troba/issues/78)
+* **identity:** admin users and invites fit phone screens ([#113](https://github.com/viliuskerpauskas/troba/issues/113)) ([dfba263](https://github.com/viliuskerpauskas/troba/commit/dfba263f35779f81e30de12d5f55706c99af8ec5)), closes [#105](https://github.com/viliuskerpauskas/troba/issues/105)
+* **identity:** one-time link inputs fit phone screens ([#106](https://github.com/viliuskerpauskas/troba/issues/106)) ([0a095e2](https://github.com/viliuskerpauskas/troba/commit/0a095e2a293392b8894de3a09e8085f1442b8879)), closes [#62](https://github.com/viliuskerpauskas/troba/issues/62)
+
 ## [0.3.0](https://github.com/viliuskerpauskas/troba/compare/v0.2.0...v0.3.0) (2026-10-21)
 
 
