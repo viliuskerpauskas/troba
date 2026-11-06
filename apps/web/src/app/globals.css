@@ -192,9 +192,22 @@
   body:has([data-app-nav]) {
     @media (width >= 48rem) {
       padding-left: 14rem;
+      /* In step with the sidebar's width (app-nav.tsx), which expands only once the logo has
+         moved back, 100ms in. */
+      @media (prefers-reduced-motion: no-preference) {
+        transition: padding-left 200ms ease-out 100ms;
+      }
     }
     @media (width < 48rem) {
       padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+    }
+  }
+  /* The sidebar collapsed to icons (w-13). */
+  body:has([data-app-nav][data-collapsed]) {
+    @media (width >= 48rem) {
+      padding-left: 3.25rem;
+      /* Collapsing, it narrows at once. */
+      transition-delay: 0s;
     }
   }
   /* An element scrolled into view by focus lands above the phone's tab bar. */
