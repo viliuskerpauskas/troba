@@ -5,7 +5,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { importPresets } from "./presets";
 import type { ImportProfile } from "./profile";
-import { listImportProfiles, saveImportProfile } from "./profiles";
+import { importProfileListLimit, listImportProfiles, saveImportProfile } from "./profiles";
 import { resolveImportFormat } from "./resolve";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -87,7 +87,10 @@ describe("resolveImportFormat", () => {
   it("leaves a file matching neither a profile nor a preset unknown", async () => {
     const userId = await createUser();
 
-    expect(await resolveImportFormat(db, userId, otherFile)).toEqual({ kind: "unknown" });
+    expect(await resolveImportFormat(db, userId, otherFile)).toEqual({
+      kind: "unknown",
+      reason: "no-match",
+    });
     expect(await listImportProfiles(db, userId)).toEqual([]);
   });
 
@@ -97,7 +100,25 @@ describe("resolveImportFormat", () => {
 
     expect(await resolveImportFormat(db, userId, new TextEncoder().encode(changed))).toEqual({
       kind: "unknown",
+      reason: "no-match",
     });
     expect(await listImportProfiles(db, userId)).toEqual([]);
+  });
+
+  it("says a preset's file is unknown only because the profile limit is reached", async () => {
+    const userId = await createUser();
+    await db.insert(schema.moneyImportProfiles).values(
+      Array.from({ length: importProfileListLimit }, (_, i) => ({
+        userId,
+        ...preset.profile,
+        name: `Profile ${i}`,
+        headerFingerprint: "x",
+      })),
+    );
+
+    expect(await resolveImportFormat(db, userId, presetFile)).toEqual({
+      kind: "unknown",
+      reason: "profile-limit",
+    });
   });
 });

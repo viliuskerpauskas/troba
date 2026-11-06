@@ -256,6 +256,90 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
 });
 
+// Fictional: a format no preset knows, which the fake model in e2e/fake-openai.ts maps correctly.
+const modelKnown = {
+  name: "statement.csv",
+  mimeType: "text/csv",
+  buffer: Buffer.from(
+    [
+      "Booked;Sum;Who;Note",
+      "2026-04-01;-12,50;GROCERY MART;Card purchase",
+      "2026-04-02;1.200,00;ACME LTD;Salary April",
+      "2026-04-03;-3,20;COFFEE HUT;Latte",
+    ].join("\n"),
+  ),
+};
+
+test("opens the mapping form filled in by the AI, to check, edit and save", async ({ page }) => {
+  await signIn(page, "e2e-import-ai@example.test", "198.51.100.26");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+
+  // The server has a key, so the upload step says what would be sent.
+  const disclosure = page.getByText(/are sent to OpenAI to suggest how to map the columns/);
+  await expect(disclosure).toBeVisible();
+  await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
+    /Nothing is sent for formats troba knows/,
+  );
+  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // Prefilled, with a note that is announced and a form that is not saved yet.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Suggested by AI, check it.");
+  await expect(page.getByLabel("Booking date")).toHaveValue("Booked");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
+  await expect(page.getByLabel("Counterparty", { exact: true })).toHaveValue("Who");
+  await expect(page.getByLabel("Description")).toHaveValue("Note");
+  await expect(page.getByLabel("Decimal separator")).toHaveValue(",");
+  await expect(page.getByLabel("Date format")).toHaveValue("YYYY-MM-DD");
+  await expectNoSideways(page);
+  expect(await listImportProfiles(db(), await userId("e2e-import-ai@example.test"))).toEqual([]);
+
+  // Reading the file again keeps the suggestion and the note.
+  await page.getByRole("button", { name: "Read the file again" }).click();
+  await expect(page.getByRole("status")).toContainText("Suggested by AI, check it.");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
+
+  // Any field can be changed before saving.
+  await page.getByLabel("Profile name").fill("Example Bank (AI)");
+  await page.getByLabel("Counterparty", { exact: true }).selectOption("Note");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+
+  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { "Rows in the file": 3, New: 3 });
+  await page.getByRole("button", { name: "Import 3 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 3 transactions into Cash.");
+
+  // The saved profile finds the next upload; no model is involved.
+  await page.getByRole("button", { name: "Import another file" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+});
+
+test("shows the plain mapping form, with a note, when the AI can't suggest one", async ({
+  page,
+}) => {
+  await signIn(page, "e2e-import-ai-off@example.test", "198.51.100.27");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("AI couldn't suggest a mapping");
+  await expect(page.getByLabel("Booking date")).toHaveValue("");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("");
+});
+
+async function userId(email: string): Promise<string> {
+  const {
+    rows: [user],
+  } = await db().$client.query<{ id: string }>("select id from users where email = $1", [email]);
+  return user!.id;
+}
+
 // A fresh user, signed in from their own address, so the other spec files' sign-ins don't count
 // towards its limit (198.51.100.0/24 is TEST-NET-2, RFC 5737).
 async function signIn(page: Page, email: string, address: string) {
