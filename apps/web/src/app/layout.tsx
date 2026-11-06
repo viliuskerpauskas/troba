@@ -33,7 +33,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body className="flex min-h-dvh flex-col">
         {children}
         <footer className="mt-auto px-4 py-6 text-center text-xs text-muted-foreground">
-          Version {gitSha()}
+          {/* Keeps the sign-in page's background still behind the version. */}
+          <span data-pegboard-calm>Version {gitSha()}</span>
         </footer>
       </body>
     </html>
