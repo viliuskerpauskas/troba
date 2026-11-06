@@ -18,6 +18,7 @@ Decisions in [MADR 4](https://adr.github.io/madr/) format. Copy [0000-template.m
 | [0012](0012-matt-pocock-agent-workflow.md) | Agent workflow on Matt Pocock's engineering skills | accepted, PR and review gate superseded by 0013 |
 | [0013](0013-dev-branch-to-staging.md) | Work lands on dev, which deploys to staging; main is the release branch | accepted, prod path superseded by 0014 |
 | [0014](0014-merge-to-main-deploys-prod.md) | Merging into main deploys prod; release-please only versions | accepted |
-| [0015](0015-import-presets-and-ai-mapping.md) | Bank names in preset data files only; a scrubbed sample of an unknown format may go to a model provider | accepted |
+| [0015](0015-import-presets-and-ai-mapping.md) | Bank names in preset data files only; a scrubbed sample of an unknown format may go to a model provider | accepted, amended by 0016 |
+| [0016](0016-ai-transaction-categorization.md) | AI suggests categories for transactions no rule matched; merchant text may go to a model provider, person names and direct transfers may not | accepted |
 
 Background and rejected alternatives: [docs/ideas/stack-options.md](../ideas/stack-options.md).
