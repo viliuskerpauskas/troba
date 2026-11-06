@@ -4,7 +4,7 @@ Specs and tickets for troba live in this repo's GitHub Issues, on the troba proj
 
 ## The repo is public, so issues are public
 
-Every issue, comment and PR is readable by anyone. Write them with fictional data only: "Example Bank", "GROCERY MART", no bank names, countries, cities, real merchants, IBANs or real exports. Real-format material stays in gitignored `.private/` and is described in issues only by its shape. This is the same rule as in [AGENTS.md](../../AGENTS.md), and it applies to a spec issue with the same force as to a commit.
+Every issue, comment and PR is readable by anyone. Write them with fictional data only: "Example Bank", "GROCERY MART", no bank names, countries, cities, real merchants, IBANs or real exports. Real-format material stays in gitignored `.private/` and is described in issues only by its shape. This is the same rule as in [AGENTS.md](../../AGENTS.md) (bank names are allowed only in import preset data files, never in an issue; [ADR-0015](../adr/0015-import-presets-and-ai-mapping.md)), and it applies to a spec issue with the same force as to a commit.
 
 ## Shape: one spec issue per feature, one sub-issue per ticket
 

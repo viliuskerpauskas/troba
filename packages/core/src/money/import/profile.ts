@@ -5,7 +5,7 @@ import { parseIban } from "../iban";
 import { delimiters, isKnownEncoding, type CsvTable } from "./csv";
 
 // Import profiles (SPEC-money M3, "Import profile"): a user's description of their bank's CSV
-// format, stored in their own data, so no bank-specific code ships in the repo. This file turns a
+// format, stored in their own data (or copied there from a built-in preset). This file turns a
 // table read by ./csv.ts into ParsedRows; matching them against accounts and saving them is
 // ./import.ts's job.
 //

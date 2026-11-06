@@ -1,6 +1,6 @@
 # Spec: money (v1)
 
-Status: **approved 2026-10-11** (amended same day: generic CSV import profiles). Module id: `money` ([capability map](SPEC.md)). Depends on: `identity` (signed-in user → `userId`).
+Status: **approved 2026-10-11** (amended same day: generic CSV import profiles; amended 2026-11-06: bank presets and AI-suggested mapping, [ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)). Module id: `money` ([capability map](SPEC.md)). Depends on: `identity` (signed-in user → `userId`).
 
 ## Objective
 
@@ -24,10 +24,14 @@ Let a signed-in user see where their money goes and how it's spent. They get tra
 
 **M3. Bank CSV import with import profiles (CSV only; PDF is out of scope)**
 
-No bank-specific code ships in the repo. A user teaches troba their bank's format once, as an **import profile** stored in their own data.
+No bank-specific parser code ships in the repo. Every format is described as an **import profile** (see [Import profile](#import-profile)), stored in the user's own data. A profile comes from a built-in **preset**, from an AI suggestion the user confirmed, or from the user's own mapping. A preset is a data file naming one bank's export format, and the only place a bank name may appear ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)).
 
-- **First upload of an unknown format:** the app shows the detected headers and the first rows, and the user maps columns to fields (see [Import profile](#import-profile)). The mapping is saved as a named profile.
-- **Later uploads:** the profile is matched automatically by the file's exact header set. The user can also pick or edit a profile by hand.
+- **Resolution order.** An upload finds its format in this order, matched by the file's exact header set (read with each candidate's own skip-lines, delimiter and encoding):
+  1. **The user's saved profile.** It wins over everything, so the user's corrections are respected. The user can also pick or edit a profile by hand.
+  2. **A built-in preset.** The file goes straight to the preview with nothing to map. The preset is copied into the user's own profiles at that moment, so it behaves like any profile (editable, shown in the import history, subject to the profile limit); only the requesting user gets a copy.
+  3. **An AI-suggested mapping**, for a format troba has never seen, only when the server has an OpenAI key. The proposal prefills the mapping form, marked as a suggestion. Nothing is saved or imported until the user presses save.
+  4. **The manual mapping form**, when AI is off, capped, fails, or the proposal doesn't fit the file. The app shows the detected headers and the first rows, and the user maps columns to fields. The mapping is saved as a named profile.
+- **The AI step.** One attempt, bounded by a timeout, no retry loop. It sends only the detected header row and up to five data rows, scrubbed: IBAN-shaped values and long digit runs are masked, dates, amounts and currency codes are kept, other free text becomes a placeholder that keeps its length and character classes but none of its words, and columns with few distinct values send those values instead of sampled cells. The lines above the header are never sent, and nothing is sent for a file a saved profile or preset recognizes. The upload step says so when the feature is on. The answer is parsed with the profile schema and checked against the file (every mapped header exists; a dry run reads at least one row), or discarded. A per-user daily cap limits calls. The payload and the answer are never logged.
 - Delimiter (`,` `;` tab) and a UTF-8 BOM are detected. Banks may put preamble lines (a statement title) above the header: the profile stores how many lines to skip, the mapping step guesses it (first line with the file's usual column count) and lets the user correct it. A trailing delimiter on every line (an empty last column) is ignored. The encoding is UTF-8 unless the profile says otherwise (e.g. a `windows-125x` code page, decoded with the built-in `TextDecoder`). Decimal separator and date format come from the profile.
 - **Amount sign:** either a signed amount column, or an unsigned amount plus a debit/credit indicator column with the profile's list of debit values. Amounts are parsed from the decimal string into integer cents without going through a float.
 - **Account:** if the profile maps an own-account IBAN column, rows go to the user's account with that IBAN. If none matches, the user is offered to create a bank account with that IBAN and currency. A file with more than one own IBAN is rejected. Without that column, the user picks the account.
@@ -101,9 +105,12 @@ packages/core/src/money/
   accounts.ts  transactions.ts  categories.ts  rules.ts  attachments.ts  report.ts
   import/csv.ts                          decode, sniff delimiter, split rows
   import/profile.ts                      profile schema (Zod), header matching, row → ParsedRow
+  import/presets/                        built-in bank presets: one data file each, plus their registry (the only place a bank name may appear)
+  import/resolve.ts                      format resolution: saved profile → preset (copied into the user's profiles) → unknown format
+  import/ai-mapping.ts                   scrub the sample, ask the injected model client for a profile, validate it against the file
   import/import.ts                       preview + commit, dedup
   *.test.ts                              unit tests next to code
-packages/core/test/fixtures/csv/         fictional "Example Bank" exports (made-up headers and data)
+packages/core/test/fixtures/csv/         fictional "Example Bank" exports (made-up headers and data), one in the shape of each preset
 apps/web/app/(app)/money/                pages: transactions, import, categories, rules, report
 apps/web/app/(app)/money/actions.ts      thin server actions → packages/core
 apps/web/app/api/files/[id]/route.ts     authenticated attachment download
@@ -182,9 +189,9 @@ export async function monthlySpending(db: Db, userId: string, month: string /* Y
 
 | Level | Tool | Covers |
 |---|---|---|
-| Unit | Vitest | CSV decoding (BOM, `;`/`,`/tab, windows-125x), profile parsing against fictional fixtures in two styles (signed amounts; unsigned amounts + D/C indicator with decimal comma), edge cases (refunds, fees, foreign-currency purchase, identical rows, missing required column, multiple own IBANs), decimal string → cents, dedup key, header-fingerprint matching, own-IBAN transfer detection, rule matching order |
-| Integration | Vitest + real Postgres (Testcontainers or the CI Compose db) | import commit is atomic, re-import creates no duplicates, monthly totals to the cent, **user A can never read or modify user B's accounts, transactions, categories, rules or files** |
-| E2E | Playwright | Upload fictional fixture → map columns → save profile → preview → confirm → rule categorizes → monthly view shows correct totals; attach a receipt and view it; phone viewport smoke test |
+| Unit | Vitest | CSV decoding (BOM, `;`/`,`/tab, windows-125x), profile parsing against fictional fixtures in two styles (signed amounts; unsigned amounts + D/C indicator with decimal comma), edge cases (refunds, fees, foreign-currency purchase, identical rows, missing required column, multiple own IBANs), decimal string → cents, dedup key, header-fingerprint matching, own-IBAN transfer detection, rule matching order; AI mapping with a fake model client (the payload holds no IBAN, long digit run, free-text word or preamble line; bad, unreadable or failed answers are discarded; the daily cap and a missing key never call the client) |
+| Integration | Vitest + real Postgres (Testcontainers or the CI Compose db) | import commit is atomic, re-import creates no duplicates, monthly totals to the cent, **user A can never read or modify user B's accounts, transactions, categories, rules or files**, format resolution (a saved profile beats a preset; a preset is copied only into the requesting user's profiles; every preset parses its own fictional fixture with no failed rows) |
+| E2E | Playwright | Upload fictional fixture → map columns → save profile → preview → confirm → rule categorizes → monthly view shows correct totals; a fixture in a preset's shape goes straight to the preview; an unknown format with a fake model answer arrives prefilled and marked as a suggestion; attach a receipt and view it; phone viewport smoke test |
 
 - Every acceptance criterion above maps to at least one test.
 - Test parser bugs with a new fictional fixture first.
@@ -210,7 +217,8 @@ export async function monthlySpending(db: Db, userId: string, month: string /* Y
 ## Decisions (resolved 2026-10-11)
 
 0. **Reporting date:** `booked_on` = the transaction date when the profile maps one (when you spent), else the booking date.
-1. **Import format:** CSV only, through user-defined import profiles. No bank-specific code or docs in the repo; the owner's bank format lives in gitignored `.private/`. PDF statements are out of scope.
+1. **Import format:** CSV only, through import profiles: the user's own, copies of built-in presets, or AI-suggested ones the user confirmed. Bank names appear only in preset data files, never in code, tests, fixtures or docs ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)); real exports and notes live in gitignored `.private/`. PDF statements are out of scope.
+1a. **AI-suggested mapping (2026-11-06):** off unless the server sets `OPENAI_API_KEY`; a scrubbed sample of an unknown format may be sent to OpenAI, and a proposal never takes effect without the user's save ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)).
 2. **No background worker in v1.** Imports run synchronously in the web request. `apps/worker` arrives with `receipts-ocr`.
 3. **Deleted imported transactions come back on re-import.** No tombstones in v1.
 4. **Currency:** reports use the account-currency amount the bank charged. The original currency is kept for display. Accounts in other currencies get separate totals, with no FX conversion.
