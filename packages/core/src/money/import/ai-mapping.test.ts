@@ -182,6 +182,115 @@ describe("proposeMapping", () => {
     expect(sample.rows.some((row) => row[1] === "1.234,00")).toBe(true);
   });
 
+  describe("coded values", () => {
+    // A long file whose Payee column repeats a few single words, as a person's statement does.
+    function repeated(values: string[], count = 40): Fixture[] {
+      return Array.from({ length: count }, (_, i) => ({
+        cells: [
+          `${String((i % 28) + 1).padStart(2, "0")}.01.2024`,
+          "10,00",
+          i % 3 === 0 ? "C" : "D",
+          values[i % values.length]!,
+          "Details",
+          "",
+          counterpartyIban,
+          "EUR",
+        ],
+      }));
+    }
+
+    it.each([
+      ["a few merchants", ["Netflix", "Spotify", "Rent"]],
+      ["a few first names", ["Anna", "Bob", "Carol"]],
+      ["one merchant in capitals", ["NETFLIX", "SPOTIFY"]],
+      ["a single repeated word", ["Rent"]],
+    ])(
+      "sends no word from a column of %s, neither as coded values nor in the sample",
+      async (_name, values) => {
+        const client = fakeClient(goodAnswer);
+
+        await proposeMapping(csv({ rows: repeated(values) }), { client });
+
+        const { sample } = client.requests[0]!;
+        expect(sample.codedValues.map((column) => column.header)).not.toContain("Payee");
+        const payload = JSON.stringify(sample);
+        for (const value of values) expect(payload, value).not.toContain(value);
+      },
+    );
+
+    it("still sends the debit/credit markers and currencies of a realistic file", async () => {
+      const client = fakeClient(goodAnswer);
+
+      await proposeMapping(csv({ rows: repeated(["Netflix", "Spotify"]) }), { client });
+
+      const { sample } = client.requests[0]!;
+      expect(sample.codedValues).toContainEqual({ header: "D/C", values: ["C", "D"] });
+      expect(sample.codedValues).toContainEqual({ header: "Ccy", values: ["EUR"] });
+    });
+
+    it.each([
+      ["DEBIT/CREDIT", ["DEBIT", "CREDIT"]],
+      ["Debit/Credit", ["Debit", "Credit"]],
+      ["DBIT/CRDT", ["DBIT", "CRDT"]],
+      ["DR/CR", ["DR", "CR"]],
+    ])("sends %s markers as coded values", async (_name, [out, into]) => {
+      const rows = repeated(["Netflix"]).map(({ cells }, i) => ({
+        cells: cells.map((cell, column) => (column === 2 ? (i % 2 ? into! : out!) : cell)),
+      }));
+      const client = fakeClient({ ...goodAnswer, debitValues: [out!] });
+
+      const proposal = await proposeMapping(csv({ rows }), { client });
+
+      expect(client.requests[0]!.sample.codedValues).toContainEqual({
+        header: "D/C",
+        values: [out, into],
+      });
+      expect(proposal).not.toBeNull();
+    });
+  });
+
+  describe("header cells", () => {
+    const sensitive = ["DE89 3704 0044 0532 0130 00", "123456789", "98765432"];
+    const wrongGuess = ["Date", "Amount", "D/C", "Payee", "Details", ...sensitive];
+
+    it("masks an IBAN or a digit run, which a wrong header-row guess would send", async () => {
+      const client = fakeClient(goodAnswer);
+
+      await proposeMapping(csv({ header: wrongGuess }), { client });
+
+      const { sample } = client.requests[0]!;
+      expect(sample.headers).toEqual([
+        "Date",
+        "Amount",
+        "D/C",
+        "Payee",
+        "Details",
+        "[IBAN]",
+        "[NUMBER]",
+        "[NUMBER]",
+      ]);
+      const payload = JSON.stringify(sample);
+      expect(payload).not.toMatch(/\d{7,}/);
+      expect(payload).not.toContain("DE89");
+    });
+
+    it("discards an answer that names a masked header, as the file has no such column", async () => {
+      const answer = { ...goodAnswer, columns: { ...goodAnswer.columns, amount: "[NUMBER]" } };
+
+      expect(
+        await proposeMapping(csv({ header: wrongGuess }), { client: fakeClient(answer) }),
+      ).toBeNull();
+    });
+
+    it("keeps ordinary headers as they are", async () => {
+      const client = fakeClient(goodAnswer);
+
+      await proposeMapping(csv(), { client });
+
+      expect(client.requests[0]!.sample.headers).toEqual(header);
+    });
+  });
+
   it("asks for the profile's fields in a strict JSON schema, with instructions", async () => {
     const client = fakeClient(goodAnswer);
 
@@ -302,6 +411,9 @@ describe("scrubCell", () => {
     ["a dashed card number", "4111-1111-1111-1111"],
     ["a long reference", "20240115103000"],
     ["a phone number", "+370 600 00000"],
+    ["an 8-digit account number", "12345678"],
+    ["a 7-digit reference", "1234567"],
+    ["a spaced 8-digit number", "1234 5678"],
   ])("masks %s", (_name, cell) => {
     const scrubbed = scrubCell(cell);
 
@@ -319,6 +431,9 @@ describe("scrubCell", () => {
     ["an amount with thousands separators", "1.234,00"],
     ["an amount with a space separator", "1 234,56"],
     ["an integer", "250"],
+    ["a four-digit amount", "1234.56"],
+    ["a six-digit amount", "123456"],
+    ["a large formatted amount", "1,234,567.89"],
     ["a currency code", "EUR"],
     ["an empty cell", ""],
   ])("keeps %s", (_name, cell) => {

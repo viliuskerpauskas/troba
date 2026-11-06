@@ -41,20 +41,25 @@ export type MappingSample = {
   headers: string[];
   // At most sampleRowCount rows spread over the file, every cell scrubbed (see scrubCell).
   rows: string[][];
-  // Columns with a few short coded values (debit/credit markers, transaction types, currencies):
-  // their distinct values in file order. These are not personal, and a sample of cells would
-  // probably miss the rarer one.
+  // Columns whose values are all codes (debit/credit markers, currencies; see isCode): their
+  // distinct values in file order. These are not personal, and a sample of cells would probably
+  // miss the rarer one.
   codedValues: { header: string; values: string[] }[];
 };
 
 const sampleRowCount = 5;
 // A column is coded when it has at most this many distinct values ...
 const maxCodedValues = 8;
-// ... each repeating on average at least this often, so a handful of names in a small file
+// ... each repeating on average at least this often, so a handful of values in a small file
 // isn't taken for codes ...
 const minRowsPerCodedValue = 2;
-// ... each a single short word (no spaces: names and merchants have them).
-const codedValue = /^\p{L}[\p{L}\p{N}_./-]{0,11}$/u;
+// ... and every value is a code, not a word. A column's cardinality can't tell a debit marker from
+// a person's name (a statement with three payees looks like one with three markers), so what is
+// sent raw is decided by what the value can be, never by how often it repeats: one or two capital
+// letters (D, C, DR, CR), a currency code, or a debit/credit marker word. Anything else, including
+// one-word merchants and transaction types, is masked like every other cell. The cost is that the
+// model sees a transaction-type column as shapes; it still maps it by its header.
+const markerWords = new Set(["debit", "credit", "dbit", "crdt"]);
 
 const maxShapeLength = 60;
 const currencies = new Set(Intl.supportedValuesOf("currency"));
@@ -62,6 +67,9 @@ const currencies = new Set(Intl.supportedValuesOf("currency"));
 const ibanShaped = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/i;
 const numeric = /^[+\d\s.,'’-]+$/;
 const longDigitRun = /\d{9,}/;
+// 7 or more digits with no separator or decimals are an account, reference or phone number rather
+// than an amount; amounts with decimals or thousands separators are kept however large.
+const digitsOnly = /^\+?\d{7,}$/;
 const dateShaped =
   /^(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?$/;
 const amountShaped = /^[+-]?(?:\d{1,3}(?:[ .,'’]\d{3})+|\d+)(?:[.,]\d{1,4})?$|^[+-]?[.,]\d{1,4}$/;
@@ -78,11 +86,26 @@ export function scrubCell(cell: string): string {
   if (ibanShaped.test(text.replace(/\s/g, ""))) return "[IBAN]";
   if (dateShaped.test(text)) return text;
   if (numeric.test(text)) {
-    if (longDigitRun.test(text.replace(/[\s-]/g, ""))) return "[NUMBER]";
+    if (isLongNumber(text)) return "[NUMBER]";
     if (amountShaped.test(text)) return text;
   }
   if (currencies.has(text)) return text;
   return shapeOf(text);
+}
+
+function isLongNumber(text: string): boolean {
+  const compact = text.replace(/[\s-]/g, "");
+  return longDigitRun.test(compact) || digitsOnly.test(compact);
+}
+
+// A header as the model may see it. Headers are words by nature and are sent as written, but a
+// wrong guess at which line is the header can make a data row the header: its IBANs and numbers
+// are masked, so a proposal that names such a header fails the check against the file.
+function scrubHeader(header: string): string {
+  const text = header.trim();
+  if (ibanShaped.test(text.replace(/\s/g, ""))) return "[IBAN]";
+  if (numeric.test(text) && isLongNumber(text)) return "[NUMBER]";
+  return header;
 }
 
 function shapeOf(text: string): string {
@@ -114,13 +137,19 @@ function buildSample(table: CsvTable): MappingSample {
   });
 
   return {
-    headers: table.headers,
+    headers: table.headers.map(scrubHeader),
     rows,
     codedValues: [...coded].map(([column, values]) => ({
-      header: table.headers[column]!,
+      header: scrubHeader(table.headers[column]!),
       values,
     })),
   };
+}
+
+function isCode(value: string): boolean {
+  return (
+    /^\p{Lu}{1,2}$/u.test(value) || currencies.has(value) || markerWords.has(value.toLowerCase())
+  );
 }
 
 // The column's distinct values when it is a coded one, else null.
@@ -129,7 +158,7 @@ function codedValuesOf(table: CsvTable, column: number): string[] | null {
   for (const cells of table.rows) {
     const value = (cells[column] ?? "").trim();
     if (value === "") continue;
-    if (!codedValue.test(value) || ibanShaped.test(value)) return null;
+    if (!isCode(value)) return null;
     values.add(value);
     if (values.size > maxCodedValues) return null;
   }
