@@ -14,7 +14,7 @@ test("home page renders without console errors", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  await expect(page.getByRole("heading", { level: 1, name: "troba" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
