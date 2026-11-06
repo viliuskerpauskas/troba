@@ -1,12 +1,22 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { getImportProfile, listImportProfiles, saveImportProfile } from "@troba/core";
+import {
+  getImportProfile,
+  importPresets,
+  listImportProfiles,
+  saveImportProfile,
+} from "@troba/core";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { expect, test } from "./test";
 
 const fixtures = path.join(import.meta.dirname, "../../../packages/core/test/fixtures/csv");
+// Each preset's fictional fixture sits beside it.
+const presetsFolder = path.join(
+  import.meta.dirname,
+  "../../../packages/core/src/money/import/presets",
+);
 // Fictional: a preamble line, semicolons, unsigned amounts with a D/C column, decimal commas.
 const statement = path.join(fixtures, "example-bank-debit-credit.csv");
 
@@ -213,6 +223,173 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await expect(newest.nth(1)).toContainText("2026-03-03 ACME LTD");
   await expect(newest.nth(1)).toContainText("+€1,500.00");
 });
+
+test("reads a known bank's file with no mapping step, and copies the preset to the user", async ({
+  page,
+}) => {
+  const preset = importPresets[0];
+  const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
+  await signIn(page, "e2e-import-preset@example.test", "198.51.100.25");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // No mapping: the file's own account is the only thing the user is asked for.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
+  await page.getByLabel("Account name").fill("Example Bank current");
+  await page.getByRole("button", { name: "Create the account and preview" }).click();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectSummary(page, { "Rows in the file": 8, New: 8, "Already imported, skipped": 0 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "Import 8 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported 8 transactions into Example Bank current.",
+  );
+
+  // The same file again: the user's own copy reads it, and nothing is added twice.
+  await page.getByRole("link", { name: "View transactions" }).click();
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
+  await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
+});
+
+test("reads a known bank's file with signed amounts that names no account, and the user picks one", async ({
+  page,
+}) => {
+  const preset = importPresets.find(
+    (candidate) => candidate.profile.columns.debitCredit === undefined,
+  )!;
+  const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
+  await signIn(page, "e2e-import-preset-2@example.test", "198.51.100.28");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // No mapping step, and no IBAN in the file: the user picks one of their accounts.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expect(page.getByText("This file doesn't say which account it's for.")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+  await expect(page.getByText("Account: Cash")).toBeVisible();
+  await expectSummary(page, { "Rows in the file": 10, New: 10, "Can't be read": 0 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "Import 10 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 10 transactions into Cash.");
+
+  // Signed amounts kept their sign, and the date is the day the payment started.
+  await page.getByRole("link", { name: "View transactions" }).click();
+  const list = page.getByRole("list", { name: "Transactions, newest first" }).getByRole("listitem");
+  await expect(list).toHaveCount(10);
+  const item = (text: string) => list.filter({ hasText: text });
+  await expect(item("-€9.99")).toContainText("2026-09-30");
+  await expect(item("-€9.99")).toContainText("EXAMPLE STREAMING");
+  await expect(item("EXAMPLE CLIENT LTD")).toContainText("2026-09-30");
+  await expect(item("EXAMPLE CLIENT LTD")).toContainText("+€1,250.00");
+});
+
+// Fictional: a format no preset knows, which the fake model in e2e/fake-openai.ts maps correctly.
+const modelKnown = {
+  name: "statement.csv",
+  mimeType: "text/csv",
+  buffer: Buffer.from(
+    [
+      "Booked;Sum;Who;Note",
+      "2026-04-01;-12,50;GROCERY MART;Card purchase",
+      "2026-04-02;1.200,00;ACME LTD;Salary April",
+      "2026-04-03;-3,20;COFFEE HUT;Latte",
+    ].join("\n"),
+  ),
+};
+
+test("opens the mapping form filled in by the AI, to check, edit and save", async ({ page }) => {
+  await signIn(page, "e2e-import-ai@example.test", "198.51.100.26");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+
+  // The announcement region is on the page, empty, before the suggestion arrives: a live region
+  // inserted together with its text is often not announced.
+  const announcement = page.locator('p[aria-live="polite"]');
+  await expect(announcement).toBeAttached();
+  await expect(announcement).toBeEmpty();
+
+  // The server has a key, so the upload step says what would be sent.
+  const disclosure = page.getByText(/are sent to OpenAI to suggest how to map the columns/);
+  await expect(disclosure).toBeVisible();
+  await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
+    /Nothing is sent for formats troba knows/,
+  );
+  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // Prefilled, with a note that is announced (the same region, now filled), shown in the page and
+  // reachable by keyboard like the rest of the form, and a form that is not saved yet.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
+  await expect(announcement).toContainText("Suggested by AI, check it.");
+  await expect(
+    page.getByText("Suggested by AI, check it.", { exact: false }).first(),
+  ).toBeVisible();
+  await expect(page.getByLabel("Booking date")).toHaveValue("Booked");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
+  await expect(page.getByLabel("Counterparty", { exact: true })).toHaveValue("Who");
+  await expect(page.getByLabel("Description")).toHaveValue("Note");
+  await expect(page.getByLabel("Decimal separator")).toHaveValue(",");
+  await expect(page.getByLabel("Date format")).toHaveValue("YYYY-MM-DD");
+  await expectNoSideways(page);
+  expect(await listImportProfiles(db(), await userId("e2e-import-ai@example.test"))).toEqual([]);
+
+  // Reading the file again keeps the suggestion and the note.
+  await page.getByRole("button", { name: "Read the file again" }).click();
+  await expect(announcement).toContainText("Suggested by AI, check it.");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("Sum");
+
+  // Any field can be changed before saving.
+  await page.getByLabel("Profile name").fill("Example Bank (AI)");
+  await page.getByLabel("Counterparty", { exact: true }).selectOption("Note");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+
+  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { "Rows in the file": 3, New: 3 });
+  await page.getByRole("button", { name: "Import 3 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 3 transactions into Cash.");
+
+  // The saved profile finds the next upload; no model is involved.
+  await page.getByRole("button", { name: "Import another file" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+});
+
+test("shows the plain mapping form, with a note, when the AI can't suggest one", async ({
+  page,
+}) => {
+  await signIn(page, "e2e-import-ai-off@example.test", "198.51.100.27");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
+  await expect(page.locator('p[aria-live="polite"]')).toContainText(
+    "AI couldn't suggest a mapping",
+  );
+  await expect(
+    page.getByText("AI couldn't suggest a mapping", { exact: false }).first(),
+  ).toBeVisible();
+  await expect(page.getByLabel("Booking date")).toHaveValue("");
+  await expect(page.getByLabel("Amount", { exact: true })).toHaveValue("");
+});
+
+async function userId(email: string): Promise<string> {
+  const {
+    rows: [user],
+  } = await db().$client.query<{ id: string }>("select id from users where email = $1", [email]);
+  return user!.id;
+}
 
 // A fresh user, signed in from their own address, so the other spec files' sign-ins don't count
 // towards its limit (198.51.100.0/24 is TEST-NET-2, RFC 5737).

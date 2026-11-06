@@ -10,6 +10,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-troba}:${POSTGRES_PASSWORD:?set in the env file}@postgres:5432/${POSTGRES_DB:-troba}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in the env file}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set in the env file}
+      # Optional: leave unset to switch the AI-suggested CSV mapping off.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      AI_MAPPING_DAILY_LIMIT: ${AI_MAPPING_DAILY_LIMIT:-}
     volumes:
       # A named volume starts as a copy of the image's /data/uploads, so it's owned by node (uid 1000).
       - uploads:/data/uploads

@@ -74,7 +74,7 @@ The documented standards Matt's code-review (`/mattpocock-skills:code-review`) c
 
 ## Personal information
 
-The repo, issues and PRs are public. Code, tests, fixtures, commit messages and issue text contain no real bank names, countries, cities, merchants, IBANs, names or exports. Use fictional data ("Example Bank", "GROCERY MART", IBANs from the published test ranges). Real-format samples stay in `.private/`.
+The repo, issues and PRs are public. Code, tests, fixtures, commit messages and issue text contain no real bank names, countries, cities, merchants, IBANs, names or exports. The one place a bank name may appear is an import preset data file ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)); a bank name anywhere else is a finding. Use fictional data ("Example Bank", "GROCERY MART", IBANs from the published test ranges). Real-format samples stay in `.private/`.
 
 ## Comments and names
 

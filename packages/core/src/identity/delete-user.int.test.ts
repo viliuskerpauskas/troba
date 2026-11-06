@@ -98,6 +98,7 @@ async function createMoneyRows(userId: string) {
     categoryId: category!.id,
     position: 0,
   });
+  await db.insert(schema.moneyAiMappingUses).values({ userId });
   await db.insert(schema.moneyAttachments).values({
     userId,
     transactionId: transaction!.id,

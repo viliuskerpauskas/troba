@@ -43,6 +43,13 @@
       "when": 1792487556381,
       "tag": "0005_money",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793994143671,
+      "tag": "0006_ai_mapping_uses",
+      "breakpoints": true
     }
   ]
 }

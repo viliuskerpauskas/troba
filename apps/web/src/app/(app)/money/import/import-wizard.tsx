@@ -45,7 +45,7 @@ import {
   type PreviewView,
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
-import { failureReasons, tooLargeMessage } from "./messages";
+import { failureReasons, suggestionNotes, tooLargeMessage, type Suggestion } from "./messages";
 
 type ProfileOption = { id: string; name: string };
 
@@ -72,10 +72,13 @@ export function ImportWizard({
   profiles,
   dateFormats,
   maxBytes,
+  aiEnabled,
 }: {
   profiles: ProfileOption[];
   dateFormats: readonly DateFormat[];
   maxBytes: number;
+  // The server has a key for AI-suggested mappings, so the upload step says what is sent.
+  aiEnabled: boolean;
 }) {
   const [state, dispatch, pending] = useActionState(run, firstStep);
   // The file the user chose, sent again with every step: the server keeps nothing between them.
@@ -103,10 +106,20 @@ export function ImportWizard({
     startTransition(() => dispatch(data));
   }
 
+  // The AI suggestion's note, spoken once when the mapping step arrives. It goes in a live region
+  // that is already on the page: one inserted together with its text is often not announced. Not
+  // role="status", which the step's own messages (FormStatus) use.
+  const suggestion = state.step === "mapping" ? state.suggestion : undefined;
+
   return (
-    <div ref={stepStart} tabIndex={-1} className="outline-none">
-      {renderStep()}
-    </div>
+    <>
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
+        {suggestion && noteText(suggestion)}
+      </p>
+      <div ref={stepStart} tabIndex={-1} className="outline-none">
+        {renderStep()}
+      </div>
+    </>
   );
 
   function renderStep() {
@@ -123,11 +136,19 @@ export function ImportWizard({
                   name="file"
                   accept=".csv,text/csv"
                   required
+                  aria-describedby={aiEnabled ? "import-ai-disclosure" : undefined}
                   onChange={(event) => {
                     setFile(event.currentTarget.files?.[0] ?? null);
                     setTooLarge(false);
                   }}
                 />
+                {aiEnabled && (
+                  <FieldDescription id="import-ai-disclosure">
+                    If troba doesn&apos;t know the file&apos;s format, its column names and a few
+                    rows, with names, merchants and account numbers masked, are sent to OpenAI to
+                    suggest how to map the columns. Nothing is sent for formats troba knows.
+                  </FieldDescription>
+                )}
               </Field>
               <Field>
                 <FieldLabel htmlFor="import-profile">Import profile</FieldLabel>
@@ -213,6 +234,7 @@ function MappingForm({
   return (
     <form onSubmit={onSubmit}>
       <input type="hidden" name="editing" value={state.profileId ?? ""} />
+      {state.suggestion && <input type="hidden" name="suggestion" value={state.suggestion} />}
       <FieldGroup>
         <h2>{state.profileId ? "Edit the import profile" : "Map the columns"}</h2>
         {!state.profileId && (
@@ -221,6 +243,7 @@ function MappingForm({
             saved as a profile, and later files with the same columns use it.
           </p>
         )}
+        {state.suggestion && <SuggestionNote suggestion={state.suggestion} />}
         <Field>
           <FieldLabel htmlFor="profile-name">Profile name</FieldLabel>
           <Input
@@ -351,6 +374,23 @@ function MappingForm({
         </div>
       </FieldGroup>
     </form>
+  );
+}
+
+function noteText(suggestion: Suggestion): string {
+  const { lead, text } = suggestionNotes[suggestion];
+  return lead ? `${lead} ${text}` : text;
+}
+
+// Shown in the reading order, right after the step's heading. Screen readers get it from the
+// wizard's live region (see ImportWizard), so it isn't one itself and is not read twice.
+function SuggestionNote({ suggestion }: { suggestion: Suggestion }) {
+  const { lead, text } = suggestionNotes[suggestion];
+  return (
+    <p className="rounded-lg border bg-muted px-3 py-2 text-sm">
+      {lead && <strong>{lead} </strong>}
+      {text}
+    </p>
   );
 }
 

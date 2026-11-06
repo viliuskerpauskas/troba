@@ -159,6 +159,8 @@ ls -l /srv/troba/<env>/.env   # -rw------- deploy deploy
 
 For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to prod. `TROBA_IMAGE` stays the same in both.
 
+**Optional: the AI-suggested CSV mapping.** Add `OPENAI_API_KEY=<key>` to the env file (an OpenAI API key, restricted to the model request endpoints where OpenAI offers that) to switch it on, and optionally `OPENAI_MODEL=<model>` (default `5.6-luna`; it must support structured JSON output). With no key the feature is off and the upload step says nothing about it. While it is on, the header row and a few masked rows of an unknown CSV format go to OpenAI; [ADR-0015](../adr/0015-import-presets-and-ai-mapping.md) lists exactly what. Each user gets 20 AI mappings a day (a rolling 24 hours), after which an unknown format opens the plain mapping form with a short note; `AI_MAPPING_DAILY_LIMIT=<n>` in the env file changes that, and an unset, empty or invalid value means 20. Files in a known format (a saved profile or a preset) are never counted. The key lives only in this file, like the other secrets. Redeploy to pick up a change.
+
 `POSTGRES_PASSWORD` is set when the database volume is first created. Changing it later in `.env` doesn't change the database's password; do that with `ALTER USER` in `psql` first.
 
 ### Deploy

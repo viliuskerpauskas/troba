@@ -7,10 +7,11 @@ import {
   getImportProfile,
   isCsvUpload,
   listAccounts,
-  matchImportProfile,
   maxImportFileBytes,
   previewImport,
+  proposeMappingWithinLimit,
   readCsv,
+  resolveImportFormat,
   saveImportProfile,
   type Account,
   type Delimiter,
@@ -19,18 +20,23 @@ import {
   type ImportRowFailure,
   type PreviewImportResult,
   type ReadCsvOptions,
+  type ResolvedImportFormat,
   type SavedImportProfile,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
+import { aiMappingDailyLimit } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
+import { mappingModelClient } from "@/server/openai-mapping";
 import {
   notCsvMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
+  suggestions,
   tooLargeMessage,
+  type Suggestion,
 } from "./messages";
 import {
   echoFormValues,
@@ -63,6 +69,9 @@ export type ImportState =
       values: ProfileFormValues;
       // The profile being edited; null for a new one.
       profileId: string | null;
+      // Set for a format troba didn't know, when a model call was attempted or refused by the daily
+      // cap (see Suggestion). Absent when the AI is off or nothing was sent.
+      suggestion?: Suggestion;
       error?: string;
     }
   | {
@@ -104,6 +113,8 @@ const shownFailures = 50;
 const Id = z.uuid();
 const OptionalId = z.union([z.uuid(), z.literal("")]).transform((id) => id || null);
 const AccountName = z.string().trim().min(1).max(100);
+// The mapping form sends its note along, so that it stays while the user works on the form.
+const SuggestionField = z.enum(suggestions).optional().catch(undefined);
 
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
@@ -127,22 +138,57 @@ export async function startImportAction(formData: FormData): Promise<ImportState
   const profileId = OptionalId.safeParse(formData.get("profileId") ?? "");
   if (!profileId.success) return { step: "upload", error: startAgainMessage };
 
-  const profile = profileId.data
-    ? await getImportProfile(db(), userId, profileId.data)
-    : await matchImportProfile(db(), userId, upload.bytes);
-  if (profileId.data && !profile) return { step: "upload", error: startAgainMessage };
+  // A picked profile, else the format found from the file: the user's own profile or a preset.
+  let profile: SavedImportProfile | null = null;
+  let unknown: Extract<ResolvedImportFormat, { kind: "unknown" }> | null = null;
+  if (profileId.data) {
+    profile = await getImportProfile(db(), userId, profileId.data);
+    if (!profile) return { step: "upload", error: startAgainMessage };
+  } else {
+    const resolved = await resolveImportFormat(db(), userId, upload.bytes);
+    if (resolved.kind === "profile") profile = resolved.profile;
+    else unknown = resolved;
+  }
   if (profile) return previewState(userId, profile, upload, null);
 
-  // An unknown format: the mapping step, starting from what the file itself shows.
-  const values = {
+  // An unknown format: the mapping step, filled in by the AI when it can, else starting from what
+  // the file itself shows. A preset's file is not unknown (only the profile limit kept its copy
+  // from being saved): nothing about it is sent anywhere.
+  const plain = {
     ...echoFormValues(new FormData()),
-    name: upload.filename.replace(/\.csv$/i, "").slice(0, 100),
+    name: startingName(upload),
     delimiter: "detect",
     encoding: "utf-8",
     decimalSeparator: ".",
     dateFormat: "YYYY-MM-DD",
   };
-  return mappingState(upload, values, null, { encoding: "utf-8" });
+  const plainState = () => mappingState(upload, plain, null, { encoding: "utf-8" });
+  if (unknown?.reason !== "no-match") return plainState();
+
+  const result = await proposeMappingWithinLimit(db(), userId, upload.bytes, {
+    client: mappingModelClient(),
+    dailyLimit: aiMappingDailyLimit(),
+    read: { encoding: "utf-8" },
+  });
+  switch (result.status) {
+    case "proposed": {
+      // Only the form is filled: nothing is saved until the user presses save.
+      const values = profileFormValues({ ...result.proposal.profile, name: startingName(upload) });
+      return mappingState(upload, values, null, result.proposal.profile, "ai");
+    }
+    case "unavailable":
+    case "capped":
+      return { ...plainState(), suggestion: result.status };
+    case "not-asked":
+      return plainState();
+    default:
+      return assertNever(result);
+  }
+}
+
+// The name a new profile starts with, for the user to change.
+function startingName(upload: Upload): string {
+  return upload.filename.replace(/\.csv$/i, "").slice(0, 100);
 }
 
 // The mapping step again, read with the skip lines, delimiter and encoding the user corrected.
@@ -156,6 +202,7 @@ export async function rereadMappingAction(formData: FormData): Promise<ImportSta
     echoFormValues(formData),
     editing.success ? editing.data : null,
     readOptionsFromForm(formData),
+    SuggestionField.parse(formData.get("suggestion") ?? undefined),
   );
 }
 
@@ -183,10 +230,17 @@ export async function saveProfileAction(formData: FormData): Promise<ImportState
   const editing = OptionalId.safeParse(formData.get("editing") ?? "");
   const profileId = editing.success ? editing.data : null;
   const values = echoFormValues(formData);
+  const suggestion = SuggestionField.parse(formData.get("suggestion") ?? undefined);
   const read = profileFromForm(formData);
   if (!read.ok) {
     // Read as the user last set it, so their corrections and column choices stay.
-    const mapping = mappingState(upload, values, profileId, readOptionsFromForm(formData));
+    const mapping = mappingState(
+      upload,
+      values,
+      profileId,
+      readOptionsFromForm(formData),
+      suggestion,
+    );
     return { ...mapping, error: problemMessages[read.problem] };
   }
 
@@ -196,7 +250,7 @@ export async function saveProfileAction(formData: FormData): Promise<ImportState
     bytes: upload.bytes,
   });
   if (!saved.ok) {
-    const mapping = mappingState(upload, values, profileId, read.profile);
+    const mapping = mappingState(upload, values, profileId, read.profile, suggestion);
     const error =
       saved.reason === "missing-columns"
         ? `The file has no column named ${saved.columns.join(", ")}. Check the lines above the header.`
@@ -353,10 +407,18 @@ function mappingState(
   values: ProfileFormValues,
   profileId: string | null,
   options: ReadCsvOptions,
+  suggestion?: Suggestion,
 ): Extract<ImportState, { step: "mapping" }> {
   const table = readCsv(upload.bytes, options);
   if (!table.ok) {
-    return { step: "mapping", table: null, values, profileId, error: readErrors[table.reason] };
+    return {
+      step: "mapping",
+      table: null,
+      values,
+      profileId,
+      ...(suggestion && { suggestion }),
+      error: readErrors[table.reason],
+    };
   }
   return {
     step: "mapping",
@@ -369,5 +431,6 @@ function mappingState(
     // The skip lines the file was read with: guessed when the form gave none.
     values: { ...values, skipLines: String(table.skipLines) },
     profileId,
+    ...(suggestion && { suggestion }),
   };
 }
