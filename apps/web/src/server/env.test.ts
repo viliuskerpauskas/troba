@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { uploadsDir } from "./env";
+import { aiMappingEnabled, defaultOpenAiModel, openAiConfig, uploadsDir } from "./env";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../..");
 
@@ -40,5 +40,30 @@ describe("uploadsDir", () => {
     process.chdir(tmpdir());
 
     expect(() => uploadsDir()).toThrow(/absolute path/);
+  });
+});
+
+describe("openAiConfig", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is null, and the feature off, while no key is set", () => {
+    vi.stubEnv("OPENAI_API_KEY", undefined);
+    expect(openAiConfig()).toBeNull();
+    expect(aiMappingEnabled()).toBe(false);
+  });
+
+  it("treats an empty or blank key as not set", () => {
+    vi.stubEnv("OPENAI_API_KEY", "  ");
+    expect(openAiConfig()).toBeNull();
+  });
+
+  it("takes the model from OPENAI_MODEL, else the default", () => {
+    vi.stubEnv("OPENAI_API_KEY", " sk-test ");
+    vi.stubEnv("OPENAI_MODEL", "");
+    expect(openAiConfig()).toEqual({ apiKey: "sk-test", model: defaultOpenAiModel });
+    expect(aiMappingEnabled()).toBe(true);
+
+    vi.stubEnv("OPENAI_MODEL", "other-model");
+    expect(openAiConfig()?.model).toBe("other-model");
   });
 });

@@ -48,3 +48,21 @@ function repoRoot(): string {
 export function gitSha(): string {
   return process.env.GIT_SHA || "dev";
 }
+
+// The model that suggests a column mapping for an unknown CSV format (ADR-0015). The owner's choice;
+// OPENAI_MODEL overrides it, and it must support structured JSON output.
+export const defaultOpenAiModel = "5.6-luna";
+
+export type OpenAiConfig = { apiKey: string; model: string };
+
+// Optional, so kept out of env(): null (no key, or an empty one from .env.example) switches the AI
+// mapping off everywhere, including the sentence on the upload step that discloses it.
+export function openAiConfig(): OpenAiConfig | null {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return null;
+  return { apiKey, model: process.env.OPENAI_MODEL?.trim() || defaultOpenAiModel };
+}
+
+export function aiMappingEnabled(): boolean {
+  return openAiConfig() !== null;
+}
