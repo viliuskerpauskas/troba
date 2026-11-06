@@ -1,12 +1,22 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import type { Page } from "@playwright/test";
-import { getImportProfile, listImportProfiles, saveImportProfile } from "@troba/core";
+import {
+  getImportProfile,
+  importPresets,
+  listImportProfiles,
+  saveImportProfile,
+} from "@troba/core";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { expect, test } from "./test";
 
 const fixtures = path.join(import.meta.dirname, "../../../packages/core/test/fixtures/csv");
+// Each preset's fictional fixture sits beside it.
+const presetsFolder = path.join(
+  import.meta.dirname,
+  "../../../packages/core/src/money/import/presets",
+);
 // Fictional: a preamble line, semicolons, unsigned amounts with a D/C column, decimal commas.
 const statement = path.join(fixtures, "example-bank-debit-credit.csv");
 
@@ -212,6 +222,38 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await expect(newest.first()).toContainText("2026-03-04 EXAMPLE BANK");
   await expect(newest.nth(1)).toContainText("2026-03-03 ACME LTD");
   await expect(newest.nth(1)).toContainText("+€1,500.00");
+});
+
+test("reads a known bank's file with no mapping step, and copies the preset to the user", async ({
+  page,
+}) => {
+  const preset = importPresets[0];
+  const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
+  await signIn(page, "e2e-import-preset@example.test", "198.51.100.25");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // No mapping: the file's own account is the only thing the user is asked for.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
+  await page.getByLabel("Account name").fill("Example Bank current");
+  await page.getByRole("button", { name: "Create the account and preview" }).click();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectSummary(page, { "Rows in the file": 8, New: 8, "Already imported, skipped": 0 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "Import 8 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported 8 transactions into Example Bank current.",
+  );
+
+  // The same file again: the user's own copy reads it, and nothing is added twice.
+  await page.getByRole("link", { name: "View transactions" }).click();
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
+  await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
 });
 
 // A fresh user, signed in from their own address, so the other spec files' sign-ins don't count
