@@ -319,6 +319,18 @@ describe("startImportAction, with the daily cap on AI mappings", () => {
     expect(model.requests).toHaveLength(1);
   });
 
+  it("shows the plain form with no note when no call was attempted, even with a model configured", async () => {
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+    const headerOnly = new TextEncoder().encode("Posted,Amount,Payee\n");
+
+    const state = mapping(await actions.startImportAction(upload(headerOnly)));
+
+    expect(state.suggestion).toBeUndefined();
+    expect(model.requests).toHaveLength(0);
+    expect(await usesOf(session.userId)).toEqual([]);
+  });
+
   it("never counts or limits a known format", async () => {
     vi.stubEnv("AI_MAPPING_DAILY_LIMIT", "1");
     const model = fakeModel(goodAnswer);

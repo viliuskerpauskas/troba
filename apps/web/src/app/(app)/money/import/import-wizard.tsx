@@ -43,10 +43,9 @@ import {
   type ImportState,
   type MappingTable,
   type PreviewView,
-  type Suggestion,
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
-import { failureReasons, tooLargeMessage } from "./messages";
+import { failureReasons, suggestionNotes, tooLargeMessage, type Suggestion } from "./messages";
 
 type ProfileOption = { id: string; name: string };
 
@@ -107,10 +106,19 @@ export function ImportWizard({
     startTransition(() => dispatch(data));
   }
 
+  // The AI suggestion's note, spoken once when the mapping step arrives. It goes in a live region
+  // that is already on the page: one inserted together with its text is often not announced.
+  const suggestion = state.step === "mapping" ? state.suggestion : undefined;
+
   return (
-    <div ref={stepStart} tabIndex={-1} className="outline-none">
-      {renderStep()}
-    </div>
+    <>
+      <p role="status" className="sr-only">
+        {suggestion && noteText(suggestion)}
+      </p>
+      <div ref={stepStart} tabIndex={-1} className="outline-none">
+        {renderStep()}
+      </div>
+    </>
   );
 
   function renderStep() {
@@ -368,26 +376,19 @@ function MappingForm({
   );
 }
 
-// Announced when the step appears, as the form's other messages are (FormStatus).
+function noteText(suggestion: Suggestion): string {
+  const { lead, text } = suggestionNotes[suggestion];
+  return lead ? `${lead} ${text}` : text;
+}
+
+// Shown in the reading order, right after the step's heading. Screen readers get it from the
+// wizard's live region (see ImportWizard), so it isn't one itself and is not read twice.
 function SuggestionNote({ suggestion }: { suggestion: Suggestion }) {
+  const { lead, text } = suggestionNotes[suggestion];
   return (
-    <p role="status" className="rounded-lg border bg-muted px-3 py-2 text-sm">
-      {suggestion === "ai" ? (
-        <>
-          <strong>Suggested by AI, check it.</strong> This mapping is a guess made from the
-          file&apos;s columns and a few masked rows. Nothing is saved or imported until you press
-          save, and every field can be changed.
-        </>
-      ) : suggestion === "capped" ? (
-        <>
-          You&apos;ve used today&apos;s AI mapping suggestions, so the form is blank. Fill it in
-          below, or try again tomorrow.
-        </>
-      ) : (
-        <>
-          AI couldn&apos;t suggest a mapping for this file, so the form is blank. Fill it in below.
-        </>
-      )}
+    <p className="rounded-lg border bg-muted px-3 py-2 text-sm">
+      {lead && <strong>{lead} </strong>}
+      {text}
     </p>
   );
 }
