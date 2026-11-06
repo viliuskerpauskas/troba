@@ -12,6 +12,10 @@ const calSans = Cal_Sans({
   weight: "400",
   subsets: ["latin", "latin-ext"],
   variable: "--font-cal-sans",
+  // next/font has no metrics for Cal Sans, so it can't size a fallback to match and warns on
+  // every compile; fall back to the system sans as it is.
+  adjustFontFallback: false,
+  fallback: ["system-ui", "sans-serif"],
 });
 
 export const metadata: Metadata = {
