@@ -43,6 +43,7 @@ import {
   type ImportState,
   type MappingTable,
   type PreviewView,
+  type Suggestion,
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
 import { failureReasons, tooLargeMessage } from "./messages";
@@ -72,10 +73,13 @@ export function ImportWizard({
   profiles,
   dateFormats,
   maxBytes,
+  aiEnabled,
 }: {
   profiles: ProfileOption[];
   dateFormats: readonly DateFormat[];
   maxBytes: number;
+  // The server has a key for AI-suggested mappings, so the upload step says what is sent.
+  aiEnabled: boolean;
 }) {
   const [state, dispatch, pending] = useActionState(run, firstStep);
   // The file the user chose, sent again with every step: the server keeps nothing between them.
@@ -123,11 +127,19 @@ export function ImportWizard({
                   name="file"
                   accept=".csv,text/csv"
                   required
+                  aria-describedby={aiEnabled ? "import-ai-disclosure" : undefined}
                   onChange={(event) => {
                     setFile(event.currentTarget.files?.[0] ?? null);
                     setTooLarge(false);
                   }}
                 />
+                {aiEnabled && (
+                  <FieldDescription id="import-ai-disclosure">
+                    If troba doesn&apos;t know the file&apos;s format, its column names and a few
+                    rows, with names, merchants and account numbers masked, are sent to OpenAI to
+                    suggest how to map the columns. Nothing is sent for formats troba knows.
+                  </FieldDescription>
+                )}
               </Field>
               <Field>
                 <FieldLabel htmlFor="import-profile">Import profile</FieldLabel>
@@ -213,6 +225,7 @@ function MappingForm({
   return (
     <form onSubmit={onSubmit}>
       <input type="hidden" name="editing" value={state.profileId ?? ""} />
+      {state.suggestion && <input type="hidden" name="suggestion" value={state.suggestion} />}
       <FieldGroup>
         <h2>{state.profileId ? "Edit the import profile" : "Map the columns"}</h2>
         {!state.profileId && (
@@ -221,6 +234,7 @@ function MappingForm({
             saved as a profile, and later files with the same columns use it.
           </p>
         )}
+        {state.suggestion && <SuggestionNote suggestion={state.suggestion} />}
         <Field>
           <FieldLabel htmlFor="profile-name">Profile name</FieldLabel>
           <Input
@@ -351,6 +365,25 @@ function MappingForm({
         </div>
       </FieldGroup>
     </form>
+  );
+}
+
+// Announced when the step appears, as the form's other messages are (FormStatus).
+function SuggestionNote({ suggestion }: { suggestion: Suggestion }) {
+  return (
+    <p role="status" className="rounded-lg border bg-muted px-3 py-2 text-sm">
+      {suggestion === "ai" ? (
+        <>
+          <strong>Suggested by AI, check it.</strong> This mapping is a guess made from the
+          file&apos;s columns and a few masked rows. Nothing is saved or imported until you press
+          save, and every field can be changed.
+        </>
+      ) : (
+        <>
+          AI couldn&apos;t suggest a mapping for this file, so the form is blank. Fill it in below.
+        </>
+      )}
+    </p>
   );
 }
 

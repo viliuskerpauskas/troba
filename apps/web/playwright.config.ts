@@ -35,11 +35,13 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     // Tests the built app, not the dev server: run `pnpm build` first.
-    command: "node scripts/start-standalone.ts",
+    // e2e/fake-openai.ts stands in for OpenAI, which the import test's AI mapping would call.
+    command: "node --import ./e2e/fake-openai.ts scripts/start-standalone.ts",
     // The home page, not /api/health: with the database down, the smoke test should fail on
     // the health assertion, not time out waiting for the server.
     url: baseURL,
-    env: { PORT: String(port), HOSTNAME: "127.0.0.1" },
+    // A made-up key: it switches AI-suggested mappings on, and only the fake ever sees it.
+    env: { PORT: String(port), HOSTNAME: "127.0.0.1", OPENAI_API_KEY: "sk-e2e-not-a-real-key" },
     reuseExistingServer: false,
     timeout: 60_000,
   },
