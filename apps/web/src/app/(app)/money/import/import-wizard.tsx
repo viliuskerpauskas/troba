@@ -378,6 +378,11 @@ function SuggestionNote({ suggestion }: { suggestion: Suggestion }) {
           file&apos;s columns and a few masked rows. Nothing is saved or imported until you press
           save, and every field can be changed.
         </>
+      ) : suggestion === "capped" ? (
+        <>
+          You&apos;ve used today&apos;s AI mapping suggestions, so the form is blank. Fill it in
+          below, or try again tomorrow.
+        </>
       ) : (
         <>
           AI couldn&apos;t suggest a mapping for this file, so the form is blank. Fill it in below.

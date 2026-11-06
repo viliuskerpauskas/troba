@@ -111,6 +111,20 @@ export const moneyImportProfiles = pgTable(
   ],
 );
 
+// One row per AI mapping the model was asked for (T128, ADR-0015), counted per user over the last
+// day to cap what one account can spend. Rows older than a day are deleted as new ones come.
+export const moneyAiMappingUses = pgTable(
+  "money_ai_mapping_uses",
+  {
+    id: id(),
+    userId: userId(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("money_ai_mapping_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const moneyImports = pgTable(
   "money_imports",
   {

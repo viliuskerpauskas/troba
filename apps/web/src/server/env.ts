@@ -66,3 +66,13 @@ export function openAiConfig(): OpenAiConfig | null {
 export function aiMappingEnabled(): boolean {
   return openAiConfig() !== null;
 }
+
+// How many AI-suggested mappings one user gets in a day (ADR-0015), so one account can't run up the
+// owner's bill. AI_MAPPING_DAILY_LIMIT overrides it; anything but a whole number from 1 up is
+// ignored.
+export const defaultAiMappingDailyLimit = 20;
+
+export function aiMappingDailyLimit(): number {
+  const limit = Number(process.env.AI_MAPPING_DAILY_LIMIT?.trim());
+  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiMappingDailyLimit;
+}

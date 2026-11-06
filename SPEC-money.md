@@ -218,7 +218,7 @@ export async function monthlySpending(db: Db, userId: string, month: string /* Y
 
 0. **Reporting date:** `booked_on` = the transaction date when the profile maps one (when you spent), else the booking date.
 1. **Import format:** CSV only, through import profiles: the user's own, copies of built-in presets, or AI-suggested ones the user confirmed. Bank names appear only in preset data files, never in code, tests, fixtures or docs ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)); real exports and notes live in gitignored `.private/`. PDF statements are out of scope.
-1a. **AI-suggested mapping (2026-11-06):** off unless the server sets `OPENAI_API_KEY`; a scrubbed sample of an unknown format may be sent to OpenAI, and a proposal never takes effect without the user's save ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)).
+1a. **AI-suggested mapping (2026-11-06):** off unless the server sets `OPENAI_API_KEY`; a scrubbed sample of an unknown format may be sent to OpenAI, and each user gets 20 a day by default (`AI_MAPPING_DAILY_LIMIT` overrides it), and a proposal never takes effect without the user's save ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)).
 2. **No background worker in v1.** Imports run synchronously in the web request. `apps/worker` arrives with `receipts-ocr`.
 3. **Deleted imported transactions come back on re-import.** No tombstones in v1.
 4. **Currency:** reports use the account-currency amount the bank charged. The original currency is kept for display. Accounts in other currencies get separate totals, with no FX conversion.

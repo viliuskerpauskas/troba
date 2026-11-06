@@ -12,6 +12,7 @@ export * from "./money/cents";
 export * from "./money/defaults";
 export * from "./money/iban";
 export * from "./money/import/ai-mapping";
+export * from "./money/import/ai-mapping-limit";
 export * from "./money/import/csv";
 export * from "./money/import/import";
 export * from "./money/import/presets";
