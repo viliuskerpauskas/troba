@@ -70,6 +70,20 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
       expect(result.rows).toHaveLength(table.rows.length);
     });
 
+    it("reads a signed amount with its own sign", () => {
+      if (preset.profile.columns.debitCredit !== undefined) return;
+      const { table, result } = parsed();
+      const column = table.headers.indexOf(preset.profile.columns.amount);
+      const signs = table.rows.map((row, i) => {
+        const negative = row[column]!.trim().startsWith("-");
+        expect(result.rows[i]!.amountCents < 0n).toBe(negative);
+        return negative;
+      });
+      // The fixture has money out and money in, so a sign read the wrong way shows.
+      expect(signs).toContain(true);
+      expect(signs).toContain(false);
+    });
+
     it("reads the debit values the right way", () => {
       const { table, result } = parsed();
       const indicator = preset.profile.columns.debitCredit;
@@ -83,3 +97,30 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
     });
   },
 );
+
+// Presets are found by their headers, so no two may be told apart by anything else.
+describe("the presets together", () => {
+  const fixtureOf = (id: string) =>
+    readFileSync(path.join(import.meta.dirname, `${id}.fixture.csv`));
+
+  it("have their own ids and fingerprints", () => {
+    expect(new Set(importPresets.map((preset) => preset.id)).size).toBe(importPresets.length);
+    expect(new Set(importPresets.map((preset) => preset.fingerprint)).size).toBe(
+      importPresets.length,
+    );
+  });
+
+  it.each(importPresets.map((preset) => [preset.id, preset] as const))(
+    "never match another preset's file: %s",
+    (id, preset) => {
+      const bytes = fixtureOf(id);
+      for (const other of importPresets.filter((candidate) => candidate.id !== id)) {
+        // Each is read with its own settings, as the upload flow does.
+        const table = readCsvHeaders(bytes, other.profile);
+        expect(table.ok && headerFingerprint(table.headers)).not.toBe(other.fingerprint);
+      }
+      const own = readCsvHeaders(bytes, preset.profile);
+      expect(own.ok && headerFingerprint(own.headers)).toBe(preset.fingerprint);
+    },
+  );
+});

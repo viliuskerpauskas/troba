@@ -113,6 +113,19 @@ describe("proposeMapping", () => {
     expect(proposal).toMatchObject({ rows: dataRows.length, failed: 1 });
   });
 
+  it("accepts a date format with a time part when the file's dates have one", async () => {
+    const rows = dataRows.map(({ cells: [, ...rest] }, i) => ({
+      cells: [`2024-01-${String(15 + i).padStart(2, "0")} 10:30:05`, ...rest],
+    }));
+    const client = fakeClient({ ...goodAnswer, dateFormat: "YYYY-MM-DD HH:mm:ss" });
+
+    const proposal = await proposeMapping(csv({ rows }), { client });
+
+    expect(proposal).toMatchObject({ rows: dataRows.length, failed: 0 });
+    expect(proposal!.profile.dateFormat).toBe("YYYY-MM-DD HH:mm:ss");
+    expect(client.requests[0]!.sample.rows[0]![0]).toBe("2024-01-15 10:30:05");
+  });
+
   it("hands the client no IBAN, long digit run, free-text word or preamble line", async () => {
     const client = fakeClient(goodAnswer);
 

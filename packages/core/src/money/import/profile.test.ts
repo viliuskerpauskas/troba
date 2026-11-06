@@ -327,6 +327,70 @@ describe("parseRows", () => {
     });
   });
 
+  describe("a date with a time part", () => {
+    const profile: ImportProfile = {
+      ...signedProfile,
+      skipLines: 0,
+      delimiter: ",",
+      decimalSeparator: ".",
+      dateFormat: "YYYY-MM-DD HH:mm:ss",
+      columns: { bookingDate: "Date", amount: "Amount" },
+    };
+    const read = (...dates: string[]) => {
+      const text = ["Date,Amount", ...dates.map((date) => `${date},1.00`)].join("\n");
+      const result = parseRows(profile, table(text, profile), euro);
+      if (!result.ok) throw new Error(result.reason);
+      return result;
+    };
+
+    it("is a format a profile can name", () => {
+      expect(importProfileSchema.safeParse(profile).success).toBe(true);
+    });
+
+    it("reads the date and ignores the time", () => {
+      const result = read("2026-03-04 09:15:30", "2026-03-04 23:59:59", "2026-03-05 00:00:00");
+
+      expect(result.failed).toEqual([]);
+      expect(result.rows.map((row) => row.bookedOn)).toEqual([
+        "2026-03-04",
+        "2026-03-04",
+        "2026-03-05",
+      ]);
+    });
+
+    it("leaves the time out of the dedup key: rows equal but for it are numbered, not merged", () => {
+      const result = read("2026-03-04 09:15:30", "2026-03-04 09:15:31");
+
+      expect(new Set(result.rows.map((row) => row.dedupKey)).size).toBe(2);
+    });
+
+    it.each([
+      ["an hour past 23", "2026-03-04 24:00:00"],
+      ["a minute past 59", "2026-03-04 10:60:00"],
+      ["a second past 59", "2026-03-04 10:00:60"],
+      ["a day that does not exist", "2026-02-30 10:00:00"],
+      ["no time", "2026-03-04"],
+      ["no seconds", "2026-03-04 10:15"],
+      ["a T between date and time", "2026-03-04T10:15:30"],
+      ["a slash in the date", "2026/03/04 10:15:30"],
+      ["a dot in the time", "2026-03-04 10.15.30"],
+      ["a time zone", "2026-03-04 10:15:30Z"],
+    ])("refuses %s", (_name, date) => {
+      expect(read(date).failed).toEqual([{ row: 1, reason: "invalid-date" }]);
+    });
+
+    it("is not read by a profile of a date-only format", () => {
+      const dateOnly: ImportProfile = { ...profile, dateFormat: "YYYY-MM-DD" };
+      const result = parseRows(
+        dateOnly,
+        table("Date,Amount\n2026-03-04 09:15:30,1.00", dateOnly),
+        euro,
+      );
+
+      expect(result.ok && result.failed).toEqual([{ row: 1, reason: "invalid-date" }]);
+    });
+  });
+
   it("reports rows it can't read, with a reason, and parses the rest", () => {
     const profile: ImportProfile = {
       ...debitCreditProfile,

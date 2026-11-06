@@ -256,6 +256,42 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
 });
 
+test("reads a known bank's file with signed amounts that names no account, and the user picks one", async ({
+  page,
+}) => {
+  const preset = importPresets.find(
+    (candidate) => candidate.profile.columns.debitCredit === undefined,
+  )!;
+  const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
+  await signIn(page, "e2e-import-preset-2@example.test", "198.51.100.28");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // No mapping step, and no IBAN in the file: the user picks one of their accounts.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
+  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expect(page.getByText("This file doesn't say which account it's for.")).toBeVisible();
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+
+  await expect(page.getByText("Account: Cash")).toBeVisible();
+  await expectSummary(page, { "Rows in the file": 10, New: 10, "Can't be read": 0 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "Import 10 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 10 transactions into Cash.");
+
+  // Signed amounts kept their sign, and the date is the day the payment started.
+  await page.getByRole("link", { name: "View transactions" }).click();
+  const list = page.getByRole("list", { name: "Transactions, newest first" }).getByRole("listitem");
+  await expect(list).toHaveCount(10);
+  const item = (text: string) => list.filter({ hasText: text });
+  await expect(item("-€9.99")).toContainText("2026-09-30");
+  await expect(item("-€9.99")).toContainText("EXAMPLE STREAMING");
+  await expect(item("EXAMPLE CLIENT LTD")).toContainText("2026-09-30");
+  await expect(item("EXAMPLE CLIENT LTD")).toContainText("+€1,250.00");
+});
+
 // Fictional: a format no preset knows, which the fake model in e2e/fake-openai.ts maps correctly.
 const modelKnown = {
   name: "statement.csv",
