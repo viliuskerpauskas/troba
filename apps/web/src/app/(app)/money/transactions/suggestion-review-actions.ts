@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  acceptAllSuggestions,
   acceptSuggestion,
   aiCategorizationEnabledFor,
   dismissSuggestion,
@@ -57,6 +58,31 @@ export async function acceptSuggestionAction(transactionId: string): Promise<Rev
   return {
     ok: true,
     message: `Categorized ${transactions(result.rows)} as ${result.categoryName}.`,
+  };
+}
+
+// "Accept all": gives every row that still carries a suggestion its suggested category. The page
+// asks for confirmation first, naming the count it showed; what is applied is whatever is still
+// pending now, and the sentence reports that. Refused, with nothing changed, when the server has
+// no key or the user turned suggestions off, as the other asking controls are.
+export async function acceptAllSuggestionsAction(): Promise<ReviewState> {
+  const { userId } = await requireUser();
+  if (!categorizationModelClient() || !(await aiCategorizationEnabledFor(db(), userId))) {
+    return { ok: false, message: "AI suggestions are turned off, so nothing was changed." };
+  }
+
+  const result = await acceptAllSuggestions(db(), userId);
+  if (result.rows === 0) {
+    // The strip that offered this is out of date; redraw it.
+    revalidatePath("/money/transactions");
+    return { ok: false, message: "No suggestions are waiting, so nothing was changed." };
+  }
+  revalidatePath("/money/transactions");
+  revalidatePath("/money/report");
+  const merchants = result.merchants === 1 ? "1 merchant" : `${result.merchants} merchants`;
+  return {
+    ok: true,
+    message: `Categorized ${transactions(result.rows)} from ${merchants}.`,
   };
 }
 
