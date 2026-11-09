@@ -49,8 +49,9 @@ export function gitSha(): string {
   return process.env.GIT_SHA || "dev";
 }
 
-// The model that suggests a column mapping for an unknown CSV format (ADR-0015). The owner's choice;
-// OPENAI_MODEL overrides it, and it must support structured JSON output.
+// The model that suggests a column mapping for an unknown CSV format (ADR-0015) and categories for
+// transactions (ADR-0016). The owner's choice; OPENAI_MODEL overrides it, and it must support
+// structured JSON output.
 export const defaultOpenAiModel = "5.6-luna";
 
 export type OpenAiConfig = { apiKey: string; model: string };
@@ -64,6 +65,12 @@ export function openAiConfig(): OpenAiConfig | null {
 }
 
 export function aiMappingEnabled(): boolean {
+  return openAiConfig() !== null;
+}
+
+// The same key switches on AI-suggested transaction categories (ADR-0016): off, the transactions
+// list shows no button and says nothing about the feature.
+export function aiCategorizationEnabled(): boolean {
   return openAiConfig() !== null;
 }
 
