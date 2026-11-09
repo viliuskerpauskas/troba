@@ -3,6 +3,7 @@ import {
   listAccounts,
   listCategories,
   listTransactions,
+  setAiCategorization,
   type CategorizationModelClient,
   type CategorizationRequest,
 } from "@troba/core";
@@ -19,6 +20,7 @@ const session = vi.hoisted(() => ({ userId: "" }));
 const server = vi.hoisted(() => ({
   db: undefined as unknown,
   client: null as CategorizationModelClient | null,
+  clientBuilt: 0,
 }));
 
 vi.mock("@/server/session", () => ({
@@ -26,7 +28,10 @@ vi.mock("@/server/session", () => ({
 }));
 vi.mock("@/server/db", () => ({ db: () => server.db }));
 vi.mock("@/server/openai-categorization", () => ({
-  categorizationModelClient: () => server.client,
+  categorizationModelClient: () => {
+    server.clientBuilt++;
+    return server.client;
+  },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
@@ -104,6 +109,7 @@ beforeEach(async () => {
   session.userId = user.userId;
   server.client = null;
   vi.unstubAllEnvs();
+  server.clientBuilt = 0;
 });
 
 describe("suggestCategoriesAction", () => {
@@ -276,5 +282,28 @@ describe("suggestCategoriesAction", () => {
     expect(await listTransactions(db, other.userId)).toEqual([
       expect.objectContaining({ suggestedCategoryId: null }),
     ]);
+  });
+
+  it("does nothing for a user who turned AI categorization off, not even building the client, while another user is served", async () => {
+    const other = await createUser("Other Person");
+    await importedRow(user, "GROCERY MART");
+    await importedRow(other, "CORNER CAFE");
+    await setAiCategorization(db, user.userId, false);
+    const model = fakeModel(everythingIn("Food"));
+    server.client = model.client;
+
+    const refused = await actions.suggestCategoriesAction();
+
+    expect(refused).toEqual({ status: "off", message: "" });
+    expect(server.clientBuilt).toBe(0);
+    expect(model.requests).toHaveLength(0);
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ suggestedCategoryId: null }),
+    ]);
+
+    session.userId = other.userId;
+    const served = await actions.suggestCategoriesAction();
+    expect(served).toEqual({ status: "suggested", message: "1 transaction has a suggestion." });
+    expect(model.requests).toHaveLength(1);
   });
 });

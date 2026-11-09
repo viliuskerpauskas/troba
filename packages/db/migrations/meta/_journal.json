@@ -61,8 +61,15 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1794234537532,
-      "tag": "0008_ai_categorize_uses",
+      "when": 1794234527250,
+      "tag": "0008_daily_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794235064831,
+      "tag": "0009_ai_categorize_uses",
       "breakpoints": true
     }
   ]

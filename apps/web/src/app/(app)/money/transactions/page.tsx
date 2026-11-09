@@ -1,4 +1,10 @@
-import { listAccounts, listCategories, listTransactions, transactionListLimit } from "@troba/core";
+import {
+  aiCategorizationEnabledFor,
+  listAccounts,
+  listCategories,
+  listTransactions,
+  transactionListLimit,
+} from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Page } from "@/components/page";
@@ -21,7 +27,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
   const query = parseListQuery(await searchParams);
   const { page, ...filter } = query;
   const filtered = Object.keys(filter).length > 0;
-  const [accounts, categories, rows] = await Promise.all([
+  const [accounts, categories, rows, userOptedIn] = await Promise.all([
     // Archived accounts keep their transactions, so they stay in the filter.
     listAccounts(db(), userId, { includeArchived: true }),
     listCategories(db(), userId),
@@ -31,10 +37,14 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       limit: transactionListLimit + 1,
       offset: (page - 1) * transactionListLimit,
     }),
+    aiCategorizationEnabledFor(db(), userId),
   ]);
   const transactions = rows.slice(0, transactionListLimit);
   // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
   const aiEnabled = aiCategorizationEnabled();
+  // A user who opted out gets no button and no control that asks or accepts, but suggestions they
+  // already have stay visible (and, once they can be dismissed, stay dismissable).
+  const aiOffered = aiEnabled && userOptedIn;
 
   return (
     <Page>
@@ -47,7 +57,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
           Import a bank statement
         </Link>
       </div>
-      <SuggestCategories enabled={aiEnabled} />
+      <SuggestCategories enabled={aiOffered} />
 
       <form method="get" aria-label="Filter transactions" className="grid gap-4 sm:grid-cols-2">
         <Field>

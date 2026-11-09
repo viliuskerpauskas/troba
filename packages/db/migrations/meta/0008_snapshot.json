@@ -1,5 +1,5 @@
 {
-  "id": "f425929e-2ba5-453a-8066-0207714c89fa",
+  "id": "a37dd86d-51b0-4bb5-b451-d43df7e1dc6c",
   "prevId": "190b9e80-12c4-4c19-8fff-f17bafa13b5b",
   "version": "7",
   "dialect": "postgresql",
@@ -592,6 +592,13 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "ai_categorization": {
+          "name": "ai_categorization",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         }
       },
       "indexes": {},
@@ -801,81 +808,6 @@
           "value": "\"money_accounts\".\"iban\" is null or \"money_accounts\".\"type\" = 'bank'"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.money_ai_categorize_uses": {
-      "name": "money_ai_categorize_uses",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "merchants": {
-          "name": "merchants",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "money_ai_categorize_uses_user_id_created_at_idx": {
-          "name": "money_ai_categorize_uses_user_id_created_at_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "money_ai_categorize_uses_user_id_users_id_fk": {
-          "name": "money_ai_categorize_uses_user_id_users_id_fk",
-          "tableFrom": "money_ai_categorize_uses",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.money_ai_mapping_uses": {

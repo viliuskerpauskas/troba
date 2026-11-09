@@ -2,6 +2,7 @@ import { schema, type Db } from "@troba/db";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { claimAiCategorizeMerchants, defaultAiCategorizeDailyLimit } from "./ai-categories-limit";
+import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 import { maskMerchantText } from "./ai-categories-mask";
 import { listCategories } from "./categories";
 import { listRules, matchingRule } from "./rules";
@@ -145,6 +146,11 @@ type Merchant = {
 // card or merchant row (an imported one with no counterparty IBAN, so not a direct transfer) with
 // some text, and never asked about. Rows of one merchant, by counterparty ignoring case (the
 // description when there is none), are asked once. Never throws.
+//
+// A user who turned AI categorization off (setting on the user, default on) is the first check:
+// nothing is read for them and the client is never called, whoever calls this. It is checked again
+// before each request, so opting out stops a run that is under way. The result is then the
+// "nothing to ask" one.
 export async function suggestCategories(
   db: Db,
   userId: string,
@@ -165,6 +171,7 @@ export async function suggestCategories(
   };
 
   try {
+    if (!(await aiCategorizationEnabledFor(db, userId))) return result;
     const categories = (await listCategories(db, userId)).filter(
       (category) => !category.excludedFromSpending,
     );
@@ -175,6 +182,9 @@ export async function suggestCategories(
 
     const merchants = await findMerchants(db, userId, { importId, limit: maxMerchants });
     for (let i = 0; i < merchants.length; i += categorizationBatchSize) {
+      // The user may have turned the feature off while an earlier batch was out: nothing more is
+      // claimed or sent.
+      if (i > 0 && !(await aiCategorizationEnabledFor(db, userId))) return result;
       const wanted = merchants.slice(i, i + categorizationBatchSize);
       // Claimed just before the call, so a run that never reaches the model costs nothing and
       // concurrent runs can't slip under the limit. Only what fits is sent.

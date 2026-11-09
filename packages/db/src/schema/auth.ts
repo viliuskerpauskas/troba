@@ -27,6 +27,9 @@ export const users = pgTable(
     // When a session was last created or refreshed (server/auth.ts), for the admin users list.
     // Kept on the user because sessions are deleted on sign-out and when a user is disabled.
     lastActiveAt: timestamptz("last_active_at"),
+    // The user's own switch for AI-suggested transaction categories (ADR-0016). On by default; it
+    // only matters when the server has an OpenAI key. Off, nothing of theirs is ever sent.
+    aiCategorization: boolean("ai_categorization").default(true).notNull(),
   },
   (table) => [check("users_role_check", sql`${table.role} in ('admin', 'user')`)],
 );

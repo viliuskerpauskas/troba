@@ -1,11 +1,15 @@
+import { aiCategorizationEnabledFor } from "@troba/core";
 import type { Metadata } from "next";
 import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { getProfile, listSessions } from "@/server/account";
 import { passwordLength } from "@/server/auth";
+import { db } from "@/server/db";
+import { aiCategorizationEnabled } from "@/server/env";
 import { authHeaders, requireUser } from "@/server/session";
 import { revoke, signOutAll } from "./actions";
+import { AiCategorizationForm } from "./ai-categorization-form";
 import { DeleteAccountForm } from "./delete-account-form";
 import { NameForm } from "./name-form";
 import { PasswordForm } from "./password-form";
@@ -15,11 +19,14 @@ export const metadata: Metadata = { title: "Settings · troba" };
 const dateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
 
 export default async function SettingsPage() {
-  await requireUser();
+  const { userId } = await requireUser();
+  // With no key on the server the feature isn't mentioned, so its setting isn't either.
+  const aiAvailable = aiCategorizationEnabled();
   const requestHeaders = await authHeaders();
-  const [profile, sessions] = await Promise.all([
+  const [profile, sessions, aiOn] = await Promise.all([
     getProfile(requestHeaders),
     listSessions(requestHeaders),
+    aiAvailable ? aiCategorizationEnabledFor(db(), userId) : false,
   ]);
 
   return (
@@ -37,6 +44,19 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      {aiAvailable && (
+        <section aria-labelledby="ai-suggestions">
+          <Card>
+            <CardHeader>
+              <h2 id="ai-suggestions">AI suggestions</h2>
+            </CardHeader>
+            <CardContent>
+              <AiCategorizationForm enabled={aiOn} />
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <section aria-labelledby="password">
         <Card>
