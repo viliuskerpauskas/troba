@@ -108,6 +108,7 @@ beforeEach(async () => {
   user = await createUser("Example User");
   session.userId = user.userId;
   server.client = null;
+  vi.unstubAllEnvs();
   server.clientBuilt = 0;
 });
 
@@ -203,6 +204,56 @@ describe("suggestCategoriesAction", () => {
       message:
         "50 transactions have a suggestion. The model then stopped answering; try again later for the rest.",
     });
+  });
+
+  it("says the limit is reached when it stops the run, keeps what was suggested and leaves the rest alone", async () => {
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", "2");
+    await importedRow(user, "SHOP 001");
+    await importedRow(user, "SHOP 002");
+    await importedRow(user, "SHOP 003");
+    server.client = fakeModel(everythingIn("Food")).client;
+
+    const state = await actions.suggestCategoriesAction();
+
+    expect(state).toEqual({
+      status: "capped",
+      message:
+        "2 transactions have a suggestion. The daily limit on AI suggestions is reached, so the rest stays uncategorized for now.",
+    });
+    const rows = await db.select().from(schema.moneyTransactions);
+    expect(rows.filter((row) => row.userId === user.userId && !row.suggestionAskedAt)).toHaveLength(
+      1,
+    );
+  });
+
+  it("says the limit is reached, and doesn't call the model, once the day's allowance is spent", async () => {
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", "1");
+    await importedRow(user, "SHOP 001");
+    await db.insert(schema.moneyAiCategorizeUses).values({ userId: user.userId, merchants: 1 });
+    const model = fakeModel(everythingIn("Food"));
+    server.client = model.client;
+
+    const state = await actions.suggestCategoriesAction();
+
+    expect(state).toEqual({
+      status: "capped",
+      message:
+        "The daily limit on AI suggestions is reached, so these transactions stay uncategorized for now. Try again later.",
+    });
+    expect(model.requests).toHaveLength(0);
+  });
+
+  it("counts the limit in the environment variable's merchants, defaulting to 200", async () => {
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", "not a number");
+    await db.insert(schema.moneyAiCategorizeUses).values({ userId: user.userId, merchants: 199 });
+    await importedRow(user, "SHOP 001");
+    await importedRow(user, "SHOP 002");
+    server.client = fakeModel(everythingIn("Food")).client;
+
+    const state = await actions.suggestCategoriesAction();
+
+    expect(state.status).toBe("capped");
+    expect(state.message).toContain("1 transaction has a suggestion.");
   });
 
   it("does nothing without a model client, as when the server has no key", async () => {

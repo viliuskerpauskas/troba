@@ -125,6 +125,22 @@ export const moneyAiMappingUses = pgTable(
   ],
 );
 
+// One row per model call for AI-suggested categories (T138, ADR-0016): how many merchants it
+// carried, counted per user over the last day to cap what one account can spend. Rows older than a
+// day are deleted as new ones come.
+export const moneyAiCategorizeUses = pgTable(
+  "money_ai_categorize_uses",
+  {
+    id: id(),
+    userId: userId(),
+    merchants: integer("merchants").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("money_ai_categorize_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const moneyImports = pgTable(
   "money_imports",
   {

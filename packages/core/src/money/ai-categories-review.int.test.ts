@@ -310,7 +310,7 @@ describe("reviewing suggested categories", () => {
       };
       const result = await suggestCategories(db, user.userId, { client });
 
-      expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 2, failed: false });
+      expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 2, failed: false, capped: false });
       expect(
         requests.flatMap((r) => r.payload.merchants.map((m) => m.counterparty)).sort(),
       ).toEqual(["GROCERY MART", "MYSTERY SHOP"]);
