@@ -1,6 +1,6 @@
 "use client";
 
-import type { DateFormat, ImportField } from "@troba/core";
+import type { AfterImportSuggestions, DateFormat, ImportField } from "@troba/core";
 import Link from "next/link";
 import {
   startTransition,
@@ -45,7 +45,13 @@ import {
   type PreviewView,
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
-import { failureReasons, suggestionNotes, tooLargeMessage, type Suggestion } from "./messages";
+import {
+  afterImportNote,
+  failureReasons,
+  suggestionNotes,
+  tooLargeMessage,
+  type Suggestion,
+} from "./messages";
 
 type ProfileOption = { id: string; name: string };
 
@@ -73,12 +79,16 @@ export function ImportWizard({
   dateFormats,
   maxBytes,
   aiEnabled,
+  categorizeEnabled,
 }: {
   profiles: ProfileOption[];
   dateFormats: readonly DateFormat[];
   maxBytes: number;
   // The server has a key for AI-suggested mappings, so the upload step says what is sent.
   aiEnabled: boolean;
+  // The server has a key and this user hasn't opted out of AI-suggested categories, so the upload
+  // step says what is sent for them, before the file is chosen.
+  categorizeEnabled: boolean;
 }) {
   const [state, dispatch, pending] = useActionState(run, firstStep);
   // The file the user chose, sent again with every step: the server keeps nothing between them.
@@ -110,11 +120,13 @@ export function ImportWizard({
   // that is already on the page: one inserted together with its text is often not announced. Not
   // role="status", which the step's own messages (FormStatus) use.
   const suggestion = state.step === "mapping" ? state.suggestion : undefined;
+  // The same, for the note under the import result.
+  const importNote = state.step === "done" ? afterImportNote(state.suggestions) : null;
 
   return (
     <>
       <p aria-live="polite" aria-atomic="true" className="sr-only">
-        {suggestion && noteText(suggestion)}
+        {suggestion ? noteText(suggestion) : importNote}
       </p>
       <div ref={stepStart} tabIndex={-1} className="outline-none">
         {renderStep()}
@@ -123,6 +135,12 @@ export function ImportWizard({
   );
 
   function renderStep() {
+    const describedBy = [
+      aiEnabled && "import-ai-disclosure",
+      categorizeEnabled && "import-categorize-disclosure",
+    ]
+      .filter(Boolean)
+      .join(" ");
     switch (state.step) {
       case "upload":
         return (
@@ -136,7 +154,7 @@ export function ImportWizard({
                   name="file"
                   accept=".csv,text/csv"
                   required
-                  aria-describedby={aiEnabled ? "import-ai-disclosure" : undefined}
+                  aria-describedby={describedBy || undefined}
                   onChange={(event) => {
                     setFile(event.currentTarget.files?.[0] ?? null);
                     setTooLarge(false);
@@ -147,6 +165,17 @@ export function ImportWizard({
                     If troba doesn&apos;t know the file&apos;s format, its column names and a few
                     rows, with names, merchants and account numbers masked, are sent to OpenAI to
                     suggest how to map the columns. Nothing is sent for formats troba knows.
+                  </FieldDescription>
+                )}
+                {categorizeEnabled && (
+                  <FieldDescription id="import-categorize-disclosure">
+                    After the import is saved, the counterparty and description of the new
+                    transactions that no rule matched are sent to OpenAI, with your own name and
+                    account numbers masked, so it can suggest a category for each. Rows that show
+                    the other party&apos;s IBAN (transfers) and manual entries are not sent. A
+                    payment to a person that shows no IBAN is sent, and a name inside a merchant
+                    string might get through. A suggestion never changes a category until you accept
+                    it. You can turn this off in your settings.
                   </FieldDescription>
                 )}
               </Field>
@@ -197,6 +226,7 @@ export function ImportWizard({
                 ` Skipped ${count(state.rowsDuplicate, "row")} already imported.`}
               {state.rowsFailed > 0 && ` ${count(state.rowsFailed, "row")} couldn't be read.`}
             </FormStatus>
+            <AfterImportNote suggestions={state.suggestions} />
             <p>
               <Link href="/money/transactions">View transactions</Link>
             </p>
@@ -375,6 +405,14 @@ function MappingForm({
       </FieldGroup>
     </form>
   );
+}
+
+// Shown under the import result. Screen readers get it from the wizard's live region (see
+// ImportWizard), so it isn't one itself and is not read twice. Nothing when there is nothing to say.
+export function AfterImportNote({ suggestions }: { suggestions: AfterImportSuggestions }) {
+  const text = afterImportNote(suggestions);
+  if (!text) return null;
+  return <p className="rounded-lg border bg-muted px-3 py-2 text-sm">{text}</p>;
 }
 
 function noteText(suggestion: Suggestion): string {

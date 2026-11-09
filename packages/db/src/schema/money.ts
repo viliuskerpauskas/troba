@@ -125,6 +125,22 @@ export const moneyAiMappingUses = pgTable(
   ],
 );
 
+// One row per model call for AI-suggested categories (T138, ADR-0016): how many merchants it
+// carried, counted per user over the last day to cap what one account can spend. Rows older than a
+// day are deleted as new ones come.
+export const moneyAiCategorizeUses = pgTable(
+  "money_ai_categorize_uses",
+  {
+    id: id(),
+    userId: userId(),
+    merchants: integer("merchants").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("money_ai_categorize_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const moneyImports = pgTable(
   "money_imports",
   {
@@ -175,6 +191,15 @@ export const moneyTransactions = pgTable(
       onDelete: "set null",
     }),
     categorySource: text("category_source", { enum: categorySources }),
+    // A category the model proposed (T135, ADR-0016). It exists only while the row has no category
+    // of its own: every write that sets one clears it, and the check below refuses both at once.
+    // The row stays out of the category totals until the user accepts it.
+    suggestedCategoryId: uuid("suggested_category_id").references(() => moneyCategories.id, {
+      onDelete: "set null",
+    }),
+    // When the row's merchant was sent to the model. Null: never asked. A merchant the model
+    // couldn't place, or a suggestion the user dismissed, stays marked so it isn't sent again.
+    suggestionAskedAt: timestamptz("suggestion_asked_at"),
     note: text("note"),
     source: text("source", { enum: transactionSources }).notNull(),
     importId: uuid("import_id").references(() => moneyImports.id, { onDelete: "set null" }),
@@ -196,6 +221,13 @@ export const moneyTransactions = pgTable(
     // (a user's deletion cascades to all three); without them each one scans every user's rows.
     index("money_transactions_account_id_idx").on(table.accountId),
     index("money_transactions_category_id_idx").on(table.categoryId),
+    index("money_transactions_suggested_category_id_idx").on(table.suggestedCategoryId),
+    // The pending suggestions of one user: counted on every render of the transactions list and
+    // paged by "accept all". A user's suggestions are few next to their history, so this stays
+    // small where an index over every row would not.
+    index("money_transactions_pending_suggestion_idx")
+      .on(table.userId)
+      .where(sql`${table.suggestedCategoryId} is not null`),
     index("money_transactions_import_id_idx").on(table.importId),
     check("money_transactions_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check(
@@ -205,6 +237,10 @@ export const moneyTransactions = pgTable(
     check(
       "money_transactions_category_source_check",
       sql`${table.categorySource} is null or ${table.categorySource} in (${oneOf(categorySources)})`,
+    ),
+    check(
+      "money_transactions_suggestion_check",
+      sql`${table.suggestedCategoryId} is null or ${table.categoryId} is null`,
     ),
     check(
       "money_transactions_source_check",

@@ -14,6 +14,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       AI_MAPPING_DAILY_LIMIT: ${AI_MAPPING_DAILY_LIMIT:-}
+      AI_CATEGORIZE_DAILY_LIMIT: ${AI_CATEGORIZE_DAILY_LIMIT:-}
     volumes:
       # A named volume starts as a copy of the image's /data/uploads, so it's owned by node (uid 1000).
       - uploads:/data/uploads

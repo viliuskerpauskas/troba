@@ -1,4 +1,11 @@
-import { listAccounts, listCategories, listTransactions, transactionListLimit } from "@troba/core";
+import {
+  aiCategorizationEnabledFor,
+  countPendingSuggestions,
+  listAccounts,
+  listCategories,
+  listTransactions,
+  transactionListLimit,
+} from "@troba/core";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Page } from "@/components/page";
@@ -7,9 +14,16 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { db } from "@/server/db";
+import { aiCategorizationEnabled } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
 import { parseListQuery, searchMaxLength, transactionsHref } from "./params";
+import { AcceptAll } from "./accept-all";
+import { AskAgain } from "./ask-again";
+import { SuggestCategories, SuggestionChip } from "./suggest-categories";
+import { rowElementId } from "./row-id";
+import { SuggestionControls } from "./suggestion-controls";
+import { SuggestionNotice } from "./suggestion-notice";
 
 export const metadata: Metadata = { title: "Transactions · troba" };
 
@@ -19,7 +33,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
   const query = parseListQuery(await searchParams);
   const { page, ...filter } = query;
   const filtered = Object.keys(filter).length > 0;
-  const [accounts, categories, rows] = await Promise.all([
+  const [accounts, categories, rows, userOptedIn, pendingSuggestions] = await Promise.all([
     // Archived accounts keep their transactions, so they stay in the filter.
     listAccounts(db(), userId, { includeArchived: true }),
     listCategories(db(), userId),
@@ -29,8 +43,17 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       limit: transactionListLimit + 1,
       offset: (page - 1) * transactionListLimit,
     }),
+    aiCategorizationEnabledFor(db(), userId),
+    // One aggregate over the user's rows, for the strip; never the rows themselves. Without a key
+    // the strip is never shown, so nothing is counted.
+    aiCategorizationEnabled() ? countPendingSuggestions(db(), userId) : null,
   ]);
   const transactions = rows.slice(0, transactionListLimit);
+  // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
+  const aiEnabled = aiCategorizationEnabled();
+  // A user who opted out gets no button and no control that asks or accepts, but suggestions they
+  // already have stay visible (and, once they can be dismissed, stay dismissable).
+  const aiOffered = aiEnabled && userOptedIn;
 
   return (
     <Page>
@@ -43,6 +66,12 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
           Import a bank statement
         </Link>
       </div>
+      {aiOffered && pendingSuggestions && (
+        <AcceptAll rows={pendingSuggestions.rows} merchants={pendingSuggestions.merchants} />
+      )}
+      <SuggestCategories enabled={aiOffered} />
+      <AskAgain enabled={aiOffered} />
+      <SuggestionNotice />
 
       <form method="get" aria-label="Filter transactions" className="grid gap-4 sm:grid-cols-2">
         <Field>
@@ -121,7 +150,12 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
               [transaction.counterparty, transaction.description].filter(Boolean).join(": ") ||
               "No description";
             return (
-              <li key={transaction.id} className="flex flex-col gap-1 px-4 py-3">
+              <li
+                key={transaction.id}
+                id={rowElementId(transaction.id)}
+                tabIndex={-1}
+                className="flex flex-col gap-1 px-4 py-3"
+              >
                 <Link
                   href={`/money/transactions/${transaction.id}`}
                   className="font-medium [overflow-wrap:anywhere] hover:underline"
@@ -132,12 +166,30 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
                   {title}
                 </Link>
                 <div className="text-sm text-muted-foreground">
-                  {transaction.categoryName ?? "Uncategorized"} ·{" "}
+                  {transaction.categoryName ?? "Uncategorized"}
+                  {aiEnabled && transaction.suggestedCategoryName && (
+                    <>
+                      {" "}
+                      <SuggestionChip categoryName={transaction.suggestedCategoryName} />
+                    </>
+                  )}{" "}
+                  ·{" "}
                   <strong className="text-foreground">
                     {formatAmount(transaction.amountCents, transaction.currency)}
                   </strong>
                   {transaction.hasReceipt && " · Receipt"}
                 </div>
+                {aiEnabled &&
+                  transaction.suggestedCategoryId &&
+                  transaction.suggestedCategoryName && (
+                    <SuggestionControls
+                      transactionId={transaction.id}
+                      suggestedCategoryId={transaction.suggestedCategoryId}
+                      categoryName={transaction.suggestedCategoryName}
+                      merchant={title}
+                      canAccept={aiOffered}
+                    />
+                  )}
               </li>
             );
           })}

@@ -233,7 +233,8 @@ async function categorize(
   for (const [categoryId, ids] of idsByCategory) {
     const updated = await tx
       .update(moneyTransactions)
-      .set({ categoryId, categorySource: "rule" })
+      // A rule's category replaces a model's suggestion.
+      .set({ categoryId, categorySource: "rule", suggestedCategoryId: null })
       .where(
         and(
           eq(moneyTransactions.userId, userId),

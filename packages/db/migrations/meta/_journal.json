@@ -50,6 +50,34 @@
       "when": 1793994143671,
       "tag": "0006_ai_mapping_uses",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794232936712,
+      "tag": "0007_ai_category_suggestions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794234527250,
+      "tag": "0008_daily_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794235064831,
+      "tag": "0009_ai_categorize_uses",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794255181833,
+      "tag": "0010_ai_pending_suggestion_index",
+      "breakpoints": true
     }
   ]
 }

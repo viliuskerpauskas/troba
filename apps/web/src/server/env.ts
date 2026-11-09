@@ -49,8 +49,9 @@ export function gitSha(): string {
   return process.env.GIT_SHA || "dev";
 }
 
-// The model that suggests a column mapping for an unknown CSV format (ADR-0015). The owner's choice;
-// OPENAI_MODEL overrides it, and it must support structured JSON output.
+// The model that suggests a column mapping for an unknown CSV format (ADR-0015) and categories for
+// transactions (ADR-0016). The owner's choice; OPENAI_MODEL overrides it, and it must support
+// structured JSON output.
 export const defaultOpenAiModel = "5.6-luna";
 
 export type OpenAiConfig = { apiKey: string; model: string };
@@ -67,6 +68,12 @@ export function aiMappingEnabled(): boolean {
   return openAiConfig() !== null;
 }
 
+// The same key switches on AI-suggested transaction categories (ADR-0016): off, the transactions
+// list shows no button and says nothing about the feature.
+export function aiCategorizationEnabled(): boolean {
+  return openAiConfig() !== null;
+}
+
 // How many AI-suggested mappings one user gets in a day (ADR-0015), so one account can't run up the
 // owner's bill. AI_MAPPING_DAILY_LIMIT overrides it; anything but a whole number from 1 up is
 // ignored.
@@ -75,4 +82,15 @@ export const defaultAiMappingDailyLimit = 20;
 export function aiMappingDailyLimit(): number {
   const limit = Number(process.env.AI_MAPPING_DAILY_LIMIT?.trim());
   return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiMappingDailyLimit;
+}
+
+// How many merchants one user gets categorized by AI in a day (ADR-0016), counted in merchants, so
+// one account can't run up the owner's bill. AI_CATEGORIZE_DAILY_LIMIT overrides it; anything but a
+// whole number from 1 up is ignored.
+// Matches core's default for a caller that passes no limit; env.ts stays free of core imports.
+export const defaultAiCategorizeDailyLimit = 200;
+
+export function aiCategorizeDailyLimit(): number {
+  const limit = Number(process.env.AI_CATEGORIZE_DAILY_LIMIT?.trim());
+  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiCategorizeDailyLimit;
 }

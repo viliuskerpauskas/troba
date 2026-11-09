@@ -2,8 +2,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  aiCategorizationEnabled,
+  aiCategorizeDailyLimit,
   aiMappingDailyLimit,
   aiMappingEnabled,
+  defaultAiCategorizeDailyLimit,
   defaultAiMappingDailyLimit,
   defaultOpenAiModel,
   openAiConfig,
@@ -57,6 +60,7 @@ describe("openAiConfig", () => {
     vi.stubEnv("OPENAI_API_KEY", undefined);
     expect(openAiConfig()).toBeNull();
     expect(aiMappingEnabled()).toBe(false);
+    expect(aiCategorizationEnabled()).toBe(false);
   });
 
   it("treats an empty or blank key as not set", () => {
@@ -69,6 +73,7 @@ describe("openAiConfig", () => {
     vi.stubEnv("OPENAI_MODEL", "");
     expect(openAiConfig()).toEqual({ apiKey: "sk-test", model: defaultOpenAiModel });
     expect(aiMappingEnabled()).toBe(true);
+    expect(aiCategorizationEnabled()).toBe(true);
 
     vi.stubEnv("OPENAI_MODEL", "other-model");
     expect(openAiConfig()?.model).toBe("other-model");
@@ -90,5 +95,23 @@ describe("aiMappingDailyLimit", () => {
   it.each(["", "0", "-3", "2.5", "many", "1e999"])("ignores %j", (value) => {
     vi.stubEnv("AI_MAPPING_DAILY_LIMIT", value);
     expect(aiMappingDailyLimit()).toBe(20);
+  });
+});
+
+describe("aiCategorizeDailyLimit", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is 200 merchants a day unless AI_CATEGORIZE_DAILY_LIMIT says otherwise", () => {
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", undefined);
+    expect(defaultAiCategorizeDailyLimit).toBe(200);
+    expect(aiCategorizeDailyLimit()).toBe(200);
+
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", " 50 ");
+    expect(aiCategorizeDailyLimit()).toBe(50);
+  });
+
+  it.each(["", "0", "-3", "2.5", "many", "1e999"])("ignores %j", (value) => {
+    vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", value);
+    expect(aiCategorizeDailyLimit()).toBe(200);
   });
 });

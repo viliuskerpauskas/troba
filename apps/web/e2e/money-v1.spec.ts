@@ -233,7 +233,7 @@ test("keeps keyboard focus where the page changed", async ({ page }) => {
   await page.goto("/money/transactions");
   await page
     .getByRole("list", { name: "Transactions, newest first" })
-    .getByRole("link", { name: /GROCERY MART: Card purchase/ })
+    .getByRole("link", { name: /^[\d-]+ GROCERY MART: Card purchase$/ })
     .click();
   await page.getByRole("button", { name: "Delete", exact: true }).press("Enter");
   await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();

@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
 import { and, desc, eq, gte, ilike, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { removeAttachmentFiles } from "./attachments";
 import { monthRange } from "./month";
 
@@ -7,6 +8,9 @@ import { monthRange } from "./month";
 // ones (csv_import) keep what the bank reported, so only their category and note change.
 
 const { moneyAccounts, moneyAttachments, moneyCategories, moneyTransactions } = schema;
+
+// The category a suggestion points at, beside the one the row has.
+const suggestedCategories = alias(moneyCategories, "suggested_category");
 
 export const transactionDirections = ["expense", "income"] as const;
 export type Direction = (typeof transactionDirections)[number];
@@ -25,6 +29,10 @@ export type Transaction = {
   categoryName: string | null;
   // Who set the category: rules never overwrite one set by hand.
   categorySource: (typeof schema.categorySources)[number] | null;
+  // A category the model suggested (ADR-0016), only ever on an uncategorized row. It is not the
+  // row's category: totals ignore it until the user accepts it.
+  suggestedCategoryId: string | null;
+  suggestedCategoryName: string | null;
   note: string | null;
   source: (typeof schema.transactionSources)[number];
   // At least one receipt attached (SPEC-money M6).
@@ -66,6 +74,8 @@ const transactionColumns = {
   categoryId: moneyTransactions.categoryId,
   categoryName: moneyCategories.name,
   categorySource: moneyTransactions.categorySource,
+  suggestedCategoryId: moneyTransactions.suggestedCategoryId,
+  suggestedCategoryName: suggestedCategories.name,
   note: moneyTransactions.note,
   source: moneyTransactions.source,
   hasReceipt: sql<boolean>`exists (
@@ -87,6 +97,13 @@ function selectTransactions(db: Db, userId: string, where?: SQL) {
     .leftJoin(
       moneyCategories,
       and(eq(moneyCategories.id, moneyTransactions.categoryId), eq(moneyCategories.userId, userId)),
+    )
+    .leftJoin(
+      suggestedCategories,
+      and(
+        eq(suggestedCategories.id, moneyTransactions.suggestedCategoryId),
+        eq(suggestedCategories.userId, userId),
+      ),
     )
     .where(and(eq(moneyTransactions.userId, userId), where));
 }
@@ -245,6 +262,9 @@ export async function updateTransaction(
           ? "manual"
           : null
         : current.categorySource,
+      // A suggestion exists only on an uncategorized row (T135); one left on a row that is
+      // uncategorized still is kept.
+      ...(input.categoryId ? { suggestedCategoryId: null } : {}),
       note: optionalText(input.note),
     })
     .where(

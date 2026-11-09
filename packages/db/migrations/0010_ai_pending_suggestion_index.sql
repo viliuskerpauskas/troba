@@ -1,0 +1,1 @@
+CREATE INDEX "money_transactions_pending_suggestion_idx" ON "money_transactions" USING btree ("user_id") WHERE "money_transactions"."suggested_category_id" is not null;

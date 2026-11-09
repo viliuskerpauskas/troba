@@ -1,5 +1,6 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { archiveAccount, createAccount, listAccounts } from "./accounts";
 import { listCategories } from "./categories";
@@ -355,6 +356,47 @@ describe("transactions", () => {
       false,
     );
     expect(await listTransactions(db, userId)).toEqual([]);
+  });
+
+  it("lists a stored suggestion with its category's name, on a row that stays uncategorized", async () => {
+    const { userId, cashId, category } = await createUser();
+    const plain = await createOk(userId, {
+      accountId: cashId,
+      bookedOn: "2026-10-02",
+      amountCents: 500n,
+      direction: "expense",
+    });
+    const asked = await createOk(userId, {
+      accountId: cashId,
+      bookedOn: "2026-10-03",
+      amountCents: 1250n,
+      direction: "expense",
+      counterparty: "GROCERY MART",
+    });
+    await db
+      .update(schema.moneyTransactions)
+      .set({ suggestedCategoryId: category("Food"), suggestionAskedAt: new Date() })
+      .where(eq(schema.moneyTransactions.id, asked.id));
+
+    const listed = await listTransactions(db, userId);
+
+    expect(listed).toEqual([
+      expect.objectContaining({
+        id: asked.id,
+        categoryId: null,
+        categoryName: null,
+        suggestedCategoryId: category("Food"),
+        suggestedCategoryName: "Food",
+      }),
+      expect.objectContaining({
+        id: plain.id,
+        suggestedCategoryId: null,
+        suggestedCategoryName: null,
+      }),
+    ]);
+    expect(await getTransaction(db, userId, asked.id)).toMatchObject({
+      suggestedCategoryName: "Food",
+    });
   });
 
   // An id from the client is a candidate, never proof of ownership.
