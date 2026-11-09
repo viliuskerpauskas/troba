@@ -129,3 +129,31 @@ test("deleting the account signs out every browser and the account can't sign in
   await expect(laptop.getByRole("main").getByRole("alert")).toBeVisible();
   await expect(laptop).toHaveURL("/sign-in");
 });
+
+test("turning AI suggestions off removes the button from the transactions list", async ({
+  browser,
+}) => {
+  const user = await createUser("e2e-ai-switch@example.test");
+  const laptop = await signedInDevice(browser, user);
+
+  await laptop.goto("/money/transactions");
+  await expect(laptop.getByRole("button", { name: "Suggest categories" })).toBeVisible();
+
+  await laptop.goto("/settings");
+  const switchBox = laptop.getByRole("checkbox", { name: "Suggest categories with AI" });
+  await expect(switchBox).toBeChecked();
+  // Reachable and operable by keyboard alone.
+  await switchBox.focus();
+  await laptop.keyboard.press("Space");
+  await laptop.keyboard.press("Tab");
+  await laptop.keyboard.press("Enter");
+  await expect(laptop.getByRole("main").getByRole("status")).toHaveText(
+    "AI suggestions are off. Nothing is sent.",
+  );
+
+  await laptop.reload();
+  await expect(switchBox).not.toBeChecked();
+  await laptop.goto("/money/transactions");
+  await expect(laptop.getByRole("heading", { name: "Transactions" })).toBeVisible();
+  await expect(laptop.getByRole("button", { name: "Suggest categories" })).toHaveCount(0);
+});

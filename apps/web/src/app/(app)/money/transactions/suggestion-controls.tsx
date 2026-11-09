@@ -16,12 +16,15 @@ export function SuggestionControls({
   suggestedCategoryId,
   categoryName,
   merchant,
+  canAccept,
 }: {
   transactionId: string;
   suggestedCategoryId: string;
   categoryName: string;
   // How the row reads in the list, for the labels.
   merchant: string;
+  // False for a user who turned AI suggestions off: they can still dismiss what is left.
+  canAccept: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const focusId = rowElementId(transactionId);
@@ -35,15 +38,17 @@ export function SuggestionControls({
 
   return (
     <div role="group" aria-label={`Suggestion for ${merchant}`} className="flex flex-wrap gap-2">
-      <Button
-        type="button"
-        disabled={pending}
-        className={touch}
-        aria-label={`Accept ${categoryName} for ${merchant}, and for its other uncategorized transactions`}
-        onClick={() => resolve(acceptSuggestionAction)}
-      >
-        Accept
-      </Button>
+      {canAccept && (
+        <Button
+          type="button"
+          disabled={pending}
+          className={touch}
+          aria-label={`Accept ${categoryName} for ${merchant}, and for its other uncategorized transactions`}
+          onClick={() => resolve(acceptSuggestionAction)}
+        >
+          Accept
+        </Button>
+      )}
       <Button
         type="button"
         variant="outline"
@@ -54,13 +59,15 @@ export function SuggestionControls({
       >
         Dismiss
       </Button>
-      <Link
-        href={`/money/rules?from=${transactionId}&category=${suggestedCategoryId}`}
-        className={cn(buttonVariants({ variant: "outline" }), touch)}
-        aria-label={`Create a rule from ${merchant} that sets ${categoryName}`}
-      >
-        Create rule
-      </Link>
+      {canAccept && (
+        <Link
+          href={`/money/rules?from=${transactionId}&category=${suggestedCategoryId}`}
+          className={cn(buttonVariants({ variant: "outline" }), touch)}
+          aria-label={`Create a rule from ${merchant} that sets ${categoryName}`}
+        >
+          Create rule
+        </Link>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   listAccounts,
   listCategories,
   listTransactions,
+  setAiCategorization,
   type CategorizationModelClient,
   type CategorizationRequest,
 } from "@troba/core";
@@ -200,6 +201,21 @@ describe("askAgainAction", () => {
     await askedRow(user, "GROCERY MART");
 
     expect(await actions.askAgainAction()).toEqual({ status: "off", message: "" });
+    const rows = await db.select().from(schema.moneyTransactions);
+    expect(
+      rows.filter((row) => row.userId === user.userId).map((row) => row.suggestionAskedAt),
+    ).toEqual([expect.any(Date)]);
+  });
+
+  it("reopens nothing and sends nothing for a user who turned suggestions off", async () => {
+    await askedRow(user, "GROCERY MART");
+    const model = fakeModel();
+    server.client = model.client;
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.askAgainAction()).toEqual({ status: "off", message: "" });
+
+    expect(model.requests).toHaveLength(0);
     const rows = await db.select().from(schema.moneyTransactions);
     expect(
       rows.filter((row) => row.userId === user.userId).map((row) => row.suggestionAskedAt),

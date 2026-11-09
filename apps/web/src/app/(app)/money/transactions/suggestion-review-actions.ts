@@ -1,6 +1,11 @@
 "use server";
 
-import { acceptSuggestion, dismissSuggestion, resetSuggestionAsks } from "@troba/core";
+import {
+  acceptSuggestion,
+  aiCategorizationEnabledFor,
+  dismissSuggestion,
+  resetSuggestionAsks,
+} from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
@@ -13,10 +18,13 @@ import { suggestCategoriesAction, type SuggestState } from "./suggestion-actions
 // sentences; nothing here logs or returns a merchant's text.
 
 // "Ask again": reopens the dismissed and unplaced merchants, then asks about them like the
-// "Suggest categories" button does. Nothing is reopened when the server has no key.
+// "Suggest categories" button does. Nothing is reopened when the server has no key or the user
+// turned suggestions off.
 export async function askAgainAction(): Promise<SuggestState> {
   const { userId } = await requireUser();
-  if (!categorizationModelClient()) return { status: "off", message: "" };
+  if (!categorizationModelClient() || !(await aiCategorizationEnabledFor(db(), userId))) {
+    return { status: "off", message: "" };
+  }
 
   await resetSuggestionAsks(db(), userId);
   return suggestCategoriesAction();

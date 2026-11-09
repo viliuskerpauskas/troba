@@ -22,6 +22,7 @@ describe("the suggestion controls", () => {
       suggestedCategoryId={categoryId}
       categoryName="Food"
       merchant="GROCERY MART: CARD PAYMENT"
+      canAccept
     />,
   );
 
@@ -40,6 +41,24 @@ describe("the suggestion controls", () => {
 
   it("makes every control phone-sized", () => {
     expect(html.match(/h-11/g)).toHaveLength(3);
+  });
+});
+
+describe("the suggestion controls for a user who turned suggestions off", () => {
+  it("offers only dismiss", () => {
+    const html = renderToStaticMarkup(
+      <SuggestionControls
+        transactionId={id}
+        suggestedCategoryId={categoryId}
+        categoryName="Food"
+        merchant="GROCERY MART"
+        canAccept={false}
+      />,
+    );
+
+    expect(html).toContain(">Dismiss<");
+    expect(html).not.toContain(">Accept<");
+    expect(html).not.toContain("Create rule");
   });
 });
 
