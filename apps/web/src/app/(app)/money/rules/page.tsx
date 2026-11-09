@@ -15,10 +15,14 @@ export const metadata: Metadata = { title: "Rules · troba" };
 // "Create rule from this" links here with the transaction's id, not its text, so the
 // counterparty stays out of URLs and logs.
 const fromSchema = z.uuid();
+// A suggested category to start the rule with; only one of the user's own is used.
+const categorySchema = z.uuid();
 
 export default async function RulesPage({ searchParams }: PageProps<"/money/rules">) {
   const { userId } = await requireMoneyUser();
-  const from = fromSchema.safeParse((await searchParams).from);
+  const query = await searchParams;
+  const from = fromSchema.safeParse(query.from);
+  const suggested = categorySchema.safeParse(query.category);
   const [rules, categories, transaction] = await Promise.all([
     listRules(db(), userId),
     listCategories(db(), userId),
@@ -108,7 +112,12 @@ export default async function RulesPage({ searchParams }: PageProps<"/money/rule
         )}
         <NewRuleForm
           categories={categories}
-          initial={transaction ? ruleDraftFrom(transaction) : {}}
+          initial={{
+            ...(transaction ? ruleDraftFrom(transaction) : {}),
+            ...(transaction && suggested.success && categories.some((c) => c.id === suggested.data)
+              ? { categoryId: suggested.data }
+              : {}),
+          }}
         />
       </section>
     </Page>
