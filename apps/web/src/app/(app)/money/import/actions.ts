@@ -13,7 +13,9 @@ import {
   readCsv,
   resolveImportFormat,
   saveImportProfile,
+  suggestAfterImport,
   type Account,
+  type AfterImportSuggestions,
   type Delimiter,
   type ImportInput,
   type ImportRefusal,
@@ -26,8 +28,9 @@ import {
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
-import { aiMappingDailyLimit } from "@/server/env";
+import { aiCategorizeDailyLimit, aiMappingDailyLimit } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
+import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
 import {
   notCsvMessage,
@@ -87,6 +90,9 @@ export type ImportState =
       rowsNew: number;
       rowsDuplicate: number;
       rowsFailed: number;
+      // How the AI category suggestions for the new rows went (see afterImportNote). They are asked
+      // for after the import is saved, so they never decide whether it happened.
+      suggestions: AfterImportSuggestions;
     };
 
 export type PreviewView =
@@ -296,6 +302,18 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   // The file was refused after the preview accepted it: show the preview again, which says why.
   if (!result.ok) return previewState(userId, input.profile, input.upload, input.accountId);
 
+  // The import is committed, and nothing from here can undo or fail it. The model is asked for at
+  // most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
+  // suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+  const suggestions: AfterImportSuggestions =
+    result.rowsNew > 0
+      ? await suggestAfterImport(db(), userId, {
+          client: categorizationModelClient(),
+          importId: result.importId,
+          dailyLimit: aiCategorizeDailyLimit(),
+        })
+      : { status: "nothing" };
+
   revalidatePath("/money", "layout");
   return {
     step: "done",
@@ -303,6 +321,7 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
     rowsNew: result.rowsNew,
     rowsDuplicate: result.rowsDuplicate,
     rowsFailed: result.failed.length,
+    suggestions,
   };
 }
 
