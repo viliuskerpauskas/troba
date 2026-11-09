@@ -175,6 +175,15 @@ export const moneyTransactions = pgTable(
       onDelete: "set null",
     }),
     categorySource: text("category_source", { enum: categorySources }),
+    // A category the model proposed (T135, ADR-0016). It exists only while the row has no category
+    // of its own: every write that sets one clears it, and the check below refuses both at once.
+    // The row stays out of the category totals until the user accepts it.
+    suggestedCategoryId: uuid("suggested_category_id").references(() => moneyCategories.id, {
+      onDelete: "set null",
+    }),
+    // When the row's merchant was sent to the model. Null: never asked. A merchant the model
+    // couldn't place, or a suggestion the user dismissed, stays marked so it isn't sent again.
+    suggestionAskedAt: timestamptz("suggestion_asked_at"),
     note: text("note"),
     source: text("source", { enum: transactionSources }).notNull(),
     importId: uuid("import_id").references(() => moneyImports.id, { onDelete: "set null" }),
@@ -196,6 +205,7 @@ export const moneyTransactions = pgTable(
     // (a user's deletion cascades to all three); without them each one scans every user's rows.
     index("money_transactions_account_id_idx").on(table.accountId),
     index("money_transactions_category_id_idx").on(table.categoryId),
+    index("money_transactions_suggested_category_id_idx").on(table.suggestedCategoryId),
     index("money_transactions_import_id_idx").on(table.importId),
     check("money_transactions_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check(
@@ -205,6 +215,10 @@ export const moneyTransactions = pgTable(
     check(
       "money_transactions_category_source_check",
       sql`${table.categorySource} is null or ${table.categorySource} in (${oneOf(categorySources)})`,
+    ),
+    check(
+      "money_transactions_suggestion_check",
+      sql`${table.suggestedCategoryId} is null or ${table.categoryId} is null`,
     ),
     check(
       "money_transactions_source_check",

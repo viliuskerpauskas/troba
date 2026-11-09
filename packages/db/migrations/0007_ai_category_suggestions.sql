@@ -1,0 +1,5 @@
+ALTER TABLE "money_transactions" ADD COLUMN "suggested_category_id" uuid;--> statement-breakpoint
+ALTER TABLE "money_transactions" ADD COLUMN "suggestion_asked_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "money_transactions" ADD CONSTRAINT "money_transactions_suggested_category_id_money_categories_id_fk" FOREIGN KEY ("suggested_category_id") REFERENCES "public"."money_categories"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "money_transactions_suggested_category_id_idx" ON "money_transactions" USING btree ("suggested_category_id");--> statement-breakpoint
+ALTER TABLE "money_transactions" ADD CONSTRAINT "money_transactions_suggestion_check" CHECK ("money_transactions"."suggested_category_id" is null or "money_transactions"."category_id" is null);

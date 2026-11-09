@@ -245,6 +245,9 @@ export async function updateTransaction(
           ? "manual"
           : null
         : current.categorySource,
+      // A suggestion exists only on an uncategorized row (T135); one left on a row that is
+      // uncategorized still is kept.
+      ...(input.categoryId ? { suggestedCategoryId: null } : {}),
       note: optionalText(input.note),
     })
     .where(
