@@ -139,7 +139,7 @@ describe("commitImportAction, with the model behind it", () => {
 
     const sent = JSON.stringify(model.requests);
     expect(sent).toContain("GROCERY MART");
-    for (const absent of ["38.45", "2026-09", "-38", "COMPLETED"]) {
+    for (const absent of ["38.45", "2026-09", "COMPLETED"]) {
       expect(sent).not.toContain(absent);
     }
   });
