@@ -130,7 +130,7 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: model.client });
 
-    expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false });
+    expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false, capped: false });
     expect(await readRow(user.userId, id!)).toMatchObject({
       categoryId: null,
       categorySource: null,
@@ -237,7 +237,7 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: model.client });
 
-    expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 3, failed: false });
+    expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 3, failed: false, capped: false });
     const rows = await Promise.all(ids.map((id) => readRow(user.userId, id)));
     expect(rows.map((row) => row.suggestedCategoryId)).toEqual([
       user.category("Food"),
@@ -292,7 +292,7 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: model.client });
 
-    expect(result).toEqual({ merchantsAsked: 5, rowsSuggested: 1, failed: false });
+    expect(result).toEqual({ merchantsAsked: 5, rowsSuggested: 1, failed: false, capped: false });
     const rows = await Promise.all(ids.map((id) => readRow(user.userId, id)));
     expect(rows.map((row) => row.suggestedCategoryId)).toEqual([
       null,
@@ -311,7 +311,7 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: first.client });
 
-    expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 0, failed: false });
+    expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 0, failed: false, capped: false });
     expect(await readRow(user.userId, id!)).toMatchObject({
       suggestedCategoryId: null,
       suggestionAskedAt: expect.any(Date),
@@ -321,6 +321,7 @@ describe("suggested categories", () => {
       merchantsAsked: 0,
       rowsSuggested: 0,
       failed: false,
+      capped: false,
     });
     expect(second.requests).toHaveLength(0);
   });
@@ -364,7 +365,7 @@ describe("suggested categories", () => {
 
     for (const client of clients) {
       const result = await suggestCategories(db, user.userId, { client, timeoutMs: 20 });
-      expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: true });
+      expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: true, capped: false });
     }
 
     expect(aborted).toBe(true);
@@ -396,7 +397,7 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client });
 
-    expect(result).toEqual({ merchantsAsked: 50, rowsSuggested: 50, failed: true });
+    expect(result).toEqual({ merchantsAsked: 50, rowsSuggested: 50, failed: true, capped: false });
     expect(await countUnasked(user.userId)).toBe(70);
   });
 
@@ -436,7 +437,12 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: model.client });
 
-    expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 2550, failed: false });
+    expect(result).toEqual({
+      merchantsAsked: 2,
+      rowsSuggested: 2550,
+      failed: false,
+      capped: false,
+    });
     expect(model.requests).toHaveLength(1);
     expect(await countUnasked(user.userId)).toBe(0);
   });
@@ -501,8 +507,146 @@ describe("suggested categories", () => {
 
     const result = await suggestCategories(db, user.userId, { client: model.client });
 
-    expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false });
+    expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false, capped: false });
     expect(model.requests).toHaveLength(0);
+  });
+
+  describe("the daily cap", () => {
+    const sentMerchants = (requests: CategorizationRequest[]) =>
+      requests.reduce((sum, request) => sum + request.payload.merchants.length, 0);
+
+    async function usedToday(userId: string) {
+      const uses = await db
+        .select()
+        .from(schema.moneyAiCategorizeUses)
+        .where(eq(schema.moneyAiCategorizeUses.userId, userId));
+      return uses.reduce((sum, use) => sum + use.merchants, 0);
+    }
+
+    it("sends only the merchants that fit, leaves the rest unmarked and says it was capped", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(7));
+      const model = fakeModel({});
+
+      const result = await suggestCategories(db, user.userId, {
+        client: model.client,
+        dailyLimit: 5,
+      });
+
+      expect(result).toEqual({ merchantsAsked: 5, rowsSuggested: 0, failed: false, capped: true });
+      expect(sentMerchants(model.requests)).toBe(5);
+      expect(await countUnasked(user.userId)).toBe(2);
+      expect(await usedToday(user.userId)).toBe(5);
+    });
+
+    it("trims a batch to the allowance left by earlier batches of the same run", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(130));
+      const model = fakeModel({});
+
+      const result = await suggestCategories(db, user.userId, {
+        client: model.client,
+        dailyLimit: 70,
+      });
+
+      expect(model.requests.map((request) => request.payload.merchants.length)).toEqual([50, 20]);
+      expect(result).toMatchObject({ merchantsAsked: 70, capped: true, failed: false });
+    });
+
+    it("doesn't call the model once the allowance is spent, and leaves the rows alone", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(3));
+      await suggestCategories(db, user.userId, { client: fakeModel({}).client, dailyLimit: 3 });
+      await insertRows(user, [{ counterparty: "LATE ARRIVAL" }]);
+      const model = fakeModel({ "LATE ARRIVAL": user.category("Food") });
+
+      const result = await suggestCategories(db, user.userId, {
+        client: model.client,
+        dailyLimit: 3,
+      });
+
+      expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false, capped: true });
+      expect(model.requests).toHaveLength(0);
+      expect(await countUnasked(user.userId)).toBe(1);
+      expect(await usedToday(user.userId)).toBe(3);
+    });
+
+    it("counts a call that fails, since the provider charges for it", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(4));
+      const client: CategorizationModelClient = {
+        suggestCategories: () => Promise.reject(new Error("HTTP 500")),
+      };
+
+      const result = await suggestCategories(db, user.userId, { client, dailyLimit: 10 });
+
+      expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: true, capped: false });
+      expect(await usedToday(user.userId)).toBe(4);
+      expect(await countUnasked(user.userId)).toBe(4);
+    });
+
+    it("costs nothing when no call is made", async () => {
+      const user = await createUser();
+      const model = fakeModel({});
+
+      // Nothing eligible.
+      await suggestCategories(db, user.userId, { client: model.client, dailyLimit: 10 });
+      // Only a manual entry and a transfer, which are never sent.
+      await insertRows(user, [
+        { counterparty: "TYPED BY HAND", source: "manual" },
+        { counterparty: "A PERSON", counterpartyIban: "XX00EXAMPLE0000000001" },
+      ]);
+      await suggestCategories(db, user.userId, { client: model.client, dailyLimit: 10 });
+
+      expect(model.requests).toHaveLength(0);
+      expect(await usedToday(user.userId)).toBe(0);
+    });
+
+    it("keeps concurrent runs of one user together under the limit", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(6));
+      const model = fakeModel({});
+
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          suggestCategories(db, user.userId, { client: model.client, dailyLimit: 8 }),
+        ),
+      );
+
+      expect(sentMerchants(model.requests)).toBe(8);
+      expect(await usedToday(user.userId)).toBe(8);
+      expect(results.some((result) => result.capped)).toBe(true);
+    });
+
+    it("is per user: another user's use doesn't count against this one", async () => {
+      const spender = await createUser();
+      const other = await createUser();
+      await insertRows(spender, shops(3));
+      await insertRows(other, shops(3));
+      await suggestCategories(db, spender.userId, { client: fakeModel({}).client, dailyLimit: 3 });
+      const model = fakeModel({});
+
+      const result = await suggestCategories(db, other.userId, {
+        client: model.client,
+        dailyLimit: 3,
+      });
+
+      expect(result).toMatchObject({ merchantsAsked: 3, capped: false });
+    });
+
+    it("allows 200 merchants a day unless told otherwise", async () => {
+      const user = await createUser();
+      await insertRows(user, shops(5));
+      const model = fakeModel({});
+
+      await suggestCategories(db, user.userId, { client: model.client });
+      await db.insert(schema.moneyAiCategorizeUses).values({ userId: user.userId, merchants: 195 });
+      await insertRows(user, [{ counterparty: "ONE TOO MANY" }]);
+      const result = await suggestCategories(db, user.userId, { client: model.client });
+
+      expect(result.capped).toBe(true);
+      expect(sentMerchants(model.requests)).toBe(5);
+    });
   });
 
   describe("a suggestion lives only on an uncategorized row", () => {

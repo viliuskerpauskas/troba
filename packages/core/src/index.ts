@@ -7,6 +7,7 @@ export * from "./identity/sign-in-limit";
 export * from "./identity/users";
 export * from "./money/accounts";
 export * from "./money/ai-categories";
+export * from "./money/ai-categories-limit";
 export * from "./money/ai-categories-mask";
 export * from "./money/attachments";
 export * from "./money/categories";
