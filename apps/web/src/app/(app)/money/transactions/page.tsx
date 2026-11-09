@@ -17,7 +17,11 @@ import { aiCategorizationEnabled } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
 import { parseListQuery, searchMaxLength, transactionsHref } from "./params";
+import { AskAgain } from "./ask-again";
 import { SuggestCategories, SuggestionChip } from "./suggest-categories";
+import { rowElementId } from "./row-id";
+import { SuggestionControls } from "./suggestion-controls";
+import { SuggestionNotice } from "./suggestion-notice";
 
 export const metadata: Metadata = { title: "Transactions · troba" };
 
@@ -58,6 +62,8 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
         </Link>
       </div>
       <SuggestCategories enabled={aiOffered} />
+      <AskAgain enabled={aiOffered} />
+      <SuggestionNotice />
 
       <form method="get" aria-label="Filter transactions" className="grid gap-4 sm:grid-cols-2">
         <Field>
@@ -136,7 +142,12 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
               [transaction.counterparty, transaction.description].filter(Boolean).join(": ") ||
               "No description";
             return (
-              <li key={transaction.id} className="flex flex-col gap-1 px-4 py-3">
+              <li
+                key={transaction.id}
+                id={rowElementId(transaction.id)}
+                tabIndex={-1}
+                className="flex flex-col gap-1 px-4 py-3"
+              >
                 <Link
                   href={`/money/transactions/${transaction.id}`}
                   className="font-medium [overflow-wrap:anywhere] hover:underline"
@@ -160,6 +171,17 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
                   </strong>
                   {transaction.hasReceipt && " · Receipt"}
                 </div>
+                {aiEnabled &&
+                  transaction.suggestedCategoryId &&
+                  transaction.suggestedCategoryName && (
+                    <SuggestionControls
+                      transactionId={transaction.id}
+                      suggestedCategoryId={transaction.suggestedCategoryId}
+                      categoryName={transaction.suggestedCategoryName}
+                      merchant={title}
+                      canAccept={aiOffered}
+                    />
+                  )}
               </li>
             );
           })}
