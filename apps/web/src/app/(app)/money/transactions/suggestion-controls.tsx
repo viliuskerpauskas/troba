@@ -63,7 +63,7 @@ export function SuggestionControls({
         <Link
           href={`/money/rules?from=${transactionId}&category=${suggestedCategoryId}`}
           className={cn(buttonVariants({ variant: "outline" }), touch)}
-          aria-label={`Create a rule from ${merchant} that sets ${categoryName}`}
+          aria-label={`Create rule from ${merchant} that sets ${categoryName}`}
         >
           Create rule
         </Link>

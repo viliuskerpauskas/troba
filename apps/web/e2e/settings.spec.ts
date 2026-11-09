@@ -66,7 +66,7 @@ test("changing the password keeps this browser signed in and signs out the other
   await laptop.getByLabel("New password", { exact: true }).fill(newPassword);
   await laptop.getByLabel("Confirm new password").fill(newPassword);
   await laptop.getByRole("button", { name: "Change password" }).click();
-  await expect(laptop.getByRole("main").getByRole("status")).toHaveText(
+  await expect(laptop.getByRole("region", { name: "Password" }).getByRole("status")).toHaveText(
     "Password changed. Your other devices are signed out.",
   );
 
@@ -83,7 +83,9 @@ test("changing the name shows the new name", async ({ browser }) => {
   await laptop.goto("/settings");
   await laptop.getByLabel("Name", { exact: true }).fill("Renamed Tester");
   await laptop.getByRole("button", { name: "Save name" }).click();
-  await expect(laptop.getByRole("main").getByRole("status")).toHaveText("Name saved.");
+  await expect(laptop.getByRole("region", { name: "Profile" }).getByRole("status")).toHaveText(
+    "Name saved.",
+  );
 
   await laptop.reload();
   await expect(laptop.getByLabel("Name", { exact: true })).toHaveValue("Renamed Tester");
@@ -147,9 +149,9 @@ test("turning AI suggestions off removes the button from the transactions list",
   await laptop.keyboard.press("Space");
   await laptop.keyboard.press("Tab");
   await laptop.keyboard.press("Enter");
-  await expect(laptop.getByRole("main").getByRole("status")).toHaveText(
-    "AI suggestions are off. Nothing is sent.",
-  );
+  await expect(
+    laptop.getByRole("region", { name: "AI suggestions" }).getByRole("status"),
+  ).toHaveText("AI suggestions are off. Nothing is sent.");
 
   await laptop.reload();
   await expect(switchBox).not.toBeChecked();
