@@ -8,6 +8,7 @@ export * from "./identity/users";
 export * from "./money/accounts";
 export * from "./money/ai-categories";
 export * from "./money/ai-categories-mask";
+export * from "./money/ai-categories-review";
 export * from "./money/attachments";
 export * from "./money/categories";
 export * from "./money/cents";
