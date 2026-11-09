@@ -3,6 +3,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listAccounts } from "./accounts";
+import { aiCategorizationEnabledFor, setAiCategorization } from "./ai-categorization-setting";
 import {
   suggestCategories,
   type CategorizationModelClient,
@@ -600,6 +601,73 @@ describe("suggested categories", () => {
           .set({ suggestedCategoryId: user.category("Food") })
           .where(eq(schema.moneyTransactions.id, categorized!)),
       ).rejects.toThrow();
+    });
+  });
+
+  describe("the user's opt-out", () => {
+    it("is on until the user turns it off, and off again after they turn it back on", async () => {
+      const user = await createUser();
+
+      expect(await aiCategorizationEnabledFor(db, user.userId)).toBe(true);
+      await setAiCategorization(db, user.userId, false);
+      expect(await aiCategorizationEnabledFor(db, user.userId)).toBe(false);
+      await setAiCategorization(db, user.userId, true);
+      expect(await aiCategorizationEnabledFor(db, user.userId)).toBe(true);
+    });
+
+    it("never reaches the model or marks a row when the user is opted out, and leaves another user's run alone", async () => {
+      const optedOut = await createUser();
+      const other = await createUser();
+      const [mine] = await insertRows(optedOut, [{ counterparty: "GROCERY MART" }]);
+      const [theirs] = await insertRows(other, [{ counterparty: "GROCERY MART" }]);
+      await setAiCategorization(db, optedOut.userId, false);
+      const model = fakeModel({ "GROCERY MART": other.category("Food") });
+
+      const refused = await suggestCategories(db, optedOut.userId, { client: model.client });
+      expect(refused).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false });
+      expect(model.requests).toHaveLength(0);
+      expect(await readRow(optedOut.userId, mine!)).toMatchObject({
+        suggestedCategoryId: null,
+        suggestionAskedAt: null,
+      });
+
+      const asked = await suggestCategories(db, other.userId, { client: model.client });
+      expect(asked).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false });
+      expect(await readRow(other.userId, theirs!)).toMatchObject({
+        suggestedCategoryId: other.category("Food"),
+      });
+    });
+
+    it("stops before the next request when the user opts out during a run", async () => {
+      const user = await createUser();
+      // 51 merchants make two requests; the user opts out while the first is out.
+      await insertRows(user, shops(51));
+      const requests: CategorizationRequest[] = [];
+      const client: CategorizationModelClient = {
+        async suggestCategories(request) {
+          requests.push(request);
+          await setAiCategorization(db, user.userId, false);
+          return { answers: [] };
+        },
+      };
+
+      await suggestCategories(db, user.userId, { client });
+
+      expect(requests).toHaveLength(1);
+    });
+
+    it("keeps the suggestions the user already has", async () => {
+      const user = await createUser();
+      const [id] = await insertRows(user, [{ counterparty: "GROCERY MART" }]);
+      await suggestCategories(db, user.userId, {
+        client: fakeModel({ "GROCERY MART": user.category("Food") }).client,
+      });
+
+      await setAiCategorization(db, user.userId, false);
+
+      expect(await readRow(user.userId, id!)).toMatchObject({
+        suggestedCategoryId: user.category("Food"),
+      });
     });
   });
 });
