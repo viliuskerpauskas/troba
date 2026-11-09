@@ -57,6 +57,13 @@
       "when": 1794232936712,
       "tag": "0007_ai_category_suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794234527250,
+      "tag": "0008_daily_spitfire",
+      "breakpoints": true
     }
   ]
 }

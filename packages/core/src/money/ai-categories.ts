@@ -1,6 +1,7 @@
 import { schema, type Db } from "@troba/db";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 import { maskMerchantText } from "./ai-categories-mask";
 import { listCategories } from "./categories";
 import { listRules, matchingRule } from "./rules";
@@ -138,6 +139,11 @@ type Merchant = {
 // card or merchant row (an imported one with no counterparty IBAN, so not a direct transfer) with
 // some text, and never asked about. Rows of one merchant, by counterparty ignoring case (the
 // description when there is none), are asked once. Never throws.
+//
+// A user who turned AI categorization off (setting on the user, default on) is the first check:
+// nothing is read for them and the client is never called, whoever calls this. It is checked again
+// before each request, so opting out stops a run that is under way. The result is then the
+// "nothing to ask" one.
 export async function suggestCategories(
   db: Db,
   userId: string,
@@ -152,6 +158,7 @@ export async function suggestCategories(
   const result: SuggestCategoriesResult = { merchantsAsked: 0, rowsSuggested: 0, failed: false };
 
   try {
+    if (!(await aiCategorizationEnabledFor(db, userId))) return result;
     const categories = (await listCategories(db, userId)).filter(
       (category) => !category.excludedFromSpending,
     );
@@ -162,6 +169,7 @@ export async function suggestCategories(
 
     const merchants = await findMerchants(db, userId, { importId, limit: maxMerchants });
     for (let i = 0; i < merchants.length; i += categorizationBatchSize) {
+      if (i > 0 && !(await aiCategorizationEnabledFor(db, userId))) return result;
       const batch = merchants.slice(i, i + categorizationBatchSize);
       const ids = batch.map((_merchant, index) => `m${index + 1}`);
       const payload: CategorizationPayload = {

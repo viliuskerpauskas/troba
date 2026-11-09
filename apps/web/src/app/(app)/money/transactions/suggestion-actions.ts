@@ -1,6 +1,6 @@
 "use server";
 
-import { suggestCategories } from "@troba/core";
+import { aiCategorizationEnabledFor, suggestCategories } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { categorizationModelClient } from "@/server/openai-categorization";
@@ -14,7 +14,8 @@ import { requireUser } from "@/server/session";
 // state sent back to the page holds counts and fixed sentences only.
 
 export type SuggestState = {
-  // off: the server has no key, so nothing was done (and the page doesn't offer the button).
+  // off: the server has no key or the user turned the feature off, so nothing was done (and the
+  // page doesn't offer the button).
   status?: "off" | "suggested" | "none" | "nothing" | "failed";
   message?: string;
 };
@@ -32,6 +33,9 @@ function suggestedMessage(rows: number): string {
 // at a time (core caps and batches the run). Never throws: a failure leaves the rows as they were.
 export async function suggestCategoriesAction(): Promise<SuggestState> {
   const { userId } = await requireUser();
+  // The user's own opt-out comes first: nothing is built, read or sent for them. Core checks it
+  // again, so a caller that skips this still can't reach the model.
+  if (!(await aiCategorizationEnabledFor(db(), userId))) return { status: "off", message: "" };
   const client = categorizationModelClient();
   if (!client) return { status: "off", message: "" };
 
