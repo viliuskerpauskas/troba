@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   ensureMoneyDefaults,
+  importPresets,
   listAccounts,
   setAiCategorization,
   type CategorizationModelClient,
@@ -37,11 +38,13 @@ let actions: typeof import("./actions");
 let userCount = 0;
 let cashId = "";
 
-// A preset's file, which names no account: the user picks one.
+// A preset's fixture, which names no account: the user picks one. The preset is looked up by
+// position, so no bank is named outside the presets folder.
 const statement = readFileSync(
   path.join(
     import.meta.dirname,
-    "../../../../../../../packages/core/src/money/import/presets/revolut.fixture.csv",
+    "../../../../../../../packages/core/src/money/import/presets",
+    `${importPresets[1].id}.fixture.csv`,
   ),
 );
 
