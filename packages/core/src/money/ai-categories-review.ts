@@ -1,5 +1,5 @@
 import { schema, type Db, type DbTransaction } from "@troba/db";
-import { and, eq, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 
 // What the user does with a suggested category (SPEC-money M5, ADR-0016): accept it, dismiss it,
 // or have the dismissed and unplaced merchants offered to the model again. A suggestion is
@@ -123,4 +123,96 @@ export async function resetSuggestionAsks(db: Db, userId: string): Promise<numbe
     )
     .returning({ id: moneyTransactions.id });
   return reopened.length;
+}
+
+export type PendingSuggestions = { rows: number; merchants: number };
+
+// How many rows carry a suggestion the user hasn't decided on, and how many merchants they
+// belong to: the number the "Accept all" strip names before it asks for confirmation. One
+// aggregate over the user's rows, never the rows themselves, so a large history stays cheap.
+export async function countPendingSuggestions(db: Db, userId: string): Promise<PendingSuggestions> {
+  const [counts] = await db
+    .select({
+      rows: sql<number>`count(*)::int`,
+      merchants: sql<number>`count(distinct ${merchantKey})::int`,
+    })
+    .from(moneyTransactions)
+    .where(pendingSuggestionOf(userId));
+  return { rows: counts?.rows ?? 0, merchants: counts?.merchants ?? 0 };
+}
+
+// The user's uncategorized rows that still carry a suggestion.
+function pendingSuggestionOf(userId: string): SQL | undefined {
+  return and(
+    eq(moneyTransactions.userId, userId),
+    isNull(moneyTransactions.categoryId),
+    isNotNull(moneyTransactions.suggestedCategoryId),
+  );
+}
+
+// Rows per statement: big enough that 10,000 rows take a handful of round trips, small enough
+// that none holds locks on a whole history.
+const acceptPageSize = 1000;
+
+// A category deleted between choosing a page and applying it fails the foreign key check once;
+// the delete has cleared those suggestions by then, so the next attempt skips them.
+const foreignKeyViolation = "23503";
+const attemptsPerPage = 3;
+
+function isForeignKeyViolation(error: unknown): boolean {
+  for (let e = error; typeof e === "object" && e !== null; e = (e as { cause?: unknown }).cause) {
+    if ((e as { code?: unknown }).code === foreignKeyViolation) return true;
+  }
+  return false;
+}
+
+// Gives every row that still carries a suggestion that suggestion's category, as the user's own
+// choice, a page at a time. Each statement re-checks that the row is still uncategorized and
+// still suggested, so a row the user categorized meanwhile (or whose category was deleted) is
+// skipped rather than failed or overwritten. Only the user's own rows are ever selected.
+export async function acceptAllSuggestions(db: Db, userId: string): Promise<PendingSuggestions> {
+  const merchants = new Set<string>();
+  let rows = 0;
+
+  for (;;) {
+    // The page's ids are read first and the update goes by id: a subquery in the update's where
+    // clause can plan as a nested loop over the whole history when the table's statistics are
+    // stale, as they are right after a big import.
+    const page = await db
+      .select({ id: moneyTransactions.id })
+      .from(moneyTransactions)
+      .where(pendingSuggestionOf(userId))
+      .limit(acceptPageSize);
+    if (page.length === 0) break;
+
+    let accepted: { key: string | null }[] | undefined;
+    for (let attempt = 1; accepted === undefined; attempt++) {
+      try {
+        accepted = await db
+          .update(moneyTransactions)
+          .set({
+            categoryId: sql`${moneyTransactions.suggestedCategoryId}`,
+            categorySource: "manual",
+            suggestedCategoryId: null,
+          })
+          .where(
+            and(
+              pendingSuggestionOf(userId),
+              inArray(
+                moneyTransactions.id,
+                page.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning({ key: sql<string | null>`${merchantKey}` });
+      } catch (error) {
+        if (!isForeignKeyViolation(error) || attempt >= attemptsPerPage) throw error;
+      }
+    }
+
+    rows += accepted.length;
+    for (const { key } of accepted) if (key !== null) merchants.add(key);
+  }
+
+  return { rows, merchants: merchants.size };
 }

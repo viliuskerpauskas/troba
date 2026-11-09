@@ -222,3 +222,80 @@ describe("askAgainAction", () => {
     ).toEqual([expect.any(Date)]);
   });
 });
+
+describe("acceptAllSuggestionsAction", () => {
+  beforeEach(() => {
+    // Accepting is offered only while the server has a key.
+    server.client = { suggestCategories: async () => ({ answers: [] }) };
+  });
+
+  it("categorizes every pending suggestion as the user's own choice and says how many", async () => {
+    await askedRow(user, "GROCERY MART", user.category("Food"));
+    await askedRow(user, "GROCERY MART", user.category("Food"));
+    await askedRow(user, "BOOK NOOK", user.category("Shopping"));
+    await askedRow(user, "MYSTERY SHOP");
+
+    const state = await actions.acceptAllSuggestionsAction();
+
+    expect(state).toEqual({ ok: true, message: "Categorized 3 transactions from 2 merchants." });
+    const rows = await listTransactions(db, user.userId);
+    expect(rows.filter((row) => row.categorySource === "manual")).toHaveLength(3);
+    expect(rows.filter((row) => row.categoryId === null)).toHaveLength(1);
+  });
+
+  it("uses the singular for one transaction", async () => {
+    await askedRow(user, "GROCERY MART", user.category("Food"));
+
+    expect(await actions.acceptAllSuggestionsAction()).toEqual({
+      ok: true,
+      message: "Categorized 1 transaction from 1 merchant.",
+    });
+  });
+
+  it("says so, and changes nothing, when no suggestion is waiting any more", async () => {
+    await askedRow(user, "GROCERY MART");
+
+    expect(await actions.acceptAllSuggestionsAction()).toEqual({
+      ok: false,
+      message: "No suggestions are waiting, so nothing was changed.",
+    });
+  });
+
+  it("leaves another user's suggestions alone", async () => {
+    const other = await createUser("Other Person");
+    await askedRow(other, "GROCERY MART", other.category("Food"));
+    await askedRow(user, "BOOK NOOK", user.category("Shopping"));
+
+    await actions.acceptAllSuggestionsAction();
+
+    expect(await listTransactions(db, other.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  it("changes nothing without a key on the server", async () => {
+    await askedRow(user, "GROCERY MART", user.category("Food"));
+    server.client = null;
+
+    expect(await actions.acceptAllSuggestionsAction()).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  it("changes nothing for a user who turned suggestions off", async () => {
+    await askedRow(user, "GROCERY MART", user.category("Food"));
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.acceptAllSuggestionsAction()).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
+});
