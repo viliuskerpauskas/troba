@@ -1,4 +1,4 @@
-import type { ImportRowFailure } from "@troba/core";
+import type { AfterImportSuggestions, ImportRowFailure } from "@troba/core";
 import type { ProfileFormProblem } from "./profile-form";
 
 // What the import wizard tells the user, by reason. Shared with the client wizard, so it imports
@@ -60,3 +60,31 @@ export const suggestionNotes: Record<Suggestion, { lead?: string; text: string }
     text: "You've used today's AI mapping suggestions, so the form is blank. Fill it in below, or try again tomorrow.",
   },
 };
+
+// The one-line note under the import result about the AI category suggestions (ADR-0016), or null
+// when there is nothing to say: the feature is off for this server or user, or no new row needed
+// the model. A suggestion never sets a category, so the note says where it is reviewed.
+export function afterImportNote(suggestions: AfterImportSuggestions): string | null {
+  switch (suggestions.status) {
+    case "off":
+    case "nothing":
+      return null;
+    case "suggested":
+      return suggestions.rows === 1
+        ? "AI suggested a category for 1 transaction. It stays uncategorized until you accept it on the transactions list."
+        : `AI suggested categories for ${suggestions.rows} transactions. They stay uncategorized until you accept them on the transactions list.`;
+    case "none":
+      return "AI had no category suggestions for these transactions.";
+    case "unavailable":
+      return "AI category suggestions aren't available right now. The import is saved; try Suggest categories on the transactions list later.";
+    case "capped": {
+      const some =
+        suggestions.rows > 0
+          ? `AI suggested categories for ${suggestions.rows} ${suggestions.rows === 1 ? "transaction" : "transactions"}. `
+          : "";
+      return `${some}The daily limit on AI suggestions is reached, so the rest stay uncategorized for now.`;
+    }
+    case "pending":
+      return "AI is still working on category suggestions. They will appear on the transactions list when ready.";
+  }
+}
