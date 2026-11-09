@@ -22,7 +22,8 @@ export function SuggestCategories({ enabled }: { enabled: boolean }) {
       </div>
       <p id={disclosureId} className="text-sm text-muted-foreground">
         Sends the counterparty and description of your uncategorized imported transactions to
-        OpenAI, with your own name and account numbers masked. Transfers are not sent, but a name
+        OpenAI, with your own name and account numbers masked. Rows that show the other party&apos;s
+        IBAN (transfers) are not sent. A payment to a person that shows no IBAN is sent, and a name
         inside a merchant string might get through. A suggestion only appears beside a transaction;
         it never changes its category.
       </p>
@@ -32,8 +33,8 @@ export function SuggestCategories({ enabled }: { enabled: boolean }) {
   );
 }
 
-// A model's suggestion on an uncategorized row. Text, not a control: accepting one is another
-// ticket's. The label tells it apart from a category the user or a rule set.
+// A model's suggestion on an uncategorized row. Text, not a control: the row's SuggestionControls
+// accept or dismiss it. The label tells it apart from a category the user or a rule set.
 export function SuggestionChip({ categoryName }: { categoryName: string }) {
   return (
     <span className="inline-block rounded-md border border-dashed px-1.5 py-0.5 text-xs text-foreground">

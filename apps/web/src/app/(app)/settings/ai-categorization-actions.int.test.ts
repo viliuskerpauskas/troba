@@ -3,7 +3,7 @@ import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-// The account page's AI switch (ADR-0016): it changes the signed-in user's setting and nobody
+// The settings page's AI switch (ADR-0016): it changes the signed-in user's setting and nobody
 // else's. The session and database are the only things replaced.
 
 const session = vi.hoisted(() => ({ userId: "" }));

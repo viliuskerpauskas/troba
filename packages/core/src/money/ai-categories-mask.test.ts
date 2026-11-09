@@ -15,10 +15,21 @@ describe("maskMerchantText", () => {
   });
 
   it("matches across diacritics in either the name or the text", () => {
-    expect(maskMerchantText("PAYMENT ŽIVILE KAZLAUSKAS", "Zivile Kazlauskas")).toBe(
-      "PAYMENT [NAME]",
-    );
-    expect(maskMerchantText("Payment Zivile", "Živilė Example")).toBe("Payment [NAME]");
+    expect(maskMerchantText("PAYMENT ŽOË EXAMPLE", "Zoe Example")).toBe("PAYMENT [NAME]");
+    expect(maskMerchantText("Payment Zoe", "Zoë Example")).toBe("Payment [NAME]");
+  });
+
+  it("matches letters that have an ASCII spelling but no combining mark", () => {
+    expect(maskMerchantText("CARD LUKASZ EXAMPLE", "Łukasz Example")).toBe("CARD [NAME]");
+    expect(maskMerchantText("Payment Łukasz", "Lukasz Example")).toBe("Payment [NAME]");
+    expect(maskMerchantText("SOREN SHOP", "Søren Example")).toBe("[NAME] SHOP");
+    expect(maskMerchantText("STRASSE CAFE", "Straße Example")).toBe("[NAME] CAFE");
+    expect(maskMerchantText("DJORDJE KIOSK", "Đorđe Example")).toBe("DJORDJE KIOSK");
+    expect(maskMerchantText("DORDE KIOSK", "Đorđe Example")).toBe("[NAME] KIOSK");
+  });
+
+  it("drops its own placeholder characters from the input", () => {
+    expect(maskMerchantText("PAY \uE000 \uE001 \uE002 MART", "X")).toBe("PAY MART");
   });
 
   it("masks a name inside a longer string", () => {
@@ -46,13 +57,15 @@ describe("maskMerchantText", () => {
   });
 
   it("masks IBAN-shaped values, compact or in groups", () => {
-    expect(maskMerchantText("Rent LT601010012345678901 monthly", "X")).toBe("Rent [IBAN] monthly");
-    expect(maskMerchantText("to GB29 NWBK 6016 1331 9268 19 thanks", "X")).toBe("to [IBAN] thanks");
+    expect(maskMerchantText("Rent DE89370400440532013000 monthly", "X")).toBe(
+      "Rent [IBAN] monthly",
+    );
+    expect(maskMerchantText("to DE89 3704 0044 0532 0130 00 thanks", "X")).toBe("to [IBAN] thanks");
     expect(maskMerchantText("ref:de89370400440532013000", "X")).toBe("ref:[IBAN]");
   });
 
   it("does not let a grouped IBAN swallow the words after it", () => {
-    expect(maskMerchantText("LT60 1010 0123 4567 8901 GROCERY MART", "X")).toBe(
+    expect(maskMerchantText("DE89 3704 0044 0532 0130 00 GROCERY MART", "X")).toBe(
       "[IBAN] GROCERY MART",
     );
   });

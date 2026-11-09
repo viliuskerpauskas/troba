@@ -12,7 +12,7 @@ describe("the suggest categories button", () => {
     expect(html).toContain("Suggest categories");
     expect(html).toContain("OpenAI");
     expect(html).toContain("own name and account numbers masked");
-    expect(html).toContain("Transfers are not sent");
+    expect(html).toContain("(transfers) are not sent");
     expect(html).toContain("a name inside a merchant string might get through");
     // The button is described by that text, so a screen reader reads it with the button.
     const id = /<p id="([^"]+)"/.exec(html)![1];

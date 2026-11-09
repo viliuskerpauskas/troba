@@ -74,6 +74,17 @@ async function insertRows(user: TestUser, rows: Row[]): Promise<string[]> {
   return inserted.map((row) => row.id);
 }
 
+// The month's EUR spending by category name (Uncategorized for none), in cents.
+function spentBy(report: Awaited<ReturnType<typeof monthlyReport>>): Record<string, bigint> {
+  const eur = report.find((currency) => currency.currency === "EUR")!;
+  return Object.fromEntries(
+    eur.categories.map((category) => [
+      category.categoryName ?? "Uncategorized",
+      category.spentCents,
+    ]),
+  );
+}
+
 async function readRow(userId: string, id: string) {
   const [row] = await db
     .select()
@@ -120,7 +131,9 @@ describe("reviewing suggested categories", () => {
         suggestedCategoryId: food,
       });
       const after = await monthlyReport(db, user.userId, "2026-10");
-      expect(after).not.toEqual(before);
+      // Two rows of 12.50 moved from Uncategorized to Food; the other merchant stays uncategorized.
+      expect(spentBy(before)).toEqual({ Uncategorized: 3750n });
+      expect(spentBy(after)).toEqual({ Food: 2500n, Uncategorized: 1250n });
     });
 
     it("falls back to the description as the merchant when there is no counterparty", async () => {
@@ -398,7 +411,12 @@ describe("reviewing suggested categories", () => {
       }
       // No suggestion on the row, so there was nothing to accept.
       expect(await readRow(user.userId, unplaced!)).toMatchObject({ categoryId: null });
-      expect(await monthlyReport(db, user.userId, "2026-10")).not.toEqual(before);
+      expect(spentBy(before)).toEqual({ Uncategorized: 5000n });
+      expect(spentBy(await monthlyReport(db, user.userId, "2026-10"))).toEqual({
+        Food: 2500n,
+        Shopping: 1250n,
+        Uncategorized: 1250n,
+      });
       expect(await countPendingSuggestions(db, user.userId)).toEqual({ rows: 0, merchants: 0 });
     });
 

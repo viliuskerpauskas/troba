@@ -13,9 +13,9 @@ const minNamePartLength = 3;
 
 // Placeholders are private-use characters while masking runs, so a later step can't match inside
 // an earlier one's output (a user called "Name" or "Iban"), and become words at the end.
-const ibanMark = "";
-const numberMark = "";
-const nameMark = "";
+const ibanMark = "\uE000";
+const numberMark = "\uE001";
+const nameMark = "\uE002";
 
 // A compact IBAN: two letters, two digits, 11 to 30 letters or digits.
 const compactIban = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/gi;
@@ -27,14 +27,30 @@ const maxGroupedIbanLength = 34;
 // Card, account, reference and phone numbers; amounts and short numbers have fewer digits.
 const longDigitRun = /\d{7,}/g;
 
-// A character as its base letter, lower case, so "Ž" and "z" compare equal. One text character can
-// become several (or none); `map` says which original character each came from.
+// Letters that carry no combining mark to strip but have an ASCII spelling, which is what a card
+// terminal prints for a name like "Łukasz" or "Søren". Keys are lower case.
+const asciiSpelling: Record<string, string> = {
+  ł: "l",
+  ø: "o",
+  đ: "d",
+  ð: "d",
+  ħ: "h",
+  ı: "i",
+  ß: "ss",
+  æ: "ae",
+  œ: "oe",
+  þ: "th",
+};
+
+// A character as its base letter, lower case, so "Ž" and "z", "Ł" and "l" compare equal. One text
+// character can become several (or none); `origin` says which original character each came from.
 function fold(text: string): { folded: string; origin: number[] } {
   let folded = "";
   const origin: number[] = [];
   let index = 0;
   for (const char of text) {
-    const base = char.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    const lower = char.toLowerCase();
+    const base = asciiSpelling[lower] ?? lower.normalize("NFD").replace(/\p{M}/gu, "");
     for (const part of base) {
       folded += part;
       for (let i = 0; i < part.length; i++) origin.push(index);
@@ -102,7 +118,11 @@ function endOfCharAt(text: string, index: number): number {
 // of 3 or more letters, ignoring case and diacritics, wherever it appears) as [NAME], IBAN-shaped
 // values as [IBAN] and digit runs of 7 or more as [NUMBER].
 export function maskMerchantText(text: string, ownName: string): string {
-  let masked = text.replace(/\s+/g, " ").trim();
+  // The placeholder characters are dropped from the input first, so text can't pose as a mark.
+  let masked = text
+    .replace(/[\p{Co}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
   // The numbers first, on the original text: a name can't split an IBAN and leave its digits.
   masked = masked.replace(compactIban, ibanMark);
   masked = masked.replace(groupedIban, (match) => {

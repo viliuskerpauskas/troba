@@ -171,10 +171,11 @@ export function ImportWizard({
                   <FieldDescription id="import-categorize-disclosure">
                     After the import is saved, the counterparty and description of the new
                     transactions that no rule matched are sent to OpenAI, with your own name and
-                    account numbers masked, so it can suggest a category for each. Transfers to or
-                    from other accounts and manual entries are not sent, but a name inside a
-                    merchant string might get through. A suggestion never changes a category until
-                    you accept it. You can turn this off in your settings.
+                    account numbers masked, so it can suggest a category for each. Rows that show
+                    the other party&apos;s IBAN (transfers) and manual entries are not sent. A
+                    payment to a person that shows no IBAN is sent, and a name inside a merchant
+                    string might get through. A suggestion never changes a category until you accept
+                    it. You can turn this off in your settings.
                   </FieldDescription>
                 )}
               </Field>

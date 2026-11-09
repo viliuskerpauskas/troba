@@ -222,6 +222,12 @@ export const moneyTransactions = pgTable(
     index("money_transactions_account_id_idx").on(table.accountId),
     index("money_transactions_category_id_idx").on(table.categoryId),
     index("money_transactions_suggested_category_id_idx").on(table.suggestedCategoryId),
+    // The pending suggestions of one user: counted on every render of the transactions list and
+    // paged by "accept all". A user's suggestions are few next to their history, so this stays
+    // small where an index over every row would not.
+    index("money_transactions_pending_suggestion_idx")
+      .on(table.userId)
+      .where(sql`${table.suggestedCategoryId} is not null`),
     index("money_transactions_import_id_idx").on(table.importId),
     check("money_transactions_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check(

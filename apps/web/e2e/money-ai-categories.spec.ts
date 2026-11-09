@@ -116,6 +116,81 @@ test("suggests a category after an import, changes nothing until it is accepted,
   expect(await uncategorizedCents(page)).toBe(spent - 3845);
 });
 
+test("dismisses a suggestion, asks again, accepts all after a confirmation, and a remount replays nothing", async ({
+  page,
+}) => {
+  await signIn(page, {
+    email: "e2e-ai-categories-review@example.test",
+    name: "Taylor Example",
+    ip: "198.51.100.32",
+  });
+  // Two rows of the one merchant the fake model knows, so one decision covers both.
+  const twoOfOne = {
+    ...statement,
+    buffer: Buffer.from(
+      statement.buffer
+        .toString("utf8")
+        .replace('"EXAMPLE STREAMING"', '"GROCERY MART"')
+        .replace('"CORNER CAFE JORDAN QUINN"', '"CORNER CAFE NORTH"'),
+    ),
+  };
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("CSV file from your bank").setInputFiles(twoOfOne);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Account name").fill("Example Bank current");
+  await page.getByRole("button", { name: "Create the account and preview" }).click();
+  await page.getByRole("button", { name: "Import 8 transactions" }).click();
+  await expect(page.locator('p[aria-live="polite"]')).toContainText(
+    "AI suggested categories for 2 transactions.",
+  );
+
+  await page.goto("/money/transactions");
+  const list = page.getByRole("list", { name: "Transactions, newest first" });
+  const chips = list.getByText("suggested:");
+  const notice = page.locator('[role="status"][tabindex="-1"]');
+  const strip = page.getByRole("region", { name: "Suggestions waiting" });
+  await expect(chips).toHaveCount(2);
+
+  // Dismiss drops the suggestion on both rows of the merchant and the strip with it.
+  await list
+    .getByRole("button", { name: /^Dismiss the suggestion/ })
+    .first()
+    .click();
+  await expect(notice).toHaveText("Dismissed the suggestion on 2 transactions.");
+  await expect(chips).toHaveCount(0);
+  await expect(strip).toHaveCount(0);
+
+  // Ask again offers the dismissed merchant to the model once more; the suggestion returns.
+  await page.getByRole("button", { name: "Ask again" }).click();
+  await expect(chips).toHaveCount(2);
+  await expect(strip).toContainText("2 transactions from 1 merchant have a suggested category");
+
+  // Accept all asks first, naming the count; Escape cancels, hands the focus back, changes nothing.
+  const opener = strip.getByRole("button", { name: "Accept all 2 pending suggestions" });
+  await opener.click();
+  const question = strip.getByText("Give 2 transactions from 1 merchant their suggested category?");
+  await expect(question).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(question).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await expect(chips).toHaveCount(2);
+
+  await opener.click();
+  await strip.getByRole("button", { name: "Yes, accept all 2" }).click();
+  await expect(notice).toHaveText("Categorized 2 transactions from 1 merchant.");
+  await expect(chips).toHaveCount(0);
+  await expect(strip).toHaveCount(0);
+
+  // Navigating away and back by links remounts the list: the old sentence is not replayed and the
+  // keyboard focus is not pulled to a row.
+  await page.getByRole("link", { name: "Money" }).first().click();
+  await page.getByRole("link", { name: "Transactions" }).click();
+  await expect(list).toBeVisible();
+  await expect(notice).toHaveText("");
+  await page.waitForTimeout(400);
+  await expect(list.locator(":focus")).toHaveCount(0);
+});
+
 // The month the fixture's rows are in, as the report shows it.
 async function openReport(page: Page) {
   await page.goto("/money/report?month=2026-09");
@@ -141,16 +216,19 @@ async function uncategorizedCents(page: Page): Promise<number> {
   return Math.round(Number(cell) * 100);
 }
 
-async function signIn(page: Page) {
-  await db().$client.query("delete from users where email = $1", [email]);
+async function signIn(
+  page: Page,
+  user: { email: string; name: string; ip: string } = { email, name: ownName, ip: "198.51.100.31" },
+) {
+  await db().$client.query("delete from users where email = $1", [user.email]);
   const password = randomBytes(18).toString("base64");
-  await auth().api.createUser({ body: { email, password, name: ownName } });
+  await auth().api.createUser({ body: { email: user.email, password, name: user.name } });
 
   // Its own address, so the other spec files' sign-ins don't count towards its limit
   // (198.51.100.0/24 is TEST-NET-2, RFC 5737).
-  await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.31" });
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": user.ip });
   await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL("/money");

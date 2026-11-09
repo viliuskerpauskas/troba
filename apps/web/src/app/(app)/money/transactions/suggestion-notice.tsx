@@ -39,6 +39,15 @@ export function SuggestionNotice() {
   const seq = notice?.seq;
   const focusId = notice?.focusId;
 
+  // The store outlives the page under client-side navigation, so the sentence is dropped when the
+  // list goes away; coming back must not replay it or pull the keyboard focus to a row.
+  useEffect(
+    () => () => {
+      current = null;
+    },
+    [],
+  );
+
   // The button that was pressed is gone by now. Focus goes to the row if it is still listed,
   // else to this notice, so a keyboard user isn't dropped at the top of the page.
   useEffect(() => {

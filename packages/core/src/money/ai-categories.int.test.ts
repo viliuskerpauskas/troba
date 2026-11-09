@@ -150,7 +150,7 @@ describe("suggested categories", () => {
     await insertRows(user, [
       {
         counterparty: "GROCERY MART",
-        description: "CARD 1234567 JORDAN QUINN LT601010012345678901",
+        description: "CARD 1234567 JORDAN QUINN DE89370400440532013000",
         amountCents: -98765n,
         bookedOn: "2026-10-01",
       },
@@ -165,7 +165,7 @@ describe("suggested categories", () => {
       // Never sent: a direct transfer, a manual entry, categorized rows.
       {
         counterparty: "Anna Example",
-        counterpartyIban: "LT121000011101001000",
+        counterpartyIban: "DE12500105170648489890",
         description: "rent for october",
       },
       { counterparty: "MY OWN NOTE SHOP", source: "manual" },
@@ -212,8 +212,8 @@ describe("suggested categories", () => {
       "JORDAN",
       "Jordan",
       "1234567",
-      "LT6010",
-      "LT1210",
+      "DE8937",
+      "DE1250",
       "Anna",
       "rent",
       "MY OWN NOTE",
@@ -743,13 +743,13 @@ describe("suggested categories", () => {
           .update(schema.moneyTransactions)
           .set({ categoryId: user.category("Bills") })
           .where(eq(schema.moneyTransactions.id, id)),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ cause: { constraint: "money_transactions_suggestion_check" } });
       await expect(
         db
           .update(schema.moneyTransactions)
           .set({ suggestedCategoryId: user.category("Food") })
           .where(eq(schema.moneyTransactions.id, categorized!)),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ cause: { constraint: "money_transactions_suggestion_check" } });
     });
   });
 
