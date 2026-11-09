@@ -7,9 +7,11 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { db } from "@/server/db";
+import { aiCategorizationEnabled } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
 import { parseListQuery, searchMaxLength, transactionsHref } from "./params";
+import { SuggestCategories, SuggestionChip } from "./suggest-categories";
 
 export const metadata: Metadata = { title: "Transactions · troba" };
 
@@ -31,6 +33,8 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
     }),
   ]);
   const transactions = rows.slice(0, transactionListLimit);
+  // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
+  const aiEnabled = aiCategorizationEnabled();
 
   return (
     <Page>
@@ -43,6 +47,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
           Import a bank statement
         </Link>
       </div>
+      <SuggestCategories enabled={aiEnabled} />
 
       <form method="get" aria-label="Filter transactions" className="grid gap-4 sm:grid-cols-2">
         <Field>
@@ -132,7 +137,14 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
                   {title}
                 </Link>
                 <div className="text-sm text-muted-foreground">
-                  {transaction.categoryName ?? "Uncategorized"} ·{" "}
+                  {transaction.categoryName ?? "Uncategorized"}
+                  {aiEnabled && transaction.suggestedCategoryName && (
+                    <>
+                      {" "}
+                      <SuggestionChip categoryName={transaction.suggestedCategoryName} />
+                    </>
+                  )}{" "}
+                  ·{" "}
                   <strong className="text-foreground">
                     {formatAmount(transaction.amountCents, transaction.currency)}
                   </strong>

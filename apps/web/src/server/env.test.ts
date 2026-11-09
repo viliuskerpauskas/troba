@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  aiCategorizationEnabled,
   aiMappingDailyLimit,
   aiMappingEnabled,
   defaultAiMappingDailyLimit,
@@ -57,6 +58,7 @@ describe("openAiConfig", () => {
     vi.stubEnv("OPENAI_API_KEY", undefined);
     expect(openAiConfig()).toBeNull();
     expect(aiMappingEnabled()).toBe(false);
+    expect(aiCategorizationEnabled()).toBe(false);
   });
 
   it("treats an empty or blank key as not set", () => {
@@ -69,6 +71,7 @@ describe("openAiConfig", () => {
     vi.stubEnv("OPENAI_MODEL", "");
     expect(openAiConfig()).toEqual({ apiKey: "sk-test", model: defaultOpenAiModel });
     expect(aiMappingEnabled()).toBe(true);
+    expect(aiCategorizationEnabled()).toBe(true);
 
     vi.stubEnv("OPENAI_MODEL", "other-model");
     expect(openAiConfig()?.model).toBe("other-model");
