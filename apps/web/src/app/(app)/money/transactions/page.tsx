@@ -1,5 +1,6 @@
 import {
   aiCategorizationEnabledFor,
+  countPendingSuggestions,
   listAccounts,
   listCategories,
   listTransactions,
@@ -17,6 +18,7 @@ import { aiCategorizationEnabled } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
 import { parseListQuery, searchMaxLength, transactionsHref } from "./params";
+import { AcceptAll } from "./accept-all";
 import { AskAgain } from "./ask-again";
 import { SuggestCategories, SuggestionChip } from "./suggest-categories";
 import { rowElementId } from "./row-id";
@@ -31,7 +33,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
   const query = parseListQuery(await searchParams);
   const { page, ...filter } = query;
   const filtered = Object.keys(filter).length > 0;
-  const [accounts, categories, rows, userOptedIn] = await Promise.all([
+  const [accounts, categories, rows, userOptedIn, pendingSuggestions] = await Promise.all([
     // Archived accounts keep their transactions, so they stay in the filter.
     listAccounts(db(), userId, { includeArchived: true }),
     listCategories(db(), userId),
@@ -42,6 +44,9 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       offset: (page - 1) * transactionListLimit,
     }),
     aiCategorizationEnabledFor(db(), userId),
+    // One aggregate over the user's rows, for the strip; never the rows themselves. Without a key
+    // the strip is never shown, so nothing is counted.
+    aiCategorizationEnabled() ? countPendingSuggestions(db(), userId) : null,
   ]);
   const transactions = rows.slice(0, transactionListLimit);
   // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
@@ -61,6 +66,9 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
           Import a bank statement
         </Link>
       </div>
+      {aiOffered && pendingSuggestions && (
+        <AcceptAll rows={pendingSuggestions.rows} merchants={pendingSuggestions.merchants} />
+      )}
       <SuggestCategories enabled={aiOffered} />
       <AskAgain enabled={aiOffered} />
       <SuggestionNotice />

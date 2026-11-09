@@ -1,6 +1,6 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { listAccounts } from "./accounts";
 import {
@@ -8,7 +8,13 @@ import {
   type CategorizationModelClient,
   type CategorizationRequest,
 } from "./ai-categories";
-import { acceptSuggestion, dismissSuggestion, resetSuggestionAsks } from "./ai-categories-review";
+import {
+  acceptAllSuggestions,
+  acceptSuggestion,
+  countPendingSuggestions,
+  dismissSuggestion,
+  resetSuggestionAsks,
+} from "./ai-categories-review";
 import { deleteCategory, listCategories } from "./categories";
 import { ensureMoneyDefaults } from "./defaults";
 import { monthlyReport } from "./report";
@@ -334,6 +340,168 @@ describe("reviewing suggested categories", () => {
       expect(await readRow(other.userId, theirs!)).toMatchObject({
         suggestionAskedAt: expect.any(Date),
       });
+    });
+  });
+
+  describe("countPendingSuggestions", () => {
+    it("counts the user's uncategorized rows that carry a suggestion, and their merchants", async () => {
+      const user = await createUser();
+      const other = await createUser();
+      const food = user.category("Food");
+      await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+        { counterparty: "Grocery Mart", suggestedCategoryId: food },
+        { counterparty: null, description: "BOOK NOOK", suggestedCategoryId: food },
+        // Asked but nothing suggested, and a categorized row: neither is pending.
+        { counterparty: "MYSTERY SHOP", asked: true },
+        { counterparty: "CORNER CAFE", categoryId: food },
+      ]);
+      await insertRows(other, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: other.category("Food") },
+      ]);
+
+      expect(await countPendingSuggestions(db, user.userId)).toEqual({ rows: 3, merchants: 2 });
+    });
+
+    it("is zero for a user with nothing pending", async () => {
+      const user = await createUser();
+      expect(await countPendingSuggestions(db, user.userId)).toEqual({ rows: 0, merchants: 0 });
+    });
+  });
+
+  describe("acceptAllSuggestions", () => {
+    it("gives each row its own suggested category as the user's choice, and moves the totals", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const shopping = user.category("Shopping");
+      const [market, marketAgain, books, unplaced] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+        { counterparty: "grocery mart", suggestedCategoryId: food },
+        { counterparty: "BOOK NOOK", suggestedCategoryId: shopping },
+        { counterparty: "MYSTERY SHOP", asked: true },
+      ]);
+      const before = await monthlyReport(db, user.userId, "2026-10");
+
+      const result = await acceptAllSuggestions(db, user.userId);
+
+      expect(result).toEqual({ rows: 3, merchants: 2 });
+      for (const [id, categoryId] of [
+        [market!, food],
+        [marketAgain!, food],
+        [books!, shopping],
+      ] as const) {
+        expect(await readRow(user.userId, id)).toMatchObject({
+          categoryId,
+          categorySource: "manual",
+          suggestedCategoryId: null,
+        });
+      }
+      // No suggestion on the row, so there was nothing to accept.
+      expect(await readRow(user.userId, unplaced!)).toMatchObject({ categoryId: null });
+      expect(await monthlyReport(db, user.userId, "2026-10")).not.toEqual(before);
+      expect(await countPendingSuggestions(db, user.userId)).toEqual({ rows: 0, merchants: 0 });
+    });
+
+    it("leaves a row categorized in the meantime alone and counts only what it changed", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const shopping = user.category("Shopping");
+      const [first, second] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+        { counterparty: "BOOK NOOK", suggestedCategoryId: food },
+      ]);
+      // The user picks a category by hand after the strip was drawn.
+      await updateTransaction(db, user.userId, {
+        transactionId: first!,
+        categoryId: shopping,
+        note: null,
+      });
+
+      const result = await acceptAllSuggestions(db, user.userId);
+
+      expect(result).toEqual({ rows: 1, merchants: 1 });
+      expect(await readRow(user.userId, first!)).toMatchObject({ categoryId: shopping });
+      expect(await readRow(user.userId, second!)).toMatchObject({ categoryId: food });
+    });
+
+    it("skips a suggestion whose category was deleted since", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const shopping = user.category("Shopping");
+      const [gone, kept] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: shopping },
+        { counterparty: "BOOK NOOK", suggestedCategoryId: food },
+      ]);
+      await deleteCategory(db, user.userId, { categoryId: shopping });
+
+      expect(await acceptAllSuggestions(db, user.userId)).toEqual({ rows: 1, merchants: 1 });
+      expect(await readRow(user.userId, gone!)).toMatchObject({
+        categoryId: null,
+        suggestedCategoryId: null,
+      });
+      expect(await readRow(user.userId, kept!)).toMatchObject({ categoryId: food });
+    });
+
+    it("never touches another user's rows", async () => {
+      const user = await createUser();
+      const other = await createUser();
+      const [mine] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: user.category("Food") },
+      ]);
+      const [theirs] = await insertRows(other, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: other.category("Food") },
+      ]);
+
+      expect(await acceptAllSuggestions(db, user.userId)).toEqual({ rows: 1, merchants: 1 });
+      expect(await readRow(user.userId, mine!)).toMatchObject({
+        categoryId: user.category("Food"),
+      });
+      expect(await readRow(other.userId, theirs!)).toMatchObject({
+        categoryId: null,
+        suggestedCategoryId: other.category("Food"),
+      });
+    });
+
+    it("does nothing when nothing is pending", async () => {
+      const user = await createUser();
+      expect(await acceptAllSuggestions(db, user.userId)).toEqual({ rows: 0, merchants: 0 });
+    });
+
+    it("works through a large history in pages", { timeout: 60_000 }, async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const shopping = user.category("Shopping");
+      // 12,000 rows over 40 merchants, all with a suggestion, and 100 already categorized.
+      await db.execute(sql`
+        insert into money_transactions
+          (user_id, account_id, booked_on, amount_cents, currency, counterparty, source, dedup_key,
+           suggested_category_id, suggestion_asked_at)
+        select ${user.userId}, ${user.cashId}, '2026-10-05', -1250, 'EUR',
+               'MERCHANT ' || (i % 40), 'csv_import', 'bulk-' || i, ${food}, now()
+        from generate_series(1, 12000) as i`);
+      await db.execute(sql`
+        insert into money_transactions
+          (user_id, account_id, booked_on, amount_cents, currency, counterparty, source, dedup_key,
+           category_id, category_source)
+        select ${user.userId}, ${user.cashId}, '2026-10-05', -1250, 'EUR',
+               'MERCHANT 0', 'csv_import', 'done-' || i, ${shopping}, 'rule'
+        from generate_series(1, 100) as i`);
+
+      expect(await countPendingSuggestions(db, user.userId)).toEqual({
+        rows: 12000,
+        merchants: 40,
+      });
+      expect(await acceptAllSuggestions(db, user.userId)).toEqual({ rows: 12000, merchants: 40 });
+
+      const [totals] = await db
+        .select({
+          food: sql<number>`count(*) filter (where ${schema.moneyTransactions.categoryId} = ${food})::int`,
+          shopping: sql<number>`count(*) filter (where ${schema.moneyTransactions.categoryId} = ${shopping})::int`,
+          pending: sql<number>`count(*) filter (where ${schema.moneyTransactions.suggestedCategoryId} is not null)::int`,
+        })
+        .from(schema.moneyTransactions)
+        .where(eq(schema.moneyTransactions.userId, user.userId));
+      expect(totals).toEqual({ food: 12000, shopping: 100, pending: 0 });
     });
   });
 });
