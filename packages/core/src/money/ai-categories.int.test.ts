@@ -768,7 +768,12 @@ describe("suggested categories", () => {
       const model = fakeModel({ "GROCERY MART": other.category("Food") });
 
       const refused = await suggestCategories(db, optedOut.userId, { client: model.client });
-      expect(refused).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false });
+      expect(refused).toEqual({
+        merchantsAsked: 0,
+        rowsSuggested: 0,
+        failed: false,
+        capped: false,
+      });
       expect(model.requests).toHaveLength(0);
       expect(await readRow(optedOut.userId, mine!)).toMatchObject({
         suggestedCategoryId: null,
@@ -776,7 +781,7 @@ describe("suggested categories", () => {
       });
 
       const asked = await suggestCategories(db, other.userId, { client: model.client });
-      expect(asked).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false });
+      expect(asked).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false, capped: false });
       expect(await readRow(other.userId, theirs!)).toMatchObject({
         suggestedCategoryId: other.category("Food"),
       });
