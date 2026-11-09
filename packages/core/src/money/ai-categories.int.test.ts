@@ -201,6 +201,12 @@ describe("suggested categories", () => {
     );
     // Whatever else the request carries, none of this is in it.
     const sent = JSON.stringify(model.requests[0]);
+    // The ids are random hex, so a short secret like "987" can sit inside one by chance: the text
+    // secrets are looked for with the ids blanked, and the real ids in the request as it was.
+    const sentText = sent.replace(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+      "<id>",
+    );
     for (const secret of [
       "Quinn",
       "JORDAN",
@@ -217,11 +223,10 @@ describe("suggested categories", () => {
       "Casey",
       "987",
       "2026",
-      user.userId,
-      user.cashId,
     ]) {
-      expect(sent).not.toContain(secret);
+      expect(sentText).not.toContain(secret);
     }
+    for (const id of [user.userId, user.cashId]) expect(sent).not.toContain(id);
   });
 
   it("applies a merchant's answer to every uncategorized row of that merchant", async () => {
