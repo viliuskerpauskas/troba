@@ -3,6 +3,7 @@
 import { aiCategorizationEnabledFor, suggestCategories } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
+import { aiCategorizeDailyLimit } from "@/server/env";
 import { categorizationModelClient } from "@/server/openai-categorization";
 import { requireUser } from "@/server/session";
 
@@ -16,7 +17,7 @@ import { requireUser } from "@/server/session";
 export type SuggestState = {
   // off: the server has no key or the user turned the feature off, so nothing was done (and the
   // page doesn't offer the button).
-  status?: "off" | "suggested" | "none" | "nothing" | "failed";
+  status?: "off" | "suggested" | "none" | "nothing" | "failed" | "capped";
   message?: string;
 };
 
@@ -24,6 +25,11 @@ const noneMessage = "The model had no suggestions for these transactions.";
 const nothingMessage = "There are no uncategorized imported transactions to suggest for.";
 const failedMessage =
   "Suggestions aren't available right now. Nothing was changed, so try again later.";
+
+// The user's daily cap (T138) stopped the run. Distinct from a failure: nothing is wrong, the
+// allowance is spent, and the rows it left out were not sent.
+const cappedMessage =
+  "The daily limit on AI suggestions is reached, so these transactions stay uncategorized for now. Try again later.";
 
 function suggestedMessage(rows: number): string {
   return rows === 1 ? "1 transaction has a suggestion." : `${rows} transactions have a suggestion.`;
@@ -39,8 +45,22 @@ export async function suggestCategoriesAction(): Promise<SuggestState> {
   const client = categorizationModelClient();
   if (!client) return { status: "off", message: "" };
 
-  const result = await suggestCategories(db(), userId, { client });
+  const result = await suggestCategories(db(), userId, {
+    client,
+    dailyLimit: aiCategorizeDailyLimit(),
+  });
   if (result.rowsSuggested > 0) revalidatePath("/money/transactions");
+
+  if (result.capped) {
+    // Earlier batches of a long run may have been stored before the cap stopped it.
+    return {
+      status: "capped",
+      message:
+        result.rowsSuggested > 0
+          ? `${suggestedMessage(result.rowsSuggested)} The daily limit on AI suggestions is reached, so the rest stays uncategorized for now.`
+          : cappedMessage,
+    };
+  }
 
   if (result.failed) {
     // Earlier batches of a long run may have been stored before the one that failed.

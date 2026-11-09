@@ -1,6 +1,7 @@
 import { schema, type Db } from "@troba/db";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { claimAiCategorizeMerchants, defaultAiCategorizeDailyLimit } from "./ai-categories-limit";
 import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 import { maskMerchantText } from "./ai-categories-mask";
 import { listCategories } from "./categories";
@@ -114,6 +115,8 @@ export type SuggestCategoriesOptions = {
   // Only the rows of this import (T136 runs it after an import is saved). Absent: all the user's.
   importId?: string;
   maxMerchants?: number;
+  // Merchants one user may have categorized in a rolling 24 hours (T138). Default 200.
+  dailyLimit?: number;
   // For each request.
   timeoutMs?: number;
 };
@@ -124,8 +127,12 @@ export type SuggestCategoriesResult = {
   // Rows that now carry a suggestion.
   rowsSuggested: number;
   // A request failed, timed out or came back unusable: the run stopped there and what it didn't
-  // answer is unmarked, to be asked again.
+  // answer is unmarked, to be asked again. The failed call counts against the daily cap.
   failed: boolean;
+  // The user's daily cap stopped the run: the merchants it left out were not sent, and their rows
+  // are untouched and unmarked, to be asked again once the allowance is back. Never set together
+  // with `failed`: a run that failed stopped there and says nothing about the cap.
+  capped: boolean;
 };
 
 type Merchant = {
@@ -153,9 +160,15 @@ export async function suggestCategories(
     client,
     importId,
     maxMerchants = maxMerchantsPerRun,
+    dailyLimit = defaultAiCategorizeDailyLimit,
     timeoutMs = defaultCategorizationTimeoutMs,
   } = options;
-  const result: SuggestCategoriesResult = { merchantsAsked: 0, rowsSuggested: 0, failed: false };
+  const result: SuggestCategoriesResult = {
+    merchantsAsked: 0,
+    rowsSuggested: 0,
+    failed: false,
+    capped: false,
+  };
 
   try {
     if (!(await aiCategorizationEnabledFor(db, userId))) return result;
@@ -169,8 +182,15 @@ export async function suggestCategories(
 
     const merchants = await findMerchants(db, userId, { importId, limit: maxMerchants });
     for (let i = 0; i < merchants.length; i += categorizationBatchSize) {
+      // The user may have turned the feature off while an earlier batch was out: nothing more is
+      // claimed or sent.
       if (i > 0 && !(await aiCategorizationEnabledFor(db, userId))) return result;
-      const batch = merchants.slice(i, i + categorizationBatchSize);
+      const wanted = merchants.slice(i, i + categorizationBatchSize);
+      // Claimed just before the call, so a run that never reaches the model costs nothing and
+      // concurrent runs can't slip under the limit. Only what fits is sent.
+      const granted = await claimAiCategorizeMerchants(db, userId, wanted.length, dailyLimit);
+      if (granted === 0) return { ...result, capped: true };
+      const batch = wanted.slice(0, granted);
       const ids = batch.map((_merchant, index) => `m${index + 1}`);
       const payload: CategorizationPayload = {
         categories: categories.map(({ id, name }) => ({ id, name })),
@@ -197,6 +217,7 @@ export async function suggestCategories(
           categoryId: answered.get(ids[index]!) ?? null,
         })),
       );
+      if (granted < wanted.length) return { ...result, capped: true };
     }
     return result;
   } catch {
