@@ -96,7 +96,13 @@ T-numbers are issue numbers (T7 = issue #7); see References in [AGENTS.md](../AG
 
 One entry per spec issue, with its tickets beneath it in dependency order (added by `/to-tickets`; see [docs/agents/issue-tracker.md](../docs/agents/issue-tracker.md)).
 
-_None yet._
+- [T122](https://github.com/viliuskerpauskas/troba/issues/122) spec(money): simpler CSV import with bank presets and AI-suggested mapping
+  - [T123](https://github.com/viliuskerpauskas/troba/issues/123) docs(money): record the preset and AI-mapping decisions
+  - [T124](https://github.com/viliuskerpauskas/troba/issues/124) feat(money): bank presets, with the first bank (after T123)
+  - [T125](https://github.com/viliuskerpauskas/troba/issues/125) feat(money): AI mapping engine with scrubbed samples (after T123)
+  - [T126](https://github.com/viliuskerpauskas/troba/issues/126) feat(money): preset for the second bank (after T124)
+  - [T127](https://github.com/viliuskerpauskas/troba/issues/127) feat(money): AI-suggested mapping for unknown formats in the import wizard (after T124, T125)
+  - [T128](https://github.com/viliuskerpauskas/troba/issues/128) feat(money): daily cap on AI mappings per user (after T127)
 
 ## Risks and Mitigations
 
