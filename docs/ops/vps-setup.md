@@ -163,6 +163,8 @@ For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to pr
 
 **Optional: AI-suggested categories.** The same `OPENAI_API_KEY` and `OPENAI_MODEL` switch on AI-suggested categories for uncategorized imported transactions (the transactions list gets a "Suggest categories" button, and imports suggest on their own). Only the counterparty and description of the user's uncategorized imported transactions are sent, with the user's own name, IBAN-shaped values and long digit runs masked; rows that show the other party's IBAN, manual entries, amounts and dates are never sent ([ADR-0016](../adr/0016-ai-transaction-categorization.md)). With no key the feature and its text do not appear. Each user gets 200 merchants a day (a rolling 24 hours, counted in merchants, separately from the mapping cap); past it the rest stays uncategorized for now and the page says the limit is reached. `AI_CATEGORIZE_DAILY_LIMIT=<n>` in the env file changes that, and an unset, empty or invalid value means 200.
 
+**Optional: PDF import.** The same `OPENAI_API_KEY` and `OPENAI_MODEL` switch on importing PDF statements, which the worker reads with the model ([ADR-0018](../adr/0018-pdf-statements-read-by-a-model.md)); the model must accept PDF file input. Unlike the two features above, the whole statement is sent, unmasked, after the user confirms a notice saying so on every import. Both the web and worker services take the key from the env file. With no key the import page doesn't offer PDF.
+
 `POSTGRES_PASSWORD` is set when the database volume is first created. Changing it later in `.env` doesn't change the database's password; do that with `ALTER USER` in `psql` first.
 
 ### Deploy

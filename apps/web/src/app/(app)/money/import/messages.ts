@@ -1,4 +1,4 @@
-import type { AfterImportSuggestions, ImportRowFailure } from "@troba/core";
+import type { AfterImportSuggestions, ImportRowFailure, PdfImportFailureReason } from "@troba/core";
 import type { ProfileFormProblem } from "./profile-form";
 
 // What the import wizard tells the user, by reason. Shared with the client wizard, so it imports
@@ -10,12 +10,20 @@ export function tooLargeMessage(maxBytes: number): string {
 
 export const notAStatementFileMessage =
   "That isn't a statement file. Export your statement from your bank as CSV.";
-// A statement file troba recognises but doesn't import yet.
+// A statement file troba recognises but doesn't import (here): spreadsheets not yet, PDFs only on a
+// server with an AI key (ADR-0018).
 export const unsupportedKindMessages = {
   spreadsheet:
     "Spreadsheet import isn't supported yet. Export your statement from your bank as CSV.",
-  pdf: "PDF import isn't supported yet. Export your statement from your bank as CSV.",
+  pdf: "PDF import isn't available on this server. Export your statement from your bank as CSV.",
 } as const;
+
+// Why the model's reading of a PDF statement failed. Nothing was saved either way.
+export const pdfFailureMessages: Record<PdfImportFailureReason, string> = {
+  unavailable: "AI couldn't read the statement just now. Nothing was saved. Try again in a while.",
+  "invalid-answer":
+    "AI's reading of the statement couldn't be used. Nothing was saved. Try again, or export the statement as CSV.",
+};
 export const startAgainMessage = "Something changed since the last step. Upload the file again.";
 
 // Why the file can't be read with the profile's settings.

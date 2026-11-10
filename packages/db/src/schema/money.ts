@@ -4,6 +4,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   date,
   index,
   integer,
@@ -25,6 +26,8 @@ export type AccountType = (typeof accountTypes)[number];
 export const transactionSources = ["manual", "csv_import"] as const;
 export const categorySources = ["manual", "rule", "transfer"] as const;
 export const ruleFields = ["counterparty", "description"] as const;
+export const pdfImportStates = ["queued", "reading", "read", "failed"] as const;
+export type PdfImportState = (typeof pdfImportStates)[number];
 
 const userId = () =>
   uuid("user_id")
@@ -108,6 +111,40 @@ export const moneyImportProfiles = pgTable(
       table.userId,
       table.headerFingerprint,
     ),
+  ],
+);
+
+// Raw bytes; drizzle has no bytea column of its own.
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType: () => "bytea",
+  toDriver: (value) => Buffer.from(value),
+  fromDriver: (value) => new Uint8Array(value),
+});
+
+// A PDF statement on its way to becoming an import (T152, ADR-0018): queued for the worker, being
+// read by the model, read (its answer waits for the user to preview and confirm it) or failed. The
+// bytes are kept only until the reading ends, either way, and the row is deleted once its import is
+// saved or the user starts over.
+export const moneyPdfImports = pgTable(
+  "money_pdf_imports",
+  {
+    id: id(),
+    userId: userId(),
+    // The client's name, metadata only.
+    filename: text("filename").notNull(),
+    state: text("state", { enum: pdfImportStates }).default("queued").notNull(),
+    bytes: bytea("bytes"),
+    // The model's validated answer, once read. Never logged.
+    answer: jsonb("answer"),
+    // Why the reading failed; set with the failed state.
+    failureReason: text("failure_reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    // The import page shows the user's latest one.
+    index("money_pdf_imports_user_id_created_at_idx").on(table.userId, table.createdAt),
+    check("money_pdf_imports_state_check", sql`${table.state} in (${oneOf(pdfImportStates)})`),
   ],
 );
 

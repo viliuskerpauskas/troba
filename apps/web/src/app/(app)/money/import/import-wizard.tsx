@@ -36,12 +36,18 @@ import {
 } from "@/components/ui/table";
 import {
   commitImportAction,
+  commitPdfImportAction,
   createImportAccountAction,
+  createPdfImportAccountAction,
+  discardPdfImportAction,
   editProfileAction,
+  pdfImportStatusAction,
   previewImportAction,
+  previewPdfImportAction,
   rereadMappingAction,
   saveProfileAction,
   startImportAction,
+  startPdfImportAction,
   type ImportState,
   type MappingTable,
   type PreviewView,
@@ -66,9 +72,19 @@ const actions = {
   preview: previewImportAction,
   "create-account": createImportAccountAction,
   commit: commitImportAction,
+  // A PDF statement's steps (ADR-0018).
+  "pdf-confirm": startPdfImportAction,
+  "pdf-status": pdfImportStatusAction,
+  "pdf-preview": previewPdfImportAction,
+  "pdf-create-account": createPdfImportAccountAction,
+  "pdf-commit": commitPdfImportAction,
+  "pdf-discard": discardPdfImportAction,
 } satisfies Record<string, (formData: FormData) => Promise<ImportState>>;
 
 const firstStep: ImportState = { step: "upload" };
+
+// How often the page asks whether the worker has read the PDF.
+const pdfPollMs = 2_000;
 
 async function run(state: ImportState, formData: FormData): Promise<ImportState> {
   const intent = String(formData.get("intent"));
@@ -81,6 +97,8 @@ export function ImportWizard({
   maxBytes,
   aiEnabled,
   categorizeEnabled,
+  pdfEnabled,
+  resumed,
 }: {
   dateFormats: readonly DateFormat[];
   maxBytes: number;
@@ -89,8 +107,13 @@ export function ImportWizard({
   // The server has a key and this user hasn't opted out of AI-suggested categories, so the upload
   // step says what is sent for them, before the file is chosen.
   categorizeEnabled: boolean;
+  // The server can read PDF statements, so the upload step takes one.
+  pdfEnabled: boolean;
+  // A PDF import the user started earlier, which the page picks up again.
+  resumed?: ImportState;
 }) {
-  const [state, dispatch, pending] = useActionState(run, firstStep);
+  const [initial] = useState(resumed ?? firstStep);
+  const [state, dispatch, pending] = useActionState(run, initial);
   // The file the user chose, sent again with every step: the server keeps nothing between them.
   const [file, setFile] = useState<File | null>(null);
   const [tooLarge, setTooLarge] = useState(false);
@@ -101,8 +124,25 @@ export function ImportWizard({
   // page load's first step (restarting gives a new state object), which would steal focus. A
   // refused submit moves it too: its disabled button lost focus while pending.
   useEffect(() => {
-    if (state !== firstStep && document.activeElement === document.body) stepStart.current?.focus();
-  }, [state]);
+    if (state !== initial && document.activeElement === document.body) stepStart.current?.focus();
+  }, [state, initial]);
+
+  // While the worker reads a PDF, ask where it stands: at once for one picked up on page load,
+  // then every few seconds until it is read or failed.
+  const readingId = state.step === "pdf-reading" ? state.pdfImportId : null;
+  useEffect(() => {
+    if (!readingId || pending) return;
+    const timer = setTimeout(
+      () => {
+        const data = new FormData();
+        data.set("intent", "pdf-status");
+        data.set("pdfImportId", readingId);
+        startTransition(() => dispatch(data));
+      },
+      state === initial ? 0 : pdfPollMs,
+    );
+    return () => clearTimeout(timer);
+  }, [readingId, pending, state, initial, dispatch]);
 
   // Submitted by hand, so React doesn't reset the forms (and the file input) after each step.
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -155,6 +195,7 @@ export function ImportWizard({
                 </FieldLabel>
                 <FileDrop
                   id="import-file"
+                  pdfEnabled={pdfEnabled}
                   file={file}
                   describedBy={describedBy || undefined}
                   onFile={(chosen) => {
@@ -209,6 +250,72 @@ export function ImportWizard({
         );
       case "preview":
         return <PreviewForm state={state} pending={pending} onSubmit={submit} />;
+      case "pdf-confirm":
+        return (
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <h2>Send this statement to AI?</h2>
+            <p className="[overflow-wrap:anywhere]">
+              troba reads PDF statements with an AI service. To import {state.filename}, the whole
+              statement is sent to it, including every amount, the names of the people and shops in
+              it, and account numbers. troba asks the service not to keep it. Nothing is sent unless
+              you choose to.
+            </p>
+            {state.error && <FormError>{state.error}</FormError>}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" name="intent" value="pdf-confirm" disabled={pending}>
+                Send to AI and read it
+              </Button>
+              <Button
+                type="submit"
+                variant="outline"
+                name="intent"
+                value="restart"
+                onClick={() => setFile(null)}
+              >
+                Don&apos;t send
+              </Button>
+            </div>
+          </form>
+        );
+      case "pdf-reading":
+        return (
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <input type="hidden" name="pdfImportId" value={state.pdfImportId} />
+            <h2>Reading your statement</h2>
+            <FormStatus>
+              AI is reading {state.filename}. This can take a minute. You can leave this page and
+              come back: the result will be here.
+            </FormStatus>
+            <Button
+              type="submit"
+              variant="outline"
+              name="intent"
+              value="pdf-discard"
+              className="self-start"
+            >
+              Start over
+            </Button>
+          </form>
+        );
+      case "pdf-failed":
+        return (
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <input type="hidden" name="pdfImportId" value={state.pdfImportId} />
+            <h2>The statement couldn&apos;t be read</h2>
+            <FormError>{state.message}</FormError>
+            <Button
+              type="submit"
+              name="intent"
+              value="pdf-discard"
+              disabled={pending}
+              className="self-start"
+            >
+              Try again
+            </Button>
+          </form>
+        );
+      case "pdf-preview":
+        return <PdfPreviewForm state={state} pending={pending} onSubmit={submit} />;
       case "done":
         return (
           <form onSubmit={submit} className="flex flex-col gap-4">
@@ -565,16 +672,45 @@ function PreviewForm({ state, pending, onSubmit }: StepProps<"preview">) {
 }
 
 // The step's own content, ending in one row of buttons: its next action, then Start over.
+// The preview of a PDF statement the model read: the same body as a CSV's, on the stored answer.
+function PdfPreviewForm({ state, pending, onSubmit }: StepProps<"pdf-preview">) {
+  return (
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <input type="hidden" name="pdfImportId" value={state.pdfImportId} />
+      <h2>Preview</h2>
+      <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
+        Read by AI from {state.filename}. AI can misread a statement, so check the numbers before
+        you import.
+      </p>
+      <PreviewBody
+        preview={state.preview}
+        accountId={state.accountId}
+        pending={pending}
+        intentPrefix="pdf-"
+        error={state.error && <FormError>{state.error}</FormError>}
+        startOver={
+          <Button type="submit" variant="outline" name="intent" value="pdf-discard" formNoValidate>
+            Start over
+          </Button>
+        }
+      />
+    </form>
+  );
+}
+
 function PreviewBody({
   preview,
   accountId,
   pending,
+  intentPrefix = "",
   error,
   startOver,
 }: {
   preview: PreviewView;
   accountId: string | null;
   pending: boolean;
+  // Before each button's intent: a PDF's steps are actions of their own.
+  intentPrefix?: "" | "pdf-";
   error: ReactNode;
   startOver: ReactNode;
 }) {
@@ -608,7 +744,12 @@ function PreviewBody({
               />
             </Field>
             {actions(
-              <Button type="submit" name="intent" value="create-account" disabled={pending}>
+              <Button
+                type="submit"
+                name="intent"
+                value={`${intentPrefix}create-account`}
+                disabled={pending}
+              >
                 Create the account and preview
               </Button>,
             )}
@@ -639,7 +780,12 @@ function PreviewBody({
               </NativeSelect>
             </Field>
             {actions(
-              <Button type="submit" name="intent" value="preview" disabled={pending}>
+              <Button
+                type="submit"
+                name="intent"
+                value={`${intentPrefix}preview`}
+                disabled={pending}
+              >
                 Preview
               </Button>,
             )}
@@ -711,7 +857,7 @@ function PreviewBody({
       )}
       {preview.rowsNew > 0 ? (
         actions(
-          <Button type="submit" name="intent" value="commit" disabled={pending}>
+          <Button type="submit" name="intent" value={`${intentPrefix}commit`} disabled={pending}>
             Import {count(preview.rowsNew, "transaction")}
           </Button>,
         )
@@ -762,11 +908,13 @@ function Stat({
 // area around it. Dragging over only changes how the area looks.
 function FileDrop({
   id,
+  pdfEnabled,
   file,
   describedBy,
   onFile,
 }: {
   id: string;
+  pdfEnabled: boolean;
   file: File | null;
   describedBy: string | undefined;
   onFile: (file: File | null) => void;
@@ -806,7 +954,9 @@ function FileDrop({
         </>
       ) : (
         <>
-          <p className="font-medium">{over ? "Drop it here" : "Drag a CSV file here"}</p>
+          <p className="font-medium">
+            {over ? "Drop it here" : `Drag a ${pdfEnabled ? "CSV or PDF" : "CSV"} file here`}
+          </p>
           <p className="text-sm text-muted-foreground">or click to choose one</p>
         </>
       )}
@@ -814,7 +964,7 @@ function FileDrop({
         id={id}
         type="file"
         name="file"
-        accept=".csv,text/csv"
+        accept={pdfEnabled ? ".csv,text/csv,.pdf,application/pdf" : ".csv,text/csv"}
         required
         aria-describedby={describedBy}
         onChange={(event) => onFile(event.currentTarget.files?.[0] ?? null)}

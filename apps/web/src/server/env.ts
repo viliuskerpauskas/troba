@@ -51,7 +51,8 @@ export function gitSha(): string {
 
 // The model that suggests a column mapping for an unknown CSV format (ADR-0015) and categories for
 // transactions (ADR-0016). The owner's choice; OPENAI_MODEL overrides it, and it must support
-// structured JSON output.
+// structured JSON output. The worker's default, for PDF import, is core's defaultOpenAiModel: keep
+// the two the same (this file stays free of core imports).
 export const defaultOpenAiModel = "gpt-6-luna";
 
 export type OpenAiConfig = { apiKey: string; model: string };
@@ -71,6 +72,12 @@ export function aiMappingEnabled(): boolean {
 // The same key switches on AI-suggested transaction categories (ADR-0016): off, the transactions
 // list shows no button and says nothing about the feature.
 export function aiCategorizationEnabled(): boolean {
+  return openAiConfig() !== null;
+}
+
+// PDF statements are read by the model (ADR-0018), so PDF import exists only with a key: without
+// one, the import page doesn't offer PDF and a PDF upload is refused.
+export function pdfImportEnabled(): boolean {
   return openAiConfig() !== null;
 }
 

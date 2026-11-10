@@ -48,8 +48,9 @@ export default defineConfig({
     },
     {
       // The background worker, as built by `pnpm build` (apps/worker/dist/worker.js). Jobs the
-      // app queues during a test run here.
-      command: "node ../worker/dist/worker.js",
+      // app queues during a test run here. It reads PDF statements through the same fake OpenAI.
+      command: "node --import ./e2e/fake-openai.ts ../worker/dist/worker.js",
+      env: { OPENAI_API_KEY: "sk-e2e-not-a-real-key" },
       wait: { stdout: /worker started/ },
       // Lets running jobs finish instead of killing the worker mid-job.
       gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },

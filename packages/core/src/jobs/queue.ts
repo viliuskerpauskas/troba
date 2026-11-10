@@ -2,7 +2,7 @@
 // the jobs. The web app queues them from server actions through queueJob.
 import type { DbTransaction } from "@troba/db";
 import { sql } from "drizzle-orm";
-import { fromDrizzle, PgBoss } from "pg-boss";
+import { fromDrizzle, PgBoss, type QueueOptions } from "pg-boss";
 import { z } from "zod";
 
 // A schema of pg-boss's own, created and migrated by pg-boss on start; drizzle's migrations never
@@ -13,6 +13,9 @@ export const jobQueueSchema = "pgboss";
 export const jobs = {
   // Proves the wiring: the worker picks it up and runs a query.
   ping: z.object({}).strict(),
+  // Reads a PDF statement through the model (T152, ADR-0018). The handler checks the PDF import is
+  // this user's.
+  "read-pdf-import": z.object({ userId: z.uuid(), pdfImportId: z.uuid() }).strict(),
 } as const;
 
 export type JobName = keyof typeof jobs;
@@ -20,6 +23,14 @@ export type JobData<N extends JobName> = z.infer<(typeof jobs)[N]>;
 export const jobNames = Object.keys(jobs) as JobName[];
 
 export type JobQueue = PgBoss;
+
+// Queue settings that differ from pg-boss's defaults, applied when the queue is created.
+const queueOptions: { [N in JobName]?: QueueOptions } = {
+  // One model call of up to 2 minutes (defaultStatementTimeoutMs). The handler records a failed
+  // reading itself and finishes, so a retry only follows a crash or an expiry: once, after which
+  // the job fails and the PDF import is left for the user to start over.
+  "read-pdf-import": { expireInSeconds: 5 * 60, retryLimit: 1, retryDelay: 30 },
+};
 
 export type StartJobQueueOptions = {
   // Maintenance (expiring, retrying and archiving jobs) runs in the worker only, so the web app
@@ -44,7 +55,7 @@ export async function startJobQueue(
   // Unhandled, an "error" event crashes the process; pg-boss reconnects on its own.
   queue.on("error", (error) => console.error("job queue:", error.message));
   await queue.start();
-  for (const name of jobNames) await queue.createQueue(name);
+  for (const name of jobNames) await queue.createQueue(name, queueOptions[name]);
   return queue;
 }
 
