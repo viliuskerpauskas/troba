@@ -39,8 +39,8 @@ export type SuggestAfterImportOptions = {
 
 // Asks the model about the import's unmatched rows and reports how it went, waiting at most
 // `maxWaitMs`. A run that outlasts the wait is not cancelled: it is left to finish in this
-// process (suggestCategories never throws, so it cannot reject unhandled) and its suggestions
-// appear on the list. Never throws.
+// process and its suggestions appear on the list. Never throws: the import is already saved, and
+// its answer mustn't fail over a note about suggestions.
 export async function suggestAfterImport(
   db: Db,
   userId: string,
@@ -57,6 +57,10 @@ export async function suggestAfterImport(
       timer = setTimeout(() => resolve("pending"), maxWaitMs);
     });
     const run = suggestCategories(db, userId, { client, importId, dailyLimit, timeoutMs });
+    // A model failure is a result, not a rejection; a run that rejects anyway (its database went
+    // away) after the wait is over has no one left to tell, and its error may quote merchant text,
+    // so it isn't logged either.
+    run.catch(() => {});
     const outcome = await Promise.race([run, waited]);
     clearTimeout(timer);
     if (outcome === "pending") return { status: "pending" };

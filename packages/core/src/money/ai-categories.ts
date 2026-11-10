@@ -1,9 +1,10 @@
 import { schema, type Db } from "@troba/db";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { claimAiCategorizeMerchants, defaultAiCategorizeDailyLimit } from "./ai-categories-limit";
 import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 import { maskMerchantText } from "./ai-categories-mask";
+import { merchantKey } from "./merchant-key";
 import { listCategories } from "./categories";
 import { listRules, matchingRule } from "./rules";
 
@@ -13,7 +14,8 @@ import { listRules, matchingRule } from "./rules";
 // uncategorized and out of the category totals until the user accepts it.
 //
 // Nothing here logs, and nothing may: the payload is a user's merchant text and the answer is a
-// guess about it. Every failure, including a client that throws, is the same quiet "failed".
+// guess about it. Every failure of the model call, including a client that throws, is the same
+// quiet "failed"; a database or programming error is not the model's and is thrown.
 
 const { moneyTransactions, users } = schema;
 
@@ -144,8 +146,8 @@ type Merchant = {
 // Asks the model for a category for each merchant of the user's eligible rows, a batch at a time,
 // and stores what it answers validly as suggestions. Eligible: no category, no rule match, a
 // card or merchant row (an imported one with no counterparty IBAN, so not a direct transfer) with
-// some text, and never asked about. Rows of one merchant, by counterparty ignoring case (the
-// description when there is none), are asked once. Never throws.
+// some text, and never asked about. Rows of one merchant (merchantKey) are asked once. A model call
+// that fails is reported as `failed`, never thrown; anything else that goes wrong is thrown.
 //
 // A user who turned AI categorization off (setting on the user, default on) is the first check:
 // nothing is read for them and the client is never called, whoever calls this. It is checked again
@@ -170,59 +172,55 @@ export async function suggestCategories(
     capped: false,
   };
 
-  try {
-    if (!(await aiCategorizationEnabledFor(db, userId))) return result;
-    const categories = (await listCategories(db, userId)).filter(
-      (category) => !category.excludedFromSpending,
+  if (!(await aiCategorizationEnabledFor(db, userId))) return result;
+  const categories = (await listCategories(db, userId)).filter(
+    (category) => !category.excludedFromSpending,
+  );
+  if (categories.length === 0) return result;
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId));
+  const ownName = user?.name ?? "";
+
+  const merchants = await findMerchants(db, userId, { importId, limit: maxMerchants });
+  for (let i = 0; i < merchants.length; i += categorizationBatchSize) {
+    // The user may have turned the feature off while an earlier batch was out: nothing more is
+    // claimed or sent.
+    if (i > 0 && !(await aiCategorizationEnabledFor(db, userId))) return result;
+    const wanted = merchants.slice(i, i + categorizationBatchSize);
+    // Claimed just before the call, so a run that never reaches the model costs nothing and
+    // concurrent runs can't slip under the limit. Only what fits is sent.
+    const granted = await claimAiCategorizeMerchants(db, userId, wanted.length, dailyLimit);
+    if (granted === 0) return { ...result, capped: true };
+    const batch = wanted.slice(0, granted);
+    const ids = batch.map((_merchant, index) => `m${index + 1}`);
+    const payload: CategorizationPayload = {
+      categories: categories.map(({ id, name }) => ({ id, name })),
+      merchants: batch.map((merchant, index) => ({
+        id: ids[index]!,
+        counterparty: merchant.counterparty && maskMerchantText(merchant.counterparty, ownName),
+        description: merchant.description && maskMerchantText(merchant.description, ownName),
+      })),
+    };
+
+    const answered = await ask(client, payload, timeoutMs).then(
+      (answer) => readCategoryAnswer(answer, new Set(ids), categoryIds),
+      () => null,
     );
-    if (categories.length === 0) return result;
-    const categoryIds = new Set(categories.map((category) => category.id));
-    const [user] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId));
-    const ownName = user?.name ?? "";
+    if (!answered) return { ...result, failed: true };
 
-    const merchants = await findMerchants(db, userId, { importId, limit: maxMerchants });
-    for (let i = 0; i < merchants.length; i += categorizationBatchSize) {
-      // The user may have turned the feature off while an earlier batch was out: nothing more is
-      // claimed or sent.
-      if (i > 0 && !(await aiCategorizationEnabledFor(db, userId))) return result;
-      const wanted = merchants.slice(i, i + categorizationBatchSize);
-      // Claimed just before the call, so a run that never reaches the model costs nothing and
-      // concurrent runs can't slip under the limit. Only what fits is sent.
-      const granted = await claimAiCategorizeMerchants(db, userId, wanted.length, dailyLimit);
-      if (granted === 0) return { ...result, capped: true };
-      const batch = wanted.slice(0, granted);
-      const ids = batch.map((_merchant, index) => `m${index + 1}`);
-      const payload: CategorizationPayload = {
-        categories: categories.map(({ id, name }) => ({ id, name })),
-        merchants: batch.map((merchant, index) => ({
-          id: ids[index]!,
-          counterparty: merchant.counterparty && maskMerchantText(merchant.counterparty, ownName),
-          description: merchant.description && maskMerchantText(merchant.description, ownName),
-        })),
-      };
-
-      const answered = await ask(client, payload, timeoutMs).then(
-        (answer) => readCategoryAnswer(answer, new Set(ids), categoryIds),
-        () => null,
-      );
-      if (!answered) return { ...result, failed: true };
-
-      result.merchantsAsked += batch.length;
-      result.rowsSuggested += await store(
-        db,
-        userId,
-        batch.map((merchant, index) => ({
-          rowIds: merchant.rowIds,
-          // A merchant the answer didn't cover is asked about and has no suggestion, like "none".
-          categoryId: answered.get(ids[index]!) ?? null,
-        })),
-      );
-      if (granted < wanted.length) return { ...result, capped: true };
-    }
-    return result;
-  } catch {
-    return { ...result, failed: true };
+    result.merchantsAsked += batch.length;
+    result.rowsSuggested += await store(
+      db,
+      userId,
+      batch.map((merchant, index) => ({
+        rowIds: merchant.rowIds,
+        // A merchant the answer didn't cover is asked about and has no suggestion, like "none".
+        categoryId: answered.get(ids[index]!) ?? null,
+      })),
+    );
+    if (granted < wanted.length) return { ...result, capped: true };
   }
+  return result;
 }
 
 async function ask(
@@ -271,6 +269,7 @@ async function findMerchants(
       .select({
         id: moneyTransactions.id,
         bookedOn: moneyTransactions.bookedOn,
+        key: merchantKey(),
         counterparty: moneyTransactions.counterparty,
         description: moneyTransactions.description,
       })
@@ -285,7 +284,8 @@ async function findMerchants(
           eq(moneyTransactions.source, "csv_import"),
           // A direct transfer: the other party is usually a person.
           sql`coalesce(btrim(${moneyTransactions.counterpartyIban}), '') = ''`,
-          sql`coalesce(nullif(btrim(${moneyTransactions.counterparty}), ''), nullif(btrim(${moneyTransactions.description}), '')) is not null`,
+          // Some text to ask about.
+          isNotNull(merchantKey()),
           options.importId ? eq(moneyTransactions.importId, options.importId) : undefined,
           after &&
             sql`(${moneyTransactions.bookedOn}, ${moneyTransactions.id}) > (${after.bookedOn}, ${after.id})`,
@@ -301,7 +301,9 @@ async function findMerchants(
       if (matchingRule(rules, row)) continue;
       const counterparty = row.counterparty?.trim() || null;
       const description = row.description?.trim() || null;
-      const key = (counterparty ?? description)!.toLowerCase();
+      // Grouped by the same key accepting and dismissing use, so a decision covers exactly the
+      // rows the model was asked about together.
+      const key = row.key!;
       let merchant = merchants.get(key);
       if (!merchant) {
         if (merchants.size >= options.limit) continue;
