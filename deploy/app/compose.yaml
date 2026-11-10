@@ -15,6 +15,8 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       AI_MAPPING_DAILY_LIMIT: ${AI_MAPPING_DAILY_LIMIT:-}
       AI_CATEGORIZE_DAILY_LIMIT: ${AI_CATEGORIZE_DAILY_LIMIT:-}
+      # Checked before a PDF is queued; the worker claims each use. Give both the same value.
+      AI_PDF_IMPORT_DAILY_LIMIT: ${AI_PDF_IMPORT_DAILY_LIMIT:-}
     volumes:
       # A named volume starts as a copy of the image's /data/uploads, so it's owned by node (uid 1000).
       - uploads:/data/uploads
@@ -38,6 +40,7 @@ services:
       # Reads PDF statements (ADR-0018). Optional: unset, the web app offers no PDF import.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      AI_PDF_IMPORT_DAILY_LIMIT: ${AI_PDF_IMPORT_DAILY_LIMIT:-}
     # On SIGTERM the worker lets running jobs finish for up to 25 s; past this Docker kills it, and
     # pg-boss retries the job once it expires.
     stop_grace_period: 30s

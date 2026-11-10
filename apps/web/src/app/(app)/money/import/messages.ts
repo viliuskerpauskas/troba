@@ -29,12 +29,41 @@ export const notAStatementFileMessage = `That isn't a statement file. Export you
 // A PDF on a server with no AI key: PDFs are read by AI (ADR-0018).
 export const pdfUnavailableMessage = `PDF import isn't available on this server. Export your statement from your bank as ${acceptedFileTypes}.`;
 
-// Why the model's reading of a PDF statement failed. Nothing was saved either way.
-export const pdfFailureMessages: Record<PdfImportFailureReason, string> = {
+// Why the model's reading of a PDF statement failed. Nothing was saved either way. The daily limit
+// is told apart, with when (pdfReadingCappedMessage).
+export const pdfFailureMessages: Record<Exclude<PdfImportFailureReason, "daily-limit">, string> = {
   unavailable: "AI couldn't read the statement just now. Nothing was saved. Try again in a while.",
   "invalid-answer":
     "AI's reading of the statement couldn't be used. Nothing was saved. Try again, or export the statement as CSV.",
 };
+
+// The page limit on PDF statements (T154), checked before anything is sent.
+export function tooManyPagesMessage(pages: number, maxPages: number): string {
+  return `That PDF has ${pages} pages, and troba reads up to ${maxPages} at a time. Split it into shorter PDFs and import each one.`;
+}
+
+// The daily cap on PDF imports (T154): refused before anything was sent, with when the next is
+// possible, or, for a reading that met the cap after it was queued, the same said afterwards.
+// `nextAt` null means a place is free again now.
+export function pdfDailyLimitMessage(limit: number, nextAt: Date | null, now = new Date()): string {
+  return `You've used today's ${limit} PDF imports, so nothing was sent. ${whenAgain(nextAt, now)}`;
+}
+
+export function pdfReadingCappedMessage(limit: number, nextAt: Date | null, now = new Date()) {
+  return `You'd already used today's ${limit} PDF imports, so the statement wasn't sent to AI. Nothing was saved. ${whenAgain(nextAt, now)}`;
+}
+
+// Relative, so it needs no time zone: the server doesn't know the user's.
+function whenAgain(nextAt: Date | null, now: Date): string {
+  const minutes = nextAt ? Math.ceil((nextAt.getTime() - now.getTime()) / 60_000) : 0;
+  if (minutes <= 0) return "You can import a PDF again now.";
+  if (minutes === 1) return "You can import a PDF again in a minute.";
+  if (minutes < 60) return `You can import a PDF again in ${minutes} minutes.`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1
+    ? "You can import a PDF again in about an hour."
+    : `You can import a PDF again in about ${hours} hours.`;
+}
 export const startAgainMessage = "Something changed since the last step. Upload the file again.";
 
 // Why the file can't be read with the profile's settings.

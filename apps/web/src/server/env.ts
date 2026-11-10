@@ -101,3 +101,13 @@ export function aiCategorizeDailyLimit(): number {
   const limit = Number(process.env.AI_CATEGORIZE_DAILY_LIMIT?.trim());
   return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiCategorizeDailyLimit;
 }
+
+// How many PDF statements one user can have read by AI in a day (ADR-0018), so one account can't
+// run up the owner's bill. AI_PDF_IMPORT_DAILY_LIMIT overrides it; anything but a whole number from
+// 1 up is ignored. The worker, which claims each use, reads it the same way through core.
+export const defaultAiPdfImportDailyLimit = 10;
+
+export function aiPdfImportDailyLimit(): number {
+  const limit = Number(process.env.AI_PDF_IMPORT_DAILY_LIMIT?.trim());
+  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiPdfImportDailyLimit;
+}

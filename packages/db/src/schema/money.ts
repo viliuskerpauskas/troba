@@ -184,6 +184,23 @@ export const moneyAiCategorizeUses = pgTable(
   ],
 );
 
+// One row per PDF import the model was asked to read (T154, ADR-0018), counted per user over the
+// last day to cap what one account can spend. Keyed by the PDF import, so a retried job reuses its
+// claim; no foreign key, since the use outlives the PDF import. Rows older than a day are deleted
+// as new ones come.
+export const moneyAiPdfImportUses = pgTable(
+  "money_ai_pdf_import_uses",
+  {
+    id: id(),
+    userId: userId(),
+    pdfImportId: uuid("pdf_import_id").notNull().unique(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("money_ai_pdf_import_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 export const moneyImports = pgTable(
   "money_imports",
   {

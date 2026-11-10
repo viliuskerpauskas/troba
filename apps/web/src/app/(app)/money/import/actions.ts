@@ -2,6 +2,7 @@
 
 import {
   assertNever,
+  checkPdfImport,
   commitImport,
   commitPdfImport,
   createImportAccount,
@@ -10,6 +11,7 @@ import {
   getImportProfile,
   getPdfImport,
   checkStatementFile,
+  pdfImportAllowance,
   listAccounts,
   maxImportFileBytes,
   presetBrand,
@@ -29,6 +31,7 @@ import {
   type ImportRefusal,
   type ImportRowFailure,
   type PdfImport,
+  type PdfImportRefusal,
   type PresetBrand,
   type PreviewImportResult,
   type ReadTableOptions,
@@ -38,7 +41,12 @@ import {
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
-import { aiCategorizeDailyLimit, aiMappingDailyLimit, pdfImportEnabled } from "@/server/env";
+import {
+  aiCategorizeDailyLimit,
+  aiMappingDailyLimit,
+  aiPdfImportDailyLimit,
+  pdfImportEnabled,
+} from "@/server/env";
 import { jobQueue } from "@/server/jobs";
 import { requireMoneyUser } from "@/server/money";
 import { categorizationModelClient } from "@/server/openai-categorization";
@@ -46,13 +54,16 @@ import { mappingModelClient } from "@/server/openai-mapping";
 import {
   formatSources,
   notAStatementFileMessage,
+  pdfDailyLimitMessage,
   pdfFailureMessages,
+  pdfReadingCappedMessage,
   pdfUnavailableMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
   suggestions,
   tooLargeMessage,
+  tooManyPagesMessage,
   type FormatSource,
   type Suggestion,
 } from "./messages";
@@ -202,8 +213,15 @@ export async function startImportAction(formData: FormData): Promise<ImportState
   const { userId } = await requireMoneyUser();
   const upload = await readStatementUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
-  // Nothing is sent or kept until the user confirms.
-  if (upload.kind === "pdf") return { step: "pdf-confirm", filename: upload.filename };
+  // Nothing is sent or kept until the user confirms, and a PDF that couldn't be sent anyway (too
+  // many pages, or the day's PDF imports used) isn't offered for confirming.
+  if (upload.kind === "pdf") {
+    const allowed = await checkPdfImport(db(), userId, upload.bytes, {
+      dailyLimit: aiPdfImportDailyLimit(),
+    });
+    if (!allowed.ok) return { step: "upload", error: pdfRefusalMessage(allowed) };
+    return { step: "pdf-confirm", filename: upload.filename };
+  }
   // A workbook that can't be opened is refused before anything is matched or sent anywhere.
   if (upload.kind === "spreadsheet") {
     const table = readTable(upload.bytes);
@@ -546,12 +564,34 @@ export async function startPdfImportAction(formData: FormData): Promise<ImportSt
   const upload = await readStatementUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
   if (upload.kind !== "pdf") return { step: "upload", error: startAgainMessage };
-  const started = await startPdfImport(db(), userId, upload, { queue: await jobQueue() });
-  if (!started.ok) {
-    const error = started.reason === "file-too-large" ? tooLarge : notAStatementFileMessage;
-    return { step: "upload", error };
-  }
+  const started = await startPdfImport(db(), userId, upload, {
+    queue: await jobQueue(),
+    dailyLimit: aiPdfImportDailyLimit(),
+  });
+  if (!started.ok) return { step: "upload", error: pdfRefusalMessage(started) };
   return { step: "pdf-reading", pdfImportId: started.pdfImportId, filename: upload.filename };
+}
+
+function pdfRefusalMessage(refusal: PdfImportRefusal): string {
+  switch (refusal.reason) {
+    case "file-too-large":
+      return tooLarge;
+    case "not-a-pdf":
+      return notAStatementFileMessage;
+    case "too-many-pages":
+      return tooManyPagesMessage(refusal.pages, refusal.maxPages);
+    case "daily-limit":
+      return pdfDailyLimitMessage(refusal.limit, refusal.nextAt);
+    default:
+      return assertNever(refusal);
+  }
+}
+
+// A reading that met the daily cap after it was queued: said with when a PDF can be imported again.
+async function pdfReadingCapped(userId: string): Promise<string> {
+  const limit = aiPdfImportDailyLimit();
+  const allowance = await pdfImportAllowance(db(), userId, limit);
+  return pdfReadingCappedMessage(limit, allowance.ok ? null : allowance.nextAt);
 }
 
 // Where one of the user's PDF imports stands now: asked while it's read, and on coming back. One
@@ -637,13 +677,12 @@ async function pdfImportState(
     case "queued":
     case "reading":
       return { step: "pdf-reading", pdfImportId, filename };
-    case "failed":
-      return {
-        step: "pdf-failed",
-        pdfImportId,
-        filename,
-        message: pdfFailureMessages[pdfImport.failureReason ?? "unavailable"],
-      };
+    case "failed": {
+      const reason = pdfImport.failureReason ?? "unavailable";
+      const message =
+        reason === "daily-limit" ? await pdfReadingCapped(userId) : pdfFailureMessages[reason];
+      return { step: "pdf-failed", pdfImportId, filename, message };
+    }
     case "read": {
       const result = await previewPdfImport(db(), userId, { pdfImportId, accountId });
       // Saved or dropped since it was looked up.

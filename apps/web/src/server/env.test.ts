@@ -6,8 +6,10 @@ import {
   aiCategorizeDailyLimit,
   aiMappingDailyLimit,
   aiMappingEnabled,
+  aiPdfImportDailyLimit,
   defaultAiCategorizeDailyLimit,
   defaultAiMappingDailyLimit,
+  defaultAiPdfImportDailyLimit,
   defaultOpenAiModel,
   openAiConfig,
   uploadsDir,
@@ -113,5 +115,23 @@ describe("aiCategorizeDailyLimit", () => {
   it.each(["", "0", "-3", "2.5", "many", "1e999"])("ignores %j", (value) => {
     vi.stubEnv("AI_CATEGORIZE_DAILY_LIMIT", value);
     expect(aiCategorizeDailyLimit()).toBe(200);
+  });
+});
+
+describe("aiPdfImportDailyLimit", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is 10 PDF imports a day unless AI_PDF_IMPORT_DAILY_LIMIT says otherwise", () => {
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", undefined);
+    expect(defaultAiPdfImportDailyLimit).toBe(10);
+    expect(aiPdfImportDailyLimit()).toBe(10);
+
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", " 3 ");
+    expect(aiPdfImportDailyLimit()).toBe(3);
+  });
+
+  it.each(["", "0", "-3", "2.5", "many", "1e999"])("ignores %j", (value) => {
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", value);
+    expect(aiPdfImportDailyLimit()).toBe(10);
   });
 });

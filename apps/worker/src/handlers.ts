@@ -5,6 +5,8 @@ export type JobContext = {
   db: Db;
   // Null when the worker has no OpenAI key: a PDF import then fails as unavailable.
   statementClient: StatementModelClient | null;
+  // Each user's PDF imports a day (AI_PDF_IMPORT_DAILY_LIMIT), claimed as each is read.
+  pdfImportDailyLimit: number;
 };
 
 // One handler per job in core's `jobs`. A handler is a thin caller of core, like a server action.
@@ -19,7 +21,13 @@ export const handlers: JobHandlers = {
   },
   // The PDF import must be the user's the job was queued for; core filters by both. A failed
   // reading is recorded on the PDF import, so the job still completes.
-  "read-pdf-import": async ({ userId, pdfImportId }, { db, statementClient }) => {
-    await readPdfImport(db, userId, pdfImportId, { client: statementClient });
+  "read-pdf-import": async (
+    { userId, pdfImportId },
+    { db, statementClient, pdfImportDailyLimit },
+  ) => {
+    await readPdfImport(db, userId, pdfImportId, {
+      client: statementClient,
+      dailyLimit: pdfImportDailyLimit,
+    });
   },
 };

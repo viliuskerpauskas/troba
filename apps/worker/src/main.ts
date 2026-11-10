@@ -1,5 +1,9 @@
 // The worker process: `node worker.js` in the image, `pnpm --filter @troba/worker dev` locally.
-import { createOpenAiStatementClient, openAiConfigFrom } from "@troba/core";
+import {
+  createOpenAiStatementClient,
+  openAiConfigFrom,
+  pdfImportDailyLimitFrom,
+} from "@troba/core";
 import { startWorker } from "./worker";
 
 const url = process.env.DATABASE_URL;
@@ -12,6 +16,7 @@ if (!url) {
 const openAi = openAiConfigFrom(process.env);
 const worker = await startWorker(url, {
   statementClient: openAi && createOpenAiStatementClient(openAi),
+  pdfImportDailyLimit: pdfImportDailyLimitFrom(process.env),
 });
 // e2e: playwright.config.ts waits for this line.
 console.log("worker started");
