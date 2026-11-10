@@ -460,6 +460,97 @@ describe("reviewing suggested categories", () => {
       expect(await readRow(user.userId, kept!)).toMatchObject({ categoryId: food });
     });
 
+    // A category deleted while a page is applied makes the update fail the foreign key check
+    // (23503). The race can't be timed from a test, so the failure is injected: a trigger fails
+    // the first `failures` updates of money_transactions with the given SQLSTATE, and a sequence,
+    // which a rolled-back statement doesn't undo, counts every update attempted.
+    async function withFailingUpdates<T>(
+      failures: number,
+      sqlstate: string,
+      run: () => Promise<T>,
+    ): Promise<{ outcome: PromiseSettledResult<T>; attempts: number }> {
+      await db.execute(sql.raw(`create sequence accept_all_attempts`));
+      await db.execute(
+        sql.raw(`
+          create function fail_accept_all() returns trigger language plpgsql as $$
+          begin
+            if nextval('accept_all_attempts') <= ${failures} then
+              raise exception 'injected failure' using errcode = '${sqlstate}';
+            end if;
+            return null;
+          end $$`),
+      );
+      await db.execute(
+        sql.raw(`
+          create trigger fail_accept_all before update on money_transactions
+          for each statement execute function fail_accept_all()`),
+      );
+      try {
+        const [outcome] = await Promise.allSettled([run()]);
+        const result = await db.execute<{ attempts: string }>(
+          sql.raw(`select last_value as attempts from accept_all_attempts`),
+        );
+        return { outcome: outcome!, attempts: Number(result.rows[0]!.attempts) };
+      } finally {
+        await db.execute(sql.raw(`drop trigger fail_accept_all on money_transactions`));
+        await db.execute(sql.raw(`drop function fail_accept_all()`));
+        await db.execute(sql.raw(`drop sequence accept_all_attempts`));
+      }
+    }
+
+    it("tries a page again after a foreign key failure, and applies it", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const [market, books] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+        { counterparty: "BOOK NOOK", suggestedCategoryId: food },
+      ]);
+
+      const { outcome, attempts } = await withFailingUpdates(1, "23503", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome).toEqual({ status: "fulfilled", value: { rows: 2, merchants: 2 } });
+      expect(attempts).toBe(2);
+      expect(await readRow(user.userId, market!)).toMatchObject({ categoryId: food });
+      expect(await readRow(user.userId, books!)).toMatchObject({ categoryId: food });
+    });
+
+    it("gives up on a page after three foreign key failures, with the database's error", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const [market] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+      ]);
+
+      const { outcome, attempts } = await withFailingUpdates(10, "23503", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome).toMatchObject({ status: "rejected", reason: { cause: { code: "23503" } } });
+      expect(attempts).toBe(3);
+      expect(await readRow(user.userId, market!)).toMatchObject({
+        categoryId: null,
+        suggestedCategoryId: food,
+      });
+    });
+
+    it("does not try a page again after any other failure", async () => {
+      const user = await createUser();
+      const [market] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: user.category("Food") },
+      ]);
+
+      // A check constraint failing: not a race that a second attempt gets past.
+      const { outcome, attempts } = await withFailingUpdates(1, "23514", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome.status).toBe("rejected");
+      expect(attempts).toBe(1);
+      expect(await readRow(user.userId, market!)).toMatchObject({ categoryId: null });
+    });
+
     it("never touches another user's rows", async () => {
       const user = await createUser();
       const other = await createUser();
