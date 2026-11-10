@@ -52,7 +52,7 @@ export function gitSha(): string {
 // The model that suggests a column mapping for an unknown CSV format (ADR-0015) and categories for
 // transactions (ADR-0016). The owner's choice; OPENAI_MODEL overrides it, and it must support
 // structured JSON output.
-export const defaultOpenAiModel = "5.6-luna";
+export const defaultOpenAiModel = "gpt-6-luna";
 
 export type OpenAiConfig = { apiKey: string; model: string };
 
