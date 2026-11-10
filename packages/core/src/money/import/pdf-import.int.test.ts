@@ -46,10 +46,23 @@ type AnswerRow = {
 };
 
 // What a model answers for a fictional Example Bank statement.
-function answer(overrides: { accountIbans?: string[]; transactions?: AnswerRow[] } = {}) {
+function answer(
+  overrides: {
+    isStatement?: boolean;
+    accountIbans?: string[];
+    currency?: string | null;
+    openingBalance?: string | null;
+    closingBalance?: string | null;
+    transactions?: AnswerRow[];
+  } = {},
+) {
   return {
+    isStatement: true,
     accountIbans: [ownIban],
     currency: "EUR",
+    // Not printed: most tests change the rows, and a balance check would then fail them.
+    openingBalance: null,
+    closingBalance: null,
     transactions: [
       row({ amount: "-42.15", counterparty: "GROCERY MART", description: "Card purchase" }),
       row({ bookingDate: "2026-03-03", amount: "1500.00", counterparty: "ACME LTD" }),
@@ -309,6 +322,141 @@ describe("PDF import", () => {
       } finally {
         for (const spy of spies) spy.mockRestore();
       }
+    });
+  });
+
+  describe("checking the balances", () => {
+    // The default rows sum to 1456.35.
+    const balanced = { openingBalance: "1000.00", closingBalance: "2456.35" };
+
+    it("reads a statement whose opening balance plus its rows is its closing balance", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      const pdfImportId = await readWith(userId, answer(balanced));
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "read",
+        balance: { result: "matched" },
+      });
+      expect(await previewPdfImport(db, userId, { pdfImportId })).toMatchObject({
+        ok: true,
+        rowsNew: 3,
+      });
+    });
+
+    it("adds the amounts as exact cents, never as floats", async () => {
+      const userId = await createUser();
+      const transactions = [row({ amount: "0.10" }), row({ amount: "0.20" })];
+      const pdfImportId = await readWith(
+        userId,
+        answer({ openingBalance: "0", closingBalance: "0.30", transactions }),
+      );
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "read",
+        balance: { result: "matched" },
+      });
+    });
+
+    it("fails a statement that is a cent out, with the difference, and saves nothing", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      const pdfImportId = await readWith(
+        userId,
+        answer({ openingBalance: "1000.00", closingBalance: "2456.36" }),
+      );
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "failed",
+        failureReason: "balance-mismatch",
+        balance: { result: "mismatch", differenceCents: -1n, currency: "EUR" },
+      });
+      expect((await storedRow(pdfImportId))?.bytes).toBeNull();
+      expect(await previewPdfImport(db, userId, { pdfImportId })).toEqual({
+        ok: false,
+        reason: "pdf-import-not-found",
+      });
+      expect(await commitPdfImport(db, userId, { pdfImportId })).toEqual({
+        ok: false,
+        reason: "pdf-import-not-found",
+      });
+      expect(await savedTransactions(userId)).toEqual([]);
+    });
+
+    it("gives the difference in the rows' currency when the statement prints none", async () => {
+      const userId = await createUser();
+      const transactions = [row({ amount: "-10.00", currency: "USD" })];
+      const pdfImportId = await readWith(
+        userId,
+        answer({ currency: null, openingBalance: "50", closingBalance: "45.00", transactions }),
+      );
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        failureReason: "balance-mismatch",
+        balance: { result: "mismatch", differenceCents: -500n, currency: "USD" },
+      });
+    });
+
+    it.each([
+      ["no balances", { openingBalance: null, closingBalance: null }],
+      ["only the opening balance", { openingBalance: "1000.00", closingBalance: null }],
+      ["only the closing balance", { openingBalance: null, closingBalance: "2456.36" }],
+      ["a balance that isn't a number", { openingBalance: "n/a", closingBalance: "2456.36" }],
+    ])("reads a statement with %s, noting it couldn't be checked", async (_name, balances) => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      const pdfImportId = await readWith(userId, answer(balances));
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "read",
+        balance: { result: "unchecked" },
+      });
+      expect(await previewPdfImport(db, userId, { pdfImportId })).toMatchObject({ ok: true });
+    });
+
+    it("can't check the total when a row's amount doesn't read", async () => {
+      const userId = await createUser();
+      const transactions = [row({ amount: "-4.20" }), row({ amount: "four" })];
+      const pdfImportId = await readWith(
+        userId,
+        answer({ openingBalance: "10.00", closingBalance: "5.80", transactions }),
+      );
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "read",
+        balance: { result: "unchecked" },
+      });
+    });
+
+    it("refuses a file the model says isn't a bank statement, and keeps nothing of it", async () => {
+      const userId = await createUser();
+      await createBankAccount(userId, ownIban);
+      const pdfImportId = await readWith(userId, answer({ isStatement: false, ...balanced }));
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "failed",
+        failureReason: "not-a-statement",
+        balance: null,
+      });
+      const stored = await storedRow(pdfImportId);
+      expect(stored?.bytes).toBeNull();
+      expect(stored?.answer).toBeNull();
+      expect(await commitPdfImport(db, userId, { pdfImportId })).toEqual({
+        ok: false,
+        reason: "pdf-import-not-found",
+      });
+      expect(await savedTransactions(userId)).toEqual([]);
+    });
+
+    it("asks the model for the balances and whether the file is a statement", async () => {
+      const userId = await createUser();
+      const pdfImportId = await start(userId);
+      const { client, requests } = fakeClient(answer());
+      await readPdfImport(db, userId, pdfImportId, { client });
+
+      expect(requests[0]!.schema).toMatchObject({
+        required: expect.arrayContaining(["isStatement", "openingBalance", "closingBalance"]),
+      });
     });
   });
 
