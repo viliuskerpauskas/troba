@@ -60,3 +60,19 @@ export function zipOfText(): Uint8Array {
   XLSX.CFB.utils.cfb_add(container, "notes.txt", Buffer.from("Example notes"));
   return new Uint8Array(XLSX.CFB.write(container, { type: "buffer", fileType: "zip" }) as Buffer);
 }
+
+// An XLSX workbook whose ZIP declares that its first sheet unzips to `declaredBytes`, in both the
+// local and the central header, as a file built to exhaust memory would. Its entries are stored,
+// not compressed, so a reader that trusts the declaration reads it as an ordinary workbook.
+export function workbookDeclaring(declaredBytes: number): Uint8Array {
+  const bytes = writeWorkbook([["Date"], ["2026-03-01"]]);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const name = new TextEncoder().encode("xl/worksheets/sheet1.xml");
+  const named = (at: number) => name.every((byte, i) => bytes[at + i] === byte);
+  for (let i = 0; i + 46 <= bytes.byteLength; i++) {
+    const signature = view.getUint32(i, true);
+    if (signature === 0x04034b50 && named(i + 30)) view.setUint32(i + 22, declaredBytes, true);
+    if (signature === 0x02014b50 && named(i + 46)) view.setUint32(i + 24, declaredBytes, true);
+  }
+  return bytes;
+}

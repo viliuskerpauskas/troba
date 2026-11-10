@@ -1,29 +1,35 @@
 import type { AfterImportSuggestions, ImportRowFailure, PdfImportFailureReason } from "@troba/core";
+import { formatsOf, tabularFileKinds, type StatementFileFormat } from "@troba/core/file-kinds";
 import type { ProfileFormProblem } from "./profile-form";
 
 // What the import wizard tells the user, by reason. Shared with the client wizard, so it imports
-// only types from @troba/core: the package's runtime code is server-only.
+// only types from @troba/core, whose runtime code is server-only, and the plain data of
+// @troba/core/file-kinds.
 
 export function tooLargeMessage(maxBytes: number): string {
   return `That file is over ${maxBytes / 1024 / 1024} MB. Export a shorter period.`;
 }
 
-// The statement files the import page takes, for its copy and its file picker.
-export const acceptedFileTypes = "CSV, XLSX, XLS or ODS";
+// The statement files the import page takes, for its copy and its file picker: CSV and
+// spreadsheets, and PDF on a server that can read one (ADR-0018).
+export const acceptedFileTypes = namesOf(formatsOf(tabularFileKinds));
+export const acceptedFiles = pickerFilter(formatsOf(tabularFileKinds));
+export const acceptedFileTypesWithPdf = namesOf(formatsOf([...tabularFileKinds, "pdf"]));
+export const acceptedFilesWithPdf = `${acceptedFiles},${pickerFilter(formatsOf(["pdf"]))}`;
+
+// "CSV, XLSX, XLS or ODS".
+function namesOf(formats: StatementFileFormat[]): string {
+  const names = formats.map((format) => format.name);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}` : names.join("");
+}
+
 // Extensions and types both: some pickers filter by one, some by the other.
-export const acceptedFiles = [
-  ".csv",
-  ".xlsx",
-  ".xls",
-  ".ods",
-  "text/csv",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/vnd.oasis.opendocument.spreadsheet",
-].join(",");
-// The same with PDF, on a server that can read one (ADR-0018).
-export const acceptedFileTypesWithPdf = "CSV, XLSX, XLS, ODS or PDF";
-export const acceptedFilesWithPdf = `${acceptedFiles},.pdf,application/pdf`;
+function pickerFilter(formats: StatementFileFormat[]): string {
+  return [
+    ...formats.map((format) => format.extension),
+    ...formats.map((format) => format.type),
+  ].join(",");
+}
 
 export const notAStatementFileMessage = `That isn't a statement file. Export your statement from your bank as ${acceptedFileTypes}.`;
 // A PDF on a server with no AI key: PDFs are read by AI (ADR-0018).

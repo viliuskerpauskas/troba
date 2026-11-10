@@ -22,6 +22,7 @@ export * from "./money/merchant-key";
 export * from "./money/import/ai-mapping";
 export * from "./money/import/ai-mapping-limit";
 export * from "./money/import/csv";
+export * from "./money/import/file-kinds";
 export * from "./money/import/import";
 export * from "./money/import/presets";
 export * from "./money/import/profile";

@@ -1,3 +1,4 @@
+import { statementFileKinds, type StatementFileKind } from "./file-kinds";
 import { maxImportFileBytes } from "./import";
 import { isWorkbookContainer } from "./spreadsheet";
 
@@ -5,8 +6,6 @@ import { isWorkbookContainer } from "./spreadsheet";
 // ODS) or a PDF. The content decides the kind and the declared type has to allow it, so a file
 // is accepted only when the two agree. Nothing here parses the file: a ZIP that isn't a workbook
 // gets as far as the spreadsheet reader, which refuses it.
-
-export type StatementFileKind = "csv" | "spreadsheet" | "pdf";
 
 export type StatementFileCheck =
   | { ok: true; kind: StatementFileKind }
@@ -17,33 +16,6 @@ export type StatementFileCheck =
 export type StatementFileCheckOptions = {
   // The server has a statement model client. Off unless the caller says so.
   pdfAvailable?: boolean;
-};
-
-// Browsers declare files inconsistently. Windows with a spreadsheet app installed says
-// application/vnd.ms-excel for a CSV, some say text/plain, and some send no type at all or a
-// generic application/octet-stream for a type they don't know.
-const declaredTypes: Record<StatementFileKind, ReadonlySet<string>> = {
-  csv: new Set([
-    "text/csv",
-    "application/csv",
-    "text/comma-separated-values",
-    "text/x-csv",
-    "application/vnd.ms-excel",
-    "text/plain",
-    "",
-  ]),
-  spreadsheet: new Set([
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.oasis.opendocument.spreadsheet",
-    "application/vnd.ms-excel",
-    "application/msexcel",
-    "application/x-msexcel",
-    "application/x-excel",
-    "application/x-xls",
-    "application/octet-stream",
-    "",
-  ]),
-  pdf: new Set(["application/pdf", "application/x-pdf", "application/octet-stream", ""]),
 };
 
 const pdfMagic = [...new TextEncoder().encode("%PDF-")];
@@ -81,7 +53,7 @@ export function checkStatementFile(
 ): StatementFileCheck {
   if (file.bytes.byteLength > maxImportFileBytes) return { ok: false, reason: "file-too-large" };
   const kind = contentKind(file.bytes);
-  if (!kind || !declaredTypes[kind].has(file.type.toLowerCase())) {
+  if (!kind || !statementFileKinds[kind].declaredTypes.includes(file.type.toLowerCase())) {
     return { ok: false, reason: "not-a-statement-file" };
   }
   if (kind === "pdf" && !pdfAvailable) return { ok: false, reason: "pdf-unavailable" };

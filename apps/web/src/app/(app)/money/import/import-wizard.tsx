@@ -681,6 +681,7 @@ function PreviewForm({ state, pending, onSubmit }: StepProps<"preview">) {
         preview={preview}
         accountId={state.accountId}
         pending={pending}
+        fileKind="tabular"
         error={state.error && <FormError>{state.error}</FormError>}
         startOver={startOver}
       />
@@ -704,7 +705,7 @@ function PdfPreviewForm({ state, pending, onSubmit }: StepProps<"pdf-preview">) 
         preview={state.preview}
         accountId={state.accountId}
         pending={pending}
-        intentPrefix="pdf-"
+        fileKind="pdf"
         error={state.error && <FormError>{state.error}</FormError>}
         startOver={
           <Button type="submit" variant="outline" name="intent" value="pdf-discard" formNoValidate>
@@ -720,18 +721,21 @@ function PreviewBody({
   preview,
   accountId,
   pending,
-  intentPrefix = "",
+  fileKind,
   error,
   startOver,
 }: {
   preview: PreviewView;
   accountId: string | null;
   pending: boolean;
-  // Before each button's intent: a PDF's steps are actions of their own.
-  intentPrefix?: "" | "pdf-";
+  // What the preview is of: a PDF the model read, or a table read with a profile.
+  fileKind: "pdf" | "tabular";
   error: ReactNode;
   startOver: ReactNode;
 }) {
+  const pdf = fileKind === "pdf";
+  // Before each button's intent: a PDF's steps are actions of their own.
+  const intentPrefix = pdf ? "pdf-" : "";
   const actions = (primary?: ReactNode) => (
     <>
       {error}
@@ -838,7 +842,7 @@ function PreviewBody({
             Check for transactions imported twice
           </h3>
           <p className="text-sm text-muted-foreground">
-            {intentPrefix === "pdf-"
+            {pdf
               ? "This account has transactions imported from a CSV or spreadsheet file in this statement's dates."
               : "This account has transactions imported from a PDF statement in this file's dates."}{" "}
             They won&apos;t be detected as duplicates of these rows, so anything in both will be
@@ -880,7 +884,7 @@ function PreviewBody({
           <ul aria-labelledby="failed-rows" className="list-disc pl-6 text-sm">
             {failed.map(({ row, reason }) => (
               <li key={row}>
-                Row {row}: {(intentPrefix === "pdf-" ? pdfFailureReasons : failureReasons)[reason]}
+                Row {row}: {(pdf ? pdfFailureReasons : failureReasons)[reason]}
               </li>
             ))}
           </ul>

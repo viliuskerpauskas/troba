@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { isNonEmpty, usualWidth } from "./csv";
+import { guessSkipLines, isNonEmpty } from "./csv";
 
 // Spreadsheet statement files (XLSX, XLS, ODS) → the same header row and data rows a CSV gives
 // (SPEC-money M3, ADR-0019), so profiles, presets, the AI mapping and the manual form work on
@@ -33,6 +33,10 @@ export type ReadSpreadsheetOptions = {
   skipLines?: number | undefined;
 };
 
+// What a workbook's ZIP may say its entries unzip to, together. A sheet's XML compresses by ten
+// to twenty times, so a workbook at the import size limit stays well under it.
+export const maxWorkbookUnzippedBytes = 128 * 1024 * 1024;
+
 const zipMagic = [0x50, 0x4b, 0x03, 0x04]; // XLSX and ODS
 const oleMagic = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]; // XLS
 
@@ -40,6 +44,57 @@ const oleMagic = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]; // XLS
 // too (CSV, HTML, SYLK); a statement file of another kind has a reader of its own.
 export function isWorkbookContainer(bytes: Uint8Array): boolean {
   return [zipMagic, oleMagic].some((magic) => magic.every((byte, i) => bytes[i] === byte));
+}
+
+function startsWithZip(bytes: Uint8Array): boolean {
+  return zipMagic.every((byte, i) => bytes[i] === byte);
+}
+
+// What a ZIP's headers say its entries unzip to, together, read before the library unzips it: the
+// library sizes each entry's output by its local header, and checks it against the central one, so
+// for each entry the larger counts. (An entry whose local header leaves the size to a trailing
+// data descriptor is unzipped to whatever it holds; its central size is what counts here.) An XLS
+// is no ZIP: nothing in it is compressed, so the import size limit bounds it. Null when the
+// headers can't be read, or keep a size in a ZIP64 field, and the workbook is then refused.
+function declaredUnzippedBytes(bytes: Uint8Array): number | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const u16 = (at: number) => (at + 2 <= view.byteLength ? view.getUint16(at, true) : null);
+  const u32 = (at: number) => (at + 4 <= view.byteLength ? view.getUint32(at, true) : null);
+
+  // The end of central directory record, found from the end as the library finds it.
+  let end = view.byteLength - 22;
+  while (end >= 0 && u32(end) !== 0x06054b50) end--;
+  if (end < 0) return null;
+  const entries = u16(end + 10);
+  let at = u32(end + 16);
+  if (entries === null || at === null) return null;
+
+  let total = 0;
+  for (let i = 0; i < entries; i++) {
+    if (u32(at) !== 0x02014b50) return null;
+    const central = u32(at + 24);
+    const nameLength = u16(at + 28);
+    const extraLength = u16(at + 30);
+    const commentLength = u16(at + 32);
+    const localAt = u32(at + 42);
+    if (
+      central === null ||
+      nameLength === null ||
+      extraLength === null ||
+      commentLength === null ||
+      localAt === null ||
+      u32(localAt) !== 0x04034b50
+    ) {
+      return null;
+    }
+    const local = u32(localAt + 22);
+    if (local === null) return null;
+    // 0xFFFFFFFF: the size is in a ZIP64 field, which no statement-sized workbook needs.
+    if (central === 0xffffffff || local === 0xffffffff) return null;
+    total += Math.max(central, local);
+    at += 46 + nameLength + extraLength + commentLength;
+  }
+  return total;
 }
 
 const readOptions: XLSX.ParsingOptions = {
@@ -66,7 +121,8 @@ export function readSpreadsheet(
   if (!records) return { ok: false, reason: "unreadable-workbook" };
 
   const texts = records.map((record) => record.map((cell) => cell.text));
-  const skipLines = options.skipLines ?? guessSkipLines(texts);
+  // A preamble (a statement title) sits above the header, as in a CSV.
+  const skipLines = options.skipLines ?? guessSkipLines(texts, { orWider: true });
   const [header = [], ...rows] = records
     .slice(skipLines)
     .filter((record) => isNonEmpty(record.map((cell) => cell.text)));
@@ -79,22 +135,25 @@ export function readSpreadsheet(
   };
 }
 
-// A preamble (a statement title) sits above the header, as in a CSV. A sheet row ends at its last
-// filled cell, so a data row with an empty last column is narrower than the header: the header is
-// the first row at least as wide as most rows.
-function guessSkipLines(records: string[][]): number {
-  const width = usualWidth(records.filter(isNonEmpty))?.width;
-  if (width === undefined) return 0;
-  return Math.max(
-    0,
-    records.findIndex((record) => record.length >= width),
-  );
+// Each upload's sheet, parsed once. One upload is read by the upload check, each profile and
+// preset tried for it, its save and its preview, each with its own skip lines; only the skipping
+// differs, so they share one parse. Keyed by the bytes, so it lasts as long as the upload does.
+// The records are never changed after parsing.
+const parsed = new WeakMap<Uint8Array, Cell[][] | null>();
+
+function readRecords(bytes: Uint8Array): Cell[][] | null {
+  if (!parsed.has(bytes)) parsed.set(bytes, parseRecords(bytes));
+  return parsed.get(bytes)!;
 }
 
 // The first sheet's rows from its first row down, each without its empty cells at the end, so a
 // title row reads as one cell as it does in a CSV. Null when the workbook can't be read.
-function readRecords(bytes: Uint8Array): Cell[][] | null {
+function parseRecords(bytes: Uint8Array): Cell[][] | null {
   if (!isWorkbookContainer(bytes)) return null;
+  if (startsWithZip(bytes)) {
+    const unzipped = declaredUnzippedBytes(bytes);
+    if (unzipped === null || unzipped > maxWorkbookUnzippedBytes) return null;
+  }
   let book: XLSX.WorkBook;
   try {
     book = XLSX.read(bytes, readOptions);

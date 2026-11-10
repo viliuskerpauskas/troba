@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseRows, type ImportProfile } from "./profile";
-import { readSpreadsheet } from "./spreadsheet";
+import * as XLSX from "xlsx";
+import { maxWorkbookUnzippedBytes, readSpreadsheet } from "./spreadsheet";
 import {
   encryptedWorkbook,
+  workbookDeclaring,
   writeWorkbook,
   zipOfText,
   type FixtureBookType,
@@ -184,5 +186,30 @@ describe("readSpreadsheet", () => {
     ["a CSV", new TextEncoder().encode("Date,Amount\n2026-03-01,-4.20\n")],
   ])("refuses %s as unreadable", (_name, bytes) => {
     expect(readSpreadsheet(bytes)).toEqual({ ok: false, reason: "unreadable-workbook" });
+  });
+
+  // SheetJS unzips a workbook whole, sizing each entry by what its headers declare (T156).
+  describe("a ZIP's declared unzipped size", () => {
+    it("refuses a workbook that says it unzips to more than the limit", () => {
+      expect(readSpreadsheet(workbookDeclaring(maxWorkbookUnzippedBytes + 1))).toEqual({
+        ok: false,
+        reason: "unreadable-workbook",
+      });
+    });
+
+    it("reads one that says it unzips to no more than the limit", () => {
+      expect(
+        readSpreadsheet(workbookDeclaring(maxWorkbookUnzippedBytes - 64 * 1024)),
+      ).toMatchObject({ ok: true });
+    });
+
+    it("reads a compressed workbook", () => {
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Date"], ["2026-03-01"]]));
+      const bytes = new Uint8Array(
+        XLSX.write(book, { type: "buffer", bookType: "xlsx", compression: true }),
+      );
+      expect(read(bytes)).toMatchObject({ headers: ["Date"], rows: [["2026-03-01"]] });
+    });
   });
 });

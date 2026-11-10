@@ -12,6 +12,7 @@ import {
   getImportProfile,
   getPdfImport,
   checkStatementFile,
+  extensionPattern,
   pdfImportAllowance,
   listAccounts,
   maxImportFileBytes,
@@ -24,6 +25,7 @@ import {
   saveImportProfile,
   startPdfImport,
   suggestAfterImport,
+  tabularFileKinds,
   type Account,
   type AfterImportSuggestions,
   type CommitImportResult,
@@ -37,7 +39,7 @@ import {
   type PreviewImportResult,
   type ReadTableOptions,
   type SavedImportProfile,
-  type StatementFileKind,
+  type TabularFileKind,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -93,9 +95,6 @@ export type MappingTable = {
   // Null for a spreadsheet, which has none.
   delimiter: Delimiter | null;
 };
-
-// The statement files the wizard imports so far.
-export type TabularFileKind = Exclude<StatementFileKind, "pdf">;
 
 export type ImportState =
   | { step: "upload"; error?: string }
@@ -282,8 +281,10 @@ export async function startImportAction(formData: FormData): Promise<ImportState
 }
 
 // The name a new profile starts with, for the user to change.
+const tabularExtension = extensionPattern(tabularFileKinds);
+
 function startingName(upload: Upload): string {
-  return upload.filename.replace(/\.(csv|xlsx|xls|ods)$/i, "").slice(0, 100);
+  return upload.filename.replace(tabularExtension, "").slice(0, 100);
 }
 
 // The mapping step again, read with the skip lines, delimiter and encoding the user corrected.
@@ -611,39 +612,37 @@ async function pdfReadingCapped(userId: string): Promise<string> {
 // that is gone (saved, dropped or another user's) is the upload step.
 export async function pdfImportStatusAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const input = readPdfInput(formData);
-  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  const found = await readPdfImport(userId, formData);
   if (!found) return { step: "upload" };
-  return pdfImportState(userId, found, null);
+  return pdfImportState(userId, found.pdfImport, null);
 }
 
 export async function previewPdfImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const input = readPdfInput(formData);
-  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  const found = await readPdfImport(userId, formData);
   if (!found) return { step: "upload", error: startAgainMessage };
-  return pdfImportState(userId, found, input.accountId);
+  return pdfImportState(userId, found.pdfImport, found.accountId);
 }
 
 // The preview offered a bank account for the statement's own IBAN.
 export async function createPdfImportAccountAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const input = readPdfInput(formData);
-  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  const found = await readPdfImport(userId, formData);
   if (!found) return { step: "upload", error: startAgainMessage };
+  const { pdfImport } = found;
   const name = AccountName.safeParse(formData.get("accountName"));
   if (!name.success) {
-    const state = await pdfImportState(userId, found, null);
+    const state = await pdfImportState(userId, pdfImport, null);
     const error = "Enter a name for the account, up to 100 characters.";
     return state.step === "pdf-preview" ? { ...state, error } : state;
   }
   const created = await createPdfImportAccount(db(), userId, {
-    pdfImportId: found.id,
+    pdfImportId: pdfImport.id,
     name: name.data,
   });
   if (created.ok) revalidatePath("/money/accounts");
   // Refused or not: the preview shows where the statement stands now.
-  return pdfImportState(userId, found, null);
+  return pdfImportState(userId, pdfImport, null);
 }
 
 // Commits the stored answer, never anything this form sends but the PDF import and account ids.
@@ -668,6 +667,18 @@ export async function discardPdfImportAction(formData: FormData): Promise<Import
   const input = readPdfInput(formData);
   if (input) await discardPdfImport(db(), userId, input.pdfImportId);
   return { step: "upload" };
+}
+
+// The user's PDF import the form names, and the account picked; null when either id is no
+// candidate or the PDF import is gone (saved, dropped or another user's), and the caller says
+// start again.
+async function readPdfImport(
+  userId: string,
+  formData: FormData,
+): Promise<{ pdfImport: PdfImport; accountId: string | null } | null> {
+  const input = readPdfInput(formData);
+  const pdfImport = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  return pdfImport ? { pdfImport, accountId: input.accountId } : null;
 }
 
 // The PDF import and the account picked: candidate ids, checked by core against the user's rows.

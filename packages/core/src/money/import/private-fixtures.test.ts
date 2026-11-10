@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { extensionPattern, tabularFileKinds } from "./file-kinds";
 import { importProfileSchema, parseRows } from "./profile";
 import { readTable } from "./table";
 
 // Real bank exports, kept only on the owner's machine in the gitignored .private/fixtures/, each
-// `<name>.csv` (or `.xlsx`, `.xls`, `.ods`) beside the `<name>.profile.json` that reads it. Skipped wherever they're absent,
+// `<name>.csv` (or another tabular kind's extension) beside the `<name>.profile.json` that reads it. Skipped wherever they're absent,
 // CI included. Searched for upwards, because a worktree under .claude/worktrees/ has no .private/
 // of its own and the main checkout's is the one that exists.
 //
@@ -20,7 +21,7 @@ function findPrivateFixtures(): string | null {
 }
 
 // A CSV or a spreadsheet statement file.
-const exportFile = /\.(csv|xlsx|xls|ods)$/;
+const exportFile = extensionPattern(tabularFileKinds);
 
 const folder = findPrivateFixtures();
 const exports = folder

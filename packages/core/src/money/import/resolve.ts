@@ -18,7 +18,10 @@ export type ResolvedImportFormat =
   | { kind: "unknown"; reason: "no-match" | "profile-limit" };
 
 export type ResolveImportFormatOptions = {
-  // The built-in presets unless a test gives others.
+  // The built-in presets unless a test gives others. Kept as an argument rather than mocking the
+  // presets module: the built-in presets are real banks' formats, all CSVs so far, so a test of
+  // how a spreadsheet preset matches, or of a fictional bank's, needs presets of its own, and an
+  // argument keeps that visible at the call.
   presets?: readonly ImportPreset[];
 };
 
