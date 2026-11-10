@@ -8,7 +8,14 @@ export function tooLargeMessage(maxBytes: number): string {
   return `That file is over ${maxBytes / 1024 / 1024} MB. Export a shorter period.`;
 }
 
-export const notCsvMessage = "That isn't a CSV file. Export your statement from your bank as CSV.";
+export const notAStatementFileMessage =
+  "That isn't a statement file. Export your statement from your bank as CSV.";
+// A statement file troba recognises but doesn't import yet.
+export const unsupportedKindMessages = {
+  spreadsheet:
+    "Spreadsheet import isn't supported yet. Export your statement from your bank as CSV.",
+  pdf: "PDF import isn't supported yet. Export your statement from your bank as CSV.",
+} as const;
 export const startAgainMessage = "Something changed since the last step. Upload the file again.";
 
 // Why the file can't be read with the profile's settings.

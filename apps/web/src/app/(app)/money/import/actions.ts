@@ -5,7 +5,7 @@ import {
   commitImport,
   createImportAccount,
   getImportProfile,
-  isCsvUpload,
+  checkStatementFile,
   listAccounts,
   maxImportFileBytes,
   presetBrand,
@@ -35,12 +35,13 @@ import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
 import {
   formatSources,
-  notCsvMessage,
+  notAStatementFileMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
   suggestions,
   tooLargeMessage,
+  unsupportedKindMessages,
   type FormatSource,
   type Suggestion,
 } from "./messages";
@@ -135,13 +136,17 @@ const tooLarge = tooLargeMessage(maxImportFileBytes);
 type Upload = { filename: string; bytes: Uint8Array };
 
 // The file every step sends. Checked before anything reads it: the declared size, then the
-// content.
+// kind of statement file from its declared type and content. Only a CSV imports so far.
 async function readUpload(formData: FormData): Promise<Upload | { error: string }> {
   const file = z.file().safeParse(formData.get("file"));
   if (!file.success || file.data.size === 0) return { error: "Choose a CSV file to import." };
   if (file.data.size > maxImportFileBytes) return { error: tooLarge };
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  if (!isCsvUpload({ type: file.data.type, bytes })) return { error: notCsvMessage };
+  const checked = checkStatementFile({ type: file.data.type, bytes });
+  if (!checked.ok) {
+    return { error: checked.reason === "file-too-large" ? tooLarge : notAStatementFileMessage };
+  }
+  if (checked.kind !== "csv") return { error: unsupportedKindMessages[checked.kind] };
   return { filename: file.data.name.slice(0, 200), bytes };
 }
 
