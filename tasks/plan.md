@@ -103,6 +103,14 @@ One entry per spec issue, with its tickets beneath it in dependency order (added
   - [T126](https://github.com/viliuskerpauskas/troba/issues/126) feat(money): preset for the second bank (after T124)
   - [T127](https://github.com/viliuskerpauskas/troba/issues/127) feat(money): AI-suggested mapping for unknown formats in the import wizard (after T124, T125)
   - [T128](https://github.com/viliuskerpauskas/troba/issues/128) feat(money): daily cap on AI mappings per user (after T127)
+- [T148](https://github.com/viliuskerpauskas/troba/issues/148) spec(money): import statement files beyond CSV (spreadsheets and PDF)
+  - [T149](https://github.com/viliuskerpauskas/troba/issues/149) refactor(money): recognise the statement file kind at upload
+  - [T150](https://github.com/viliuskerpauskas/troba/issues/150) feat(platform): add the background worker
+  - [T151](https://github.com/viliuskerpauskas/troba/issues/151) feat(money): import spreadsheet statement files (XLSX, XLS, ODS) (after T149)
+  - [T152](https://github.com/viliuskerpauskas/troba/issues/152) feat(money): import a PDF statement read by AI (after T149, T150)
+  - [T153](https://github.com/viliuskerpauskas/troba/issues/153) feat(money): check the balances of a PDF statement the model read (after T152)
+  - [T154](https://github.com/viliuskerpauskas/troba/issues/154) feat(money): daily cap and page limit on PDF imports (after T152)
+  - [T155](https://github.com/viliuskerpauskas/troba/issues/155) feat(money): warn about mixed formats and clean up unconfirmed PDF imports (after T152)
 
 ## Risks and Mitigations
 
