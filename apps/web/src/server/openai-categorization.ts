@@ -1,10 +1,10 @@
 import type { CategorizationModelClient } from "@troba/core";
 import { openAiConfig, type OpenAiConfig } from "./env";
-import { structuredResponse } from "./openai-responses";
+import { structuredResponse } from "@troba/core";
 
 // The model client behind AI-suggested transaction categories (ADR-0016). The request carries only
 // what core's suggestCategories built: the user's category names and the masked merchant text.
-// Nothing here logs it or the answer; see openai-responses.ts for the transport.
+// Nothing here logs it or the answer; see packages/core/src/openai/responses.ts for the transport.
 
 export function createOpenAiCategorizationClient(
   config: OpenAiConfig,

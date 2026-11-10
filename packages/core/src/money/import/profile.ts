@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { parseCents } from "../cents";
 import { parseIban } from "../iban";
-import { delimiters, isKnownEncoding, type CsvTable } from "./csv";
+import { delimiters, isKnownEncoding } from "./csv";
+import type { TypedCell } from "./spreadsheet";
 
 // Import profiles (SPEC-money M3, "Import profile"): a user's description of their bank's CSV
-// format, stored in their own data (or copied there from a built-in preset). This file turns a
-// table read by ./csv.ts into ParsedRows; matching them against accounts and saving them is
+// or spreadsheet format, stored in their own data (or copied there from a built-in preset). This
+// file turns a table read by ./table.ts into ParsedRows; matching them against accounts and saving them is
 // ./import.ts's job.
 //
 // Descriptions and raw rows can hold masked card numbers: never log them.
@@ -143,9 +144,18 @@ export type ParseRowsOptions = {
   accountCurrency: string;
 };
 
+// The rows to parse. A spreadsheet marks its typed cells: a typed number is a decimal string with a
+// point and a typed date is YYYY-MM-DD (see ./spreadsheet.ts), read as such whatever the profile
+// says about the bank's text.
+export type RowsTable = {
+  headers: string[];
+  rows: string[][];
+  cellTypes?: (TypedCell | undefined)[][];
+};
+
 export function parseRows(
   profile: ImportProfile,
-  table: CsvTable,
+  table: RowsTable,
   options: ParseRowsOptions,
 ): ParseRowsResult {
   // A header the profile maps but the file lacks means a different format, not empty cells.
@@ -179,10 +189,18 @@ export function parseRows(
 
   for (const [i, cells] of table.rows.entries()) {
     const row = i + 1;
-    const cell = (field: ImportField): string => {
+    const types = table.cellTypes?.[i];
+    const indexOf = (field: ImportField): number | undefined => {
       const name = profile.columns[field];
-      const j = name === undefined ? undefined : columnIndex.get(name);
+      return name === undefined ? undefined : columnIndex.get(name);
+    };
+    const cell = (field: ImportField): string => {
+      const j = indexOf(field);
       return j === undefined ? "" : (cells[j] ?? "").trim();
+    };
+    const typeOf = (field: ImportField): TypedCell | undefined => {
+      const j = indexOf(field);
+      return j === undefined ? undefined : types?.[j];
     };
     const indicator = cell("debitCredit").toUpperCase();
     if (indicator) {
@@ -194,7 +212,7 @@ export function parseRows(
       seen.rows++;
       indicators.set(indicator, seen);
     }
-    const parsed = parseRow(profile, cell, accountCurrency);
+    const parsed = parseRow(profile, cell, typeOf, accountCurrency);
     if (typeof parsed === "string") {
       failed.push({ row, reason: parsed });
       continue;
@@ -243,6 +261,7 @@ type RowFields = Omit<ParsedRow, "row" | "dedupKey" | "raw">;
 function parseRow(
   profile: ImportProfile,
   cell: (field: ImportField) => string,
+  typeOf: (field: ImportField) => TypedCell | undefined,
   accountCurrency: string,
 ):
   | {
@@ -254,14 +273,18 @@ function parseRow(
   | RowFailureReason {
   const text = (field: ImportField): string | null => cell(field) || null;
   const amountOf = (field: ImportField) =>
-    parseCents(cell(field), { decimalSeparator: profile.decimalSeparator });
+    parseCents(cell(field), {
+      decimalSeparator: typeOf(field) === "number" ? "." : profile.decimalSeparator,
+    });
+  const dateOf = (field: ImportField) =>
+    parseDate(cell(field), typeOf(field) === "date" ? "YYYY-MM-DD" : profile.dateFormat);
   // Undefined: not a currency code.
   const currencyOf = (field: ImportField): string | null | undefined => {
     const code = text(field)?.toUpperCase() ?? null;
     return code === null || currencyCode.test(code) ? code : undefined;
   };
 
-  const bookedOn = parseDate(cell("transactionDate") || cell("bookingDate"), profile.dateFormat);
+  const bookedOn = cell("transactionDate") ? dateOf("transactionDate") : dateOf("bookingDate");
   if (!bookedOn) return "invalid-date";
 
   const amount = amountOf("amount");

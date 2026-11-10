@@ -132,7 +132,7 @@ function sharedWidthCount(records: string[][]): number {
 
 // A preamble (a statement title) sits above the header: the header is the first line with the
 // file's usual column count (SPEC-money M3).
-function guessSkipLines(records: string[][]): number {
+export function guessSkipLines(records: string[][]): number {
   const width = usualWidth(records.filter(isNonEmpty))?.width;
   return Math.max(
     0,
@@ -143,7 +143,7 @@ function guessSkipLines(records: string[][]): number {
 // The most common number of columns above one, and how many records have it. Single-cell lines
 // are titles, not the table, so a short file's preamble can't outvote it. On a tie the wider:
 // a header with no rows yet beats a preamble line.
-function usualWidth(records: string[][]): { width: number; count: number } | null {
+export function usualWidth(records: string[][]): { width: number; count: number } | null {
   const counts = new Map<number, number>();
   for (const { length } of records)
     if (length > 1) counts.set(length, (counts.get(length) ?? 0) + 1);
@@ -156,7 +156,7 @@ function usualWidth(records: string[][]): { width: number; count: number } | nul
   return usual;
 }
 
-function isNonEmpty(record: string[]): boolean {
+export function isNonEmpty(record: string[]): boolean {
   return record.some((cell) => cell !== "");
 }
 

@@ -51,8 +51,9 @@ export function gitSha(): string {
 
 // The model that suggests a column mapping for an unknown CSV format (ADR-0015) and categories for
 // transactions (ADR-0016). The owner's choice; OPENAI_MODEL overrides it, and it must support
-// structured JSON output.
-export const defaultOpenAiModel = "5.6-luna";
+// structured JSON output. The worker's default, for PDF import, is core's defaultOpenAiModel: keep
+// the two the same (this file stays free of core imports).
+export const defaultOpenAiModel = "gpt-6-luna";
 
 export type OpenAiConfig = { apiKey: string; model: string };
 
@@ -71,6 +72,12 @@ export function aiMappingEnabled(): boolean {
 // The same key switches on AI-suggested transaction categories (ADR-0016): off, the transactions
 // list shows no button and says nothing about the feature.
 export function aiCategorizationEnabled(): boolean {
+  return openAiConfig() !== null;
+}
+
+// PDF statements are read by the model (ADR-0018), so PDF import exists only with a key: without
+// one, the import page doesn't offer PDF and a PDF upload is refused.
+export function pdfImportEnabled(): boolean {
   return openAiConfig() !== null;
 }
 
@@ -93,4 +100,14 @@ export const defaultAiCategorizeDailyLimit = 200;
 export function aiCategorizeDailyLimit(): number {
   const limit = Number(process.env.AI_CATEGORIZE_DAILY_LIMIT?.trim());
   return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiCategorizeDailyLimit;
+}
+
+// How many PDF statements one user can have read by AI in a day (ADR-0018), so one account can't
+// run up the owner's bill. AI_PDF_IMPORT_DAILY_LIMIT overrides it; anything but a whole number from
+// 1 up is ignored. The worker, which claims each use, reads it the same way through core.
+export const defaultAiPdfImportDailyLimit = 10;
+
+export function aiPdfImportDailyLimit(): number {
+  const limit = Number(process.env.AI_PDF_IMPORT_DAILY_LIMIT?.trim());
+  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiPdfImportDailyLimit;
 }

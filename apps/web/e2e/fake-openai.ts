@@ -1,9 +1,10 @@
 // Preloaded into the E2E server (`node --import`, see playwright.config.ts): stands in for OpenAI at
 // the server's outbound boundary, so the real model client runs and nothing leaves the machine.
 // The server's fetch answers a mapping request for the one unknown format the import test uploads,
-// and a categorization request for GROCERY MART, with the answer a model would give (and refuses
-// one that carries what must not be sent), and fails every other request like an unreachable
-// service.
+// a categorization request for GROCERY MART, and a statement request for the fictional PDF in
+// e2e/money-pdf-import.spec.ts, with the answer a model would give (and refuses one that carries
+// what must not be sent), and fails every other request like an unreachable service. The worker
+// is started with it too, since it reads PDFs.
 // The key it is run with is made up.
 const endpoint = "https://api.openai.com/v1/responses";
 
@@ -66,6 +67,58 @@ function categorize(input: string): Response {
   });
 }
 
+// The fictional PDF e2e/money-pdf-import.spec.ts uploads is recognized by this line in it.
+const statementMarker = "EXAMPLE BANK STATEMENT FOR E2E";
+const statementAnswer = {
+  isStatement: true,
+  accountIbans: ["DE89 3704 0044 0532 0130 00"],
+  currency: "EUR",
+  // 500.00 - 42.15 + 1500.00: the rows add up, so the preview has no note about the total.
+  openingBalance: "500.00",
+  closingBalance: "1957.85",
+  transactions: [
+    {
+      bookingDate: "2026-03-02",
+      amount: "-42.15",
+      currency: "EUR",
+      counterparty: "GROCERY MART",
+      counterpartyIban: null,
+      description: "Card purchase",
+    },
+    {
+      bookingDate: "2026-03-03",
+      amount: "1500.00",
+      currency: "EUR",
+      counterparty: "EXAMPLE EMPLOYER",
+      counterpartyIban: null,
+      description: "Salary",
+    },
+  ],
+};
+
+// Answers a statement request carrying the test's PDF as a file input, as a model reading it would.
+function readStatement(input: unknown): Response {
+  const file = (input as { content?: { type?: string; file_data?: string }[] }[] | undefined)?.[0]
+    ?.content?.[0];
+  const prefix = "data:application/pdf;base64,";
+  if (file?.type !== "input_file" || !file.file_data?.startsWith(prefix)) {
+    return new Response("{}", { status: 400 });
+  }
+  const pdf = Buffer.from(file.file_data.slice(prefix.length), "base64").toString("latin1");
+  if (!pdf.startsWith("%PDF-") || !pdf.includes(statementMarker)) {
+    return new Response("{}", { status: 503 });
+  }
+  return Response.json({
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        content: [{ type: "output_text", text: JSON.stringify(statementAnswer) }],
+      },
+    ],
+  });
+}
+
 const realFetch = globalThis.fetch;
 
 globalThis.fetch = async (input, init) => {
@@ -76,6 +129,7 @@ globalThis.fetch = async (input, init) => {
     input: string;
     text: { format: { name: string } };
   };
+  if (body.text.format.name === "bank_statement") return readStatement(body.input);
   if (body.text.format.name === "transaction_categories") return categorize(body.input);
   const sample = JSON.parse(body.input) as { headers: string[] };
   if (JSON.stringify(sample.headers) !== JSON.stringify(knownHeaders)) {

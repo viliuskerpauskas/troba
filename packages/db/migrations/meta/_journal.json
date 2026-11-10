@@ -78,6 +78,34 @@
       "when": 1794255181833,
       "tag": "0010_ai_pending_suggestion_index",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794314666319,
+      "tag": "0011_import_profile_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794316603855,
+      "tag": "0012_pdf_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794317623756,
+      "tag": "0013_ai_pdf_import_uses",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794347707531,
+      "tag": "0014_pdf_import_failure_reason_check",
+      "breakpoints": true
     }
   ]
 }

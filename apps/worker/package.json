@@ -1,0 +1,17 @@
+{
+  "name": "@troba/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env.example --env-file-if-exists=../../.env scripts/dev.ts",
+    "build": "node scripts/build.ts dist"
+  },
+  "dependencies": {
+    "@troba/core": "workspace:*",
+    "@troba/db": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

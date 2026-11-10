@@ -1,0 +1,1 @@
+ALTER TABLE "money_pdf_imports" ADD CONSTRAINT "money_pdf_imports_failure_reason_check" CHECK ("money_pdf_imports"."failure_reason" is null or "money_pdf_imports"."failure_reason" in ('unavailable', 'invalid-answer', 'not-a-statement', 'balance-mismatch', 'daily-limit'));

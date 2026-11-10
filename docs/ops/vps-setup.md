@@ -159,9 +159,11 @@ ls -l /srv/troba/<env>/.env   # -rw------- deploy deploy
 
 For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to prod. `TROBA_IMAGE` stays the same in both.
 
-**Optional: the AI-suggested CSV mapping.** Add `OPENAI_API_KEY=<key>` to the env file (an OpenAI API key, restricted to the model request endpoints where OpenAI offers that) to switch it on, and optionally `OPENAI_MODEL=<model>` (default `5.6-luna`; it must support structured JSON output). With no key the feature is off and the upload step says nothing about it. While it is on, the header row and a few masked rows of an unknown CSV format go to OpenAI; [ADR-0015](../adr/0015-import-presets-and-ai-mapping.md) lists exactly what. Each user gets 20 AI mappings a day (a rolling 24 hours), after which an unknown format opens the plain mapping form with a short note; `AI_MAPPING_DAILY_LIMIT=<n>` in the env file changes that, and an unset, empty or invalid value means 20. Files in a known format (a saved profile or a preset) are never counted. The key lives only in this file, like the other secrets. Redeploy to pick up a change.
+**Optional: the AI-suggested CSV mapping.** Add `OPENAI_API_KEY=<key>` to the env file (an OpenAI API key, restricted to the model request endpoints where OpenAI offers that) to switch it on, and optionally `OPENAI_MODEL=<model>` (default `gpt-6-luna`; it must support structured JSON output). With no key the feature is off and the upload step says nothing about it. While it is on, the header row and a few masked rows of an unknown CSV format go to OpenAI; [ADR-0015](../adr/0015-import-presets-and-ai-mapping.md) lists exactly what. Each user gets 20 AI mappings a day (a rolling 24 hours), after which an unknown format opens the plain mapping form with a short note; `AI_MAPPING_DAILY_LIMIT=<n>` in the env file changes that, and an unset, empty or invalid value means 20. Files in a known format (a saved profile or a preset) are never counted. The key lives only in this file, like the other secrets. Redeploy to pick up a change.
 
 **Optional: AI-suggested categories.** The same `OPENAI_API_KEY` and `OPENAI_MODEL` switch on AI-suggested categories for uncategorized imported transactions (the transactions list gets a "Suggest categories" button, and imports suggest on their own). Only the counterparty and description of the user's uncategorized imported transactions are sent, with the user's own name, IBAN-shaped values and long digit runs masked; rows that show the other party's IBAN, manual entries, amounts and dates are never sent ([ADR-0016](../adr/0016-ai-transaction-categorization.md)). With no key the feature and its text do not appear. Each user gets 200 merchants a day (a rolling 24 hours, counted in merchants, separately from the mapping cap); past it the rest stays uncategorized for now and the page says the limit is reached. `AI_CATEGORIZE_DAILY_LIMIT=<n>` in the env file changes that, and an unset, empty or invalid value means 200.
+
+**Optional: PDF import.** The same `OPENAI_API_KEY` and `OPENAI_MODEL` switch on importing PDF statements, which the worker reads with the model ([ADR-0018](../adr/0018-pdf-statements-read-by-a-model.md)); the model must accept PDF file input. Unlike the two features above, the whole statement is sent, unmasked, after the user confirms a notice saying so on every import. Both the web and worker services take the key from the env file. With no key the import page doesn't offer PDF. A PDF over 20 pages is refused before anything is sent. Each user gets 10 PDF imports a day (a rolling 24 hours, counted separately from the other two caps, and only when the model is actually asked); past it the import page says when the next one is possible and nothing is queued. `AI_PDF_IMPORT_DAILY_LIMIT=<n>` in the env file changes that, for both services, and an unset, empty or invalid value means 10.
 
 `POSTGRES_PASSWORD` is set when the database volume is first created. Changing it later in `.env` doesn't change the database's password; do that with `ALTER USER` in `psql` first.
 
@@ -176,13 +178,13 @@ For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to pr
 1. pulls `ghcr.io/<owner>/troba-web:<sha>` (skipped when the image is already on the VPS);
 2. starts Postgres and waits for it to be healthy;
 3. runs migrations with the new image (`docker compose run --rm migrate`);
-4. starts the new web container;
+4. starts the new web and worker containers (the worker runs background jobs from the same image and has no health check of its own);
 5. waits up to 2 minutes, with [wait-healthy.sh](../../deploy/wait-healthy.sh), for `/api/health` inside the container to answer `"status":"ok"` with `"version":"<sha>"`, printing what it sees every 10 seconds;
-6. on success, writes `<sha>` to `/srv/troba/<env>/deployed-sha`; on failure, prints the web log, starts the sha from `deployed-sha` again, waits for it to be healthy, and exits 1.
+6. on success, writes `<sha>` to `/srv/troba/<env>/deployed-sha`; on failure, prints the web and worker logs, starts web and the worker on the sha from `deployed-sha` again, waits for it to be healthy, and exits 1.
 
 Once the new web container has started, being interrupted also rolls back: Ctrl+C does it in the terminal (a second Ctrl+C stops the rollback), and a lost SSH session or a cancelled CI job does it with the output going to `/srv/troba/<env>/deploy.log`.
 
-If steps 1–3 fail, web was never touched and the script exits non-zero without a rollback. A rollback only swaps the web image, so migrations must keep working with the previous release ([ADR-0008](../adr/0008-vps-docker-compose-caddy.md)). The very first deploy has nothing to roll back to.
+If steps 1–3 fail, web was never touched and the script exits non-zero without a rollback. A rollback only swaps the web and worker image, so migrations must keep working with the previous release ([ADR-0008](../adr/0008-vps-docker-compose-caddy.md)). The very first deploy has nothing to roll back to.
 
 Only one deploy per environment runs at a time (`/srv/troba/<env>/.deploy.lock`). If a deploy was killed and left the lock behind, check nothing is running (`ps aux | grep deploy.sh`), then `rmdir /srv/troba/<env>/.deploy.lock`.
 
@@ -241,6 +243,7 @@ The compose command for an environment is long and needs the running sha. This f
 c() { TROBA_SHA=$(cat "/srv/troba/$1/deployed-sha") docker compose -p "troba-$1" -f /srv/troba/deploy/app/compose.yaml --env-file "/srv/troba/$1/.env" "${@:2}"; }
 c staging ps
 c staging logs -f web
+c staging logs -f worker
 c staging exec postgres psql -U troba troba
 ```
 

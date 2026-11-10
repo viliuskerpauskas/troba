@@ -2,45 +2,72 @@
 
 import {
   assertNever,
+  centsToDecimal,
+  checkPdfImport,
   commitImport,
+  commitPdfImport,
   createImportAccount,
+  createPdfImportAccount,
+  discardPdfImport,
   getImportProfile,
-  isCsvUpload,
+  getPdfImport,
+  checkStatementFile,
+  pdfImportAllowance,
   listAccounts,
   maxImportFileBytes,
   presetBrand,
   previewImport,
+  previewPdfImport,
   proposeMappingWithinLimit,
-  readCsv,
+  readTable,
   resolveImportFormat,
   saveImportProfile,
+  startPdfImport,
   suggestAfterImport,
   type Account,
   type AfterImportSuggestions,
+  type CommitImportResult,
   type Delimiter,
   type ImportInput,
   type ImportRefusal,
   type ImportRowFailure,
+  type PdfImport,
+  type PdfImportRefusal,
   type PresetBrand,
   type PreviewImportResult,
-  type ReadCsvOptions,
+  type ReadTableOptions,
   type SavedImportProfile,
+  type StatementFileKind,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
-import { aiCategorizeDailyLimit, aiMappingDailyLimit } from "@/server/env";
+import {
+  aiCategorizeDailyLimit,
+  aiMappingDailyLimit,
+  aiPdfImportDailyLimit,
+  pdfImportEnabled,
+} from "@/server/env";
+import { jobQueue } from "@/server/jobs";
 import { requireMoneyUser } from "@/server/money";
 import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
+import { formatAmount } from "../format";
 import {
   formatSources,
-  notCsvMessage,
+  notAStatementFileMessage,
+  balanceMismatchMessage,
+  pdfDailyLimitMessage,
+  pdfFailureMessages,
+  pdfReadingCappedMessage,
+  pdfUnavailableMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
   suggestions,
   tooLargeMessage,
+  tooManyPagesMessage,
+  pagesUnknownMessage,
   type FormatSource,
   type Suggestion,
 } from "./messages";
@@ -63,13 +90,19 @@ export type MappingTable = {
   // The first rows, for the user to see which column is which.
   sampleRows: string[][];
   skipLines: number;
-  delimiter: Delimiter;
+  // Null for a spreadsheet, which has none.
+  delimiter: Delimiter | null;
 };
+
+// The statement files the wizard imports so far.
+export type TabularFileKind = Exclude<StatementFileKind, "pdf">;
 
 export type ImportState =
   | { step: "upload"; error?: string }
   | {
       step: "mapping";
+      // A spreadsheet has no delimiter or encoding for the form to ask about.
+      fileKind: TabularFileKind;
       // Null when the file can't be read with the form's settings; the error says why.
       table: MappingTable | null;
       values: ProfileFormValues;
@@ -87,6 +120,24 @@ export type ImportState =
       // How the profile was found from the file's columns (see FormatSource).
       found?: FormatSource;
       accountId: string | null;
+      preview: PreviewView;
+      error?: string;
+    }
+  // A PDF statement (ADR-0018): first what will be sent, for the user to confirm on every import.
+  // Nothing is sent, or kept, before that.
+  | { step: "pdf-confirm"; filename: string; error?: string }
+  // Queued for the worker or being read by the model; the page asks again until it ends.
+  | { step: "pdf-reading"; pdfImportId: string; filename: string }
+  // Nothing was saved; the user can start again.
+  | { step: "pdf-failed"; pdfImportId: string; filename: string; message: string }
+  // Read: the ordinary preview, of the stored answer.
+  | {
+      step: "pdf-preview";
+      pdfImportId: string;
+      filename: string;
+      accountId: string | null;
+      // Set when the statement's balances couldn't be checked against its rows (BalanceCheck).
+      balanceUnchecked?: true;
       preview: PreviewView;
       error?: string;
     }
@@ -113,6 +164,9 @@ export type PreviewView =
       // ones say why.
       failed: ImportRowFailure[];
       debitCredit: { value: string; debit: boolean; rows: number }[] | null;
+      // The account has imported rows of the other kind (PDF versus CSV or spreadsheet) in the
+      // file's dates, which won't be detected as duplicates: the preview warns.
+      mixedFormats: boolean;
     }
   // The file names an account the user doesn't have: offered to create it.
   | { ok: false; reason: "unknown-account"; iban: string; currency: string }
@@ -132,23 +186,56 @@ const FoundField = z.enum(formatSources).optional().catch(undefined);
 
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
-type Upload = { filename: string; bytes: Uint8Array };
+type Upload = { filename: string; bytes: Uint8Array; kind: TabularFileKind };
+// A PDF statement (ADR-0018), read by the model rather than with a profile.
+type PdfUpload = { filename: string; bytes: Uint8Array; kind: "pdf" };
 
-// The file every step sends. Checked before anything reads it: the declared size, then the
-// content.
+// The file every step of a CSV or spreadsheet sends again. A PDF there was swapped in.
 async function readUpload(formData: FormData): Promise<Upload | { error: string }> {
+  const upload = await readStatementUpload(formData);
+  if ("error" in upload) return upload;
+  return upload.kind === "pdf" ? { error: startAgainMessage } : upload;
+}
+
+// The file the upload step sends. Checked before anything reads it: the declared size, then the
+// kind of statement file from its declared type and content. A CSV or a spreadsheet imports, and a
+// PDF when the server can read one.
+async function readStatementUpload(
+  formData: FormData,
+): Promise<Upload | PdfUpload | { error: string }> {
   const file = z.file().safeParse(formData.get("file"));
-  if (!file.success || file.data.size === 0) return { error: "Choose a CSV file to import." };
+  if (!file.success || file.data.size === 0) return { error: "Choose a statement file to import." };
   if (file.data.size > maxImportFileBytes) return { error: tooLarge };
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  if (!isCsvUpload({ type: file.data.type, bytes })) return { error: notCsvMessage };
-  return { filename: file.data.name.slice(0, 200), bytes };
+  const checked = checkStatementFile(
+    { type: file.data.type, bytes },
+    { pdfAvailable: pdfImportEnabled() },
+  );
+  if (!checked.ok) {
+    if (checked.reason === "pdf-unavailable") return { error: pdfUnavailableMessage };
+    return { error: checked.reason === "file-too-large" ? tooLarge : notAStatementFileMessage };
+  }
+  return { filename: file.data.name.slice(0, 200), bytes, kind: checked.kind };
 }
 
 export async function startImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const upload = await readUpload(formData);
+  const upload = await readStatementUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
+  // Nothing is sent or kept until the user confirms, and a PDF that couldn't be sent anyway (too
+  // many pages, or the day's PDF imports used) isn't offered for confirming.
+  if (upload.kind === "pdf") {
+    const allowed = await checkPdfImport(db(), userId, upload.bytes, {
+      dailyLimit: aiPdfImportDailyLimit(),
+    });
+    if (!allowed.ok) return { step: "upload", error: pdfRefusalMessage(allowed) };
+    return { step: "pdf-confirm", filename: upload.filename };
+  }
+  // A workbook that can't be opened is refused before anything is matched or sent anywhere.
+  if (upload.kind === "spreadsheet") {
+    const table = readTable(upload.bytes);
+    if (!table.ok) return { step: "upload", error: readErrors[table.reason] };
+  }
 
   // The file's columns decide: the user's own profile, else a preset (now copied into theirs).
   const resolved = await resolveImportFormat(db(), userId, upload.bytes);
@@ -196,7 +283,7 @@ export async function startImportAction(formData: FormData): Promise<ImportState
 
 // The name a new profile starts with, for the user to change.
 function startingName(upload: Upload): string {
-  return upload.filename.replace(/\.csv$/i, "").slice(0, 100);
+  return upload.filename.replace(/\.(csv|xlsx|xls|ods)$/i, "").slice(0, 100);
 }
 
 // The mapping step again, read with the skip lines, delimiter and encoding the user corrected.
@@ -305,9 +392,16 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   if (!result.ok)
     return previewState(userId, input.profile, input.upload, input.accountId, input.found);
 
-  // The import is committed, and nothing from here can undo or fail it. The model is asked for at
-  // most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
-  // suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+  return doneState(userId, result);
+}
+
+// The import is committed, and nothing from here can undo or fail it. The model is asked for at
+// most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
+// suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+async function doneState(
+  userId: string,
+  result: Extract<CommitImportResult, { ok: true }>,
+): Promise<ImportState> {
   const suggestions: AfterImportSuggestions =
     result.rowsNew > 0
       ? await suggestAfterImport(db(), userId, {
@@ -375,7 +469,8 @@ async function previewState(
 
 async function previewView(userId: string, result: PreviewImportResult): Promise<PreviewView> {
   if (result.ok) {
-    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit } = result;
+    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit, mixedFormats } =
+      result;
     return {
       ok: true,
       account: { id: account.id, name: account.name },
@@ -385,6 +480,7 @@ async function previewView(userId: string, result: PreviewImportResult): Promise
       rowsFailed: failed.length,
       failed: failed.slice(0, shownFailures),
       debitCredit,
+      mixedFormats,
     };
   }
   switch (result.reason) {
@@ -419,6 +515,10 @@ function refusalMessage(
     case "invalid-encoding":
     case "unterminated-quote":
       return `${readErrors[refusal.reason]} Edit the profile to fix it.`;
+    case "unreadable-workbook":
+      return readErrors[refusal.reason];
+    case "wrong-file-kind":
+      return "This profile is for another kind of file (a CSV or a spreadsheet). Upload the file again to find its own.";
     case "missing-columns":
       return `This file has no column named ${refusal.columns.join(", ")}, which the profile needs. Edit the profile, or pick another.`;
     case "multiple-own-ibans":
@@ -436,13 +536,14 @@ function mappingState(
   upload: Upload,
   values: ProfileFormValues,
   profileId: string | null,
-  options: ReadCsvOptions,
+  options: ReadTableOptions,
   suggestion?: Suggestion,
 ): Extract<ImportState, { step: "mapping" }> {
-  const table = readCsv(upload.bytes, options);
+  const table = readTable(upload.bytes, options);
   if (!table.ok) {
     return {
       step: "mapping",
+      fileKind: upload.kind,
       table: null,
       values,
       profileId,
@@ -452,6 +553,7 @@ function mappingState(
   }
   return {
     step: "mapping",
+    fileKind: upload.kind,
     table: {
       headers: table.headers,
       sampleRows: table.rows.slice(0, sampleRowCount),
@@ -463,4 +565,169 @@ function mappingState(
     profileId,
     ...(suggestion && { suggestion }),
   };
+}
+
+// ---- PDF statements (ADR-0018) ----
+
+// The user confirmed the send: the PDF import is created and queued for the worker.
+export async function startPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const upload = await readStatementUpload(formData);
+  if ("error" in upload) return { step: "upload", error: upload.error };
+  if (upload.kind !== "pdf") return { step: "upload", error: startAgainMessage };
+  const started = await startPdfImport(db(), userId, upload, {
+    queue: await jobQueue(),
+    dailyLimit: aiPdfImportDailyLimit(),
+  });
+  if (!started.ok) return { step: "upload", error: pdfRefusalMessage(started) };
+  return { step: "pdf-reading", pdfImportId: started.pdfImportId, filename: upload.filename };
+}
+
+function pdfRefusalMessage(refusal: PdfImportRefusal): string {
+  switch (refusal.reason) {
+    case "file-too-large":
+      return tooLarge;
+    case "not-a-pdf":
+      return notAStatementFileMessage;
+    case "too-many-pages":
+      return tooManyPagesMessage(refusal.pages, refusal.maxPages);
+    case "pages-unknown":
+      return pagesUnknownMessage(refusal.maxPages);
+    case "daily-limit":
+      return pdfDailyLimitMessage(refusal.limit, refusal.nextAt);
+    default:
+      return assertNever(refusal);
+  }
+}
+
+// A reading that met the daily cap after it was queued: said with when a PDF can be imported again.
+async function pdfReadingCapped(userId: string): Promise<string> {
+  const limit = aiPdfImportDailyLimit();
+  const allowance = await pdfImportAllowance(db(), userId, limit);
+  return pdfReadingCappedMessage(limit, allowance.ok ? null : allowance.nextAt);
+}
+
+// Where one of the user's PDF imports stands now: asked while it's read, and on coming back. One
+// that is gone (saved, dropped or another user's) is the upload step.
+export async function pdfImportStatusAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload" };
+  return pdfImportState(userId, found, null);
+}
+
+export async function previewPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload", error: startAgainMessage };
+  return pdfImportState(userId, found, input.accountId);
+}
+
+// The preview offered a bank account for the statement's own IBAN.
+export async function createPdfImportAccountAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload", error: startAgainMessage };
+  const name = AccountName.safeParse(formData.get("accountName"));
+  if (!name.success) {
+    const state = await pdfImportState(userId, found, null);
+    const error = "Enter a name for the account, up to 100 characters.";
+    return state.step === "pdf-preview" ? { ...state, error } : state;
+  }
+  const created = await createPdfImportAccount(db(), userId, {
+    pdfImportId: found.id,
+    name: name.data,
+  });
+  if (created.ok) revalidatePath("/money/accounts");
+  // Refused or not: the preview shows where the statement stands now.
+  return pdfImportState(userId, found, null);
+}
+
+// Commits the stored answer, never anything this form sends but the PDF import and account ids.
+export async function commitPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  if (!input) return { step: "upload", error: startAgainMessage };
+  const result = await commitPdfImport(db(), userId, input);
+  if (!result.ok) {
+    // Refused after the preview accepted it: show the preview again, which says why.
+    const found = await getPdfImport(db(), userId, input.pdfImportId);
+    if (!found) return { step: "upload", error: startAgainMessage };
+    return pdfImportState(userId, found, input.accountId);
+  }
+  return doneState(userId, result);
+}
+
+// Start over, or try again after a failure: the PDF import is dropped, whatever its state, and a
+// job that hasn't run yet finds nothing to read.
+export async function discardPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  if (input) await discardPdfImport(db(), userId, input.pdfImportId);
+  return { step: "upload" };
+}
+
+// The PDF import and the account picked: candidate ids, checked by core against the user's rows.
+function readPdfInput(formData: FormData) {
+  const pdfImportId = Id.safeParse(formData.get("pdfImportId"));
+  const accountId = OptionalId.safeParse(formData.get("accountId") ?? "");
+  if (!pdfImportId.success || !accountId.success) return null;
+  return { pdfImportId: pdfImportId.data, accountId: accountId.data };
+}
+
+type PdfState = Extract<ImportState, { step: "pdf-reading" | "pdf-failed" | "pdf-preview" }>;
+
+async function pdfImportState(
+  userId: string,
+  pdfImport: PdfImport,
+  accountId: string | null,
+): Promise<PdfState> {
+  const { id: pdfImportId, filename } = pdfImport;
+  switch (pdfImport.state) {
+    case "queued":
+    case "reading":
+      return { step: "pdf-reading", pdfImportId, filename };
+    case "failed": {
+      const message =
+        pdfImport.failureReason === "daily-limit"
+          ? await pdfReadingCapped(userId)
+          : pdfFailedMessage(pdfImport);
+      return { step: "pdf-failed", pdfImportId, filename, message };
+    }
+    case "read": {
+      const result = await previewPdfImport(db(), userId, { pdfImportId, accountId });
+      // Saved or dropped since it was looked up.
+      if (!result.ok && result.reason === "pdf-import-not-found") {
+        return { step: "pdf-failed", pdfImportId, filename, message: startAgainMessage };
+      }
+      return {
+        step: "pdf-preview",
+        pdfImportId,
+        filename,
+        accountId,
+        ...(pdfImport.balance?.result === "unchecked" && { balanceUnchecked: true as const }),
+        preview: await previewView(userId, result),
+      };
+    }
+    default:
+      return assertNever(pdfImport.state);
+  }
+}
+
+// Every failure but the daily limit, which pdfReadingCapped says.
+function pdfFailedMessage({ failureReason, balance }: PdfImport): string {
+  if (failureReason === "daily-limit") return pdfFailureMessages.unavailable;
+  if (failureReason !== "balance-mismatch") {
+    return pdfFailureMessages[failureReason ?? "unavailable"];
+  }
+  if (balance?.result !== "mismatch") return pdfFailureMessages["invalid-answer"];
+  const { differenceCents, currency } = balance;
+  const gap = differenceCents < 0n ? -differenceCents : differenceCents;
+  return balanceMismatchMessage(
+    currency ? formatAmount(gap, currency, { signed: false }) : centsToDecimal(gap),
+    differenceCents < 0n,
+  );
 }

@@ -79,7 +79,8 @@ jobs:
       - run: pnpm test:integration
 
       # Built without GIT_SHA, like the image (apps/web/Dockerfile sets it only at runtime), so the
-      # E2E checks that the footer and /api/health read it per request, not at build time.
+      # E2E checks that the footer and /api/health read it per request, not at build time. It also
+      # bundles the worker, which playwright.config.ts starts next to the web app for the E2E run.
       - run: pnpm build
         env:
           GIT_SHA: ""

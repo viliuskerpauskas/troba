@@ -1,6 +1,6 @@
 # AGENTS.md
 
-troba is a self-hosted personal hub. The first module is money tracking: bank CSV imports, manual entries, categories with auto-rules, receipt attachments, and monthly spending by category. It's multi-user (owner plus a few friends) and runs on the owner's VPS.
+troba is a self-hosted personal hub. The first module is money tracking: bank statement imports (CSV, spreadsheets, and PDF read by AI), manual entries, categories with auto-rules, receipt attachments, and monthly spending by category. It's multi-user (owner plus a few friends) and runs on the owner's VPS.
 
 Read before working:
 - Intent and scope: [docs/intent/personal-hub.md](docs/intent/personal-hub.md)
@@ -21,11 +21,12 @@ Use only free/open-source tools or generous free tiers. Don't add a dependency w
 
 ```
 apps/web       Next.js App Router (standalone output): UI, server actions, /api/v1 route handlers
+apps/worker    Node process running background jobs with pg-boss (ADR-0003), bundled with esbuild
 packages/core  domain logic: plain functions that take a db, no framework imports
-packages/db    Drizzle schema + migrations, shared by web and (later) worker
+packages/db    Drizzle schema + migrations, shared by web and worker
 ```
 
-Planned: `apps/worker` (pg-boss jobs: OCR, bank sync, voice), added with receipts-ocr; v1 imports run in web.
+Jobs are declared in `packages/core/src/jobs/queue.ts` (name and Zod data schema); the web app queues one with `queueJob`, optionally in the transaction that writes its rows, and `apps/worker/src/handlers.ts` runs it by calling core. pg-boss keeps its queue in the app database, in the `pgboss` schema it creates on start, apart from the Drizzle migrations. The image runs the worker as `node worker.js`, a Compose service of its own.
 
 Workspace packages export TypeScript source (`exports: ./src/index.ts`); `apps/web` lists them in `transpilePackages`. `tsc -b` type-checks everything through project references from the root `tsconfig.json`. Node is pinned in `.nvmrc`, pnpm in `packageManager`, and dependencies use exact versions (`.npmrc` `save-exact`).
 
@@ -33,14 +34,15 @@ Workspace packages export TypeScript source (`exports: ./src/index.ts`); `apps/w
 
 ```
 pnpm install
-pnpm dev               # db:up, db:migrate, then next dev on http://localhost:3000
+pnpm dev               # db:up, db:migrate, then next dev on http://localhost:3000 and the worker
+pnpm --filter @troba/worker dev  # the worker alone, restarted when its or the packages' sources change
 pnpm lint              # eslint . && prettier --check . (Markdown is not Prettier-formatted)
 pnpm format            # prettier --write .
 pnpm typecheck         # next typegen (route types) && tsc -b
 pnpm test              # unit tests (vitest project "unit")
 pnpm test:integration  # *.int.test.ts against Postgres (needs db:up)
-pnpm build             # next build (standalone)
-pnpm test:e2e          # Playwright against the built app (needs build and db:up)
+pnpm build             # next build (standalone) and the worker bundle (apps/worker/dist/worker.js)
+pnpm test:e2e          # Playwright against the built app and worker (needs build and db:up)
 pnpm db:up             # Postgres in Docker on 127.0.0.1:55432
 pnpm db:generate       # drizzle-kit migration from packages/db/src/schema.ts
 pnpm db:migrate        # apply pending migrations
@@ -48,6 +50,7 @@ pnpm db:seed-transactions <email> [count] [YYYY-MM]  # fictional transactions fo
 pnpm admin:create <email>  # create an admin; prompts for the password (--force if one exists)
 docker build -f apps/web/Dockerfile --build-arg GIT_SHA=$(git rev-parse HEAD) -t troba-web .
 docker run troba-web node migrate.js   # one-shot migrations from the same image (needs DATABASE_URL)
+docker run troba-web node worker.js    # the background worker from the same image (needs DATABASE_URL)
 docker run -it troba-web node scripts/create-admin.js <email>   # admin bootstrap in the image
 ```
 

@@ -4,6 +4,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   date,
   index,
   integer,
@@ -25,6 +26,20 @@ export type AccountType = (typeof accountTypes)[number];
 export const transactionSources = ["manual", "csv_import"] as const;
 export const categorySources = ["manual", "rule", "transfer"] as const;
 export const ruleFields = ["counterparty", "description"] as const;
+export const pdfImportStates = ["queued", "reading", "read", "failed"] as const;
+export type PdfImportState = (typeof pdfImportStates)[number];
+// Why a PDF import's reading failed (core's PdfImportFailureReason says what each means).
+export const pdfImportFailureReasons = [
+  "unavailable",
+  "invalid-answer",
+  "not-a-statement",
+  "balance-mismatch",
+  "daily-limit",
+] as const;
+export type PdfImportFailureReason = (typeof pdfImportFailureReasons)[number];
+// How an import profile reads its files: a text file (CSV) or a spreadsheet's first sheet.
+export const importProfileKinds = ["text", "spreadsheet"] as const;
+export type ImportProfileKind = (typeof importProfileKinds)[number];
 
 const userId = () =>
   uuid("user_id")
@@ -89,6 +104,8 @@ export const moneyImportProfiles = pgTable(
     id: id(),
     userId: userId(),
     name: text("name").notNull(),
+    // A profile matches only files of its own kind. Delimiter and encoding apply to text only.
+    kind: text("kind", { enum: importProfileKinds }).default("text").notNull(),
     headerFingerprint: text("header_fingerprint").notNull(),
     skipLines: integer("skip_lines").default(0).notNull(),
     // Null: detected per file.
@@ -104,9 +121,48 @@ export const moneyImportProfiles = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    check("money_import_profiles_kind_check", sql`${table.kind} in (${oneOf(importProfileKinds)})`),
     index("money_import_profiles_user_id_fingerprint_idx").on(
       table.userId,
       table.headerFingerprint,
+    ),
+  ],
+);
+
+// Raw bytes; drizzle has no bytea column of its own.
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType: () => "bytea",
+  toDriver: (value) => Buffer.from(value),
+  fromDriver: (value) => new Uint8Array(value),
+});
+
+// A PDF statement on its way to becoming an import (T152, ADR-0018): queued for the worker, being
+// read by the model, read (its answer waits for the user to preview and confirm it) or failed. The
+// bytes are kept only until the reading ends, either way, and the row is deleted once its import is
+// saved or the user starts over.
+export const moneyPdfImports = pgTable(
+  "money_pdf_imports",
+  {
+    id: id(),
+    userId: userId(),
+    // The client's name, metadata only.
+    filename: text("filename").notNull(),
+    state: text("state", { enum: pdfImportStates }).default("queued").notNull(),
+    bytes: bytea("bytes"),
+    // The model's validated answer, once read. Never logged.
+    answer: jsonb("answer"),
+    // Why the reading failed; set with the failed state.
+    failureReason: text("failure_reason", { enum: pdfImportFailureReasons }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    // The import page shows the user's latest one.
+    index("money_pdf_imports_user_id_created_at_idx").on(table.userId, table.createdAt),
+    check("money_pdf_imports_state_check", sql`${table.state} in (${oneOf(pdfImportStates)})`),
+    check(
+      "money_pdf_imports_failure_reason_check",
+      sql`${table.failureReason} is null or ${table.failureReason} in (${oneOf(pdfImportFailureReasons)})`,
     ),
   ],
 );
@@ -138,6 +194,23 @@ export const moneyAiCategorizeUses = pgTable(
   },
   (table) => [
     index("money_ai_categorize_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+// One row per PDF import the model was asked to read (T154, ADR-0018), counted per user over the
+// last day to cap what one account can spend. Keyed by the PDF import, so a retried job reuses its
+// claim; no foreign key, since the use outlives the PDF import. Rows older than a day are deleted
+// as new ones come.
+export const moneyAiPdfImportUses = pgTable(
+  "money_ai_pdf_import_uses",
+  {
+    id: id(),
+    userId: userId(),
+    pdfImportId: uuid("pdf_import_id").notNull().unique(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("money_ai_pdf_import_uses_user_id_created_at_idx").on(table.userId, table.createdAt),
   ],
 );
 

@@ -18,7 +18,7 @@ A deployable skeleton that exercises the full development cycle before any featu
 - `pnpm db:migrate` applies migrations. `pnpm db:generate` creates a migration from schema changes.
 
 **P2. Monorepo**
-- pnpm workspaces: `apps/web`, `packages/core`, `packages/db` (per [AGENTS.md](AGENTS.md)). No `apps/worker` in v1.
+- pnpm workspaces: `apps/web`, `apps/worker`, `packages/core`, `packages/db` (per [AGENTS.md](AGENTS.md)). `apps/worker` was added with PDF statement import (T148).
 - TypeScript `strict` everywhere. ESLint (flat config) and Prettier run from the root.
 - The Node version is pinned in `.nvmrc` and `package.json#engines`, the pnpm version in `packageManager`.
 

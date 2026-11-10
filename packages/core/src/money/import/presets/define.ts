@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { headerFingerprint, importProfileSchema } from "../profile";
+import { tableKinds } from "../table";
 
 // A bank preset (SPEC-money M3, ADR-0015): a built-in description of one bank's export format.
 // Presets are data files in this folder, validated here by the schema a user's profile goes
@@ -7,8 +8,12 @@ import { headerFingerprint, importProfileSchema } from "../profile";
 // may name a bank.
 
 const presetFields = z.strictObject({
-  // Lower-case kebab-case; also the name of the preset's fixture, `<id>.fixture.csv`.
+  // Lower-case kebab-case; also the name of the preset's fixture, `<id>.fixture.csv` (or `.xlsx`
+  // for a spreadsheet).
   id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+  // The kind of file the bank exports, a CSV (text) or a spreadsheet: the preset matches only that
+  // kind, and its delimiter and encoding apply to text only.
+  kind: z.enum(tableKinds).default("text"),
   // The exact header set the preset is recognized by, in the file's order.
   headers: z.array(z.string().min(1).max(200)).min(1).max(100),
   // Its name is what the user sees, on the profile they get a copy of.
