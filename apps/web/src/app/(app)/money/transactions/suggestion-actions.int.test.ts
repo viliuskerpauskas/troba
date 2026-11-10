@@ -285,3 +285,91 @@ describe("suggestCategoriesAction", () => {
     expect(model.requests).toHaveLength(1);
   });
 });
+
+// ADR-0016: the merchant text sent and the model's answer are a user's data, so no part of the
+// exchange is logged, on any path. The real OpenAI client and transport run here, behind a fake
+// fetch, and every way the process prints is watched: the console and stdout and stderr, which a
+// logger writes to.
+describe("what the model exchange leaves in the logs", () => {
+  // Runs the call with every way of printing replaced, and returns what was written meanwhile.
+  async function watchingOutput<T>(
+    run: () => Promise<T>,
+  ): Promise<{ value: T; written: unknown[][] }> {
+    const spies = [
+      ...(["log", "info", "warn", "error", "debug", "trace"] as const).map((method) =>
+        vi.spyOn(console, method).mockImplementation(() => {}),
+      ),
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true),
+    ];
+    try {
+      const value = await run();
+      return { value, written: spies.flatMap((spy) => [...spy.mock.calls]) };
+    } finally {
+      // After the calls are read: restoring a spy clears them.
+      for (const spy of spies) spy.mockRestore();
+    }
+  }
+
+  // The request's own text, echoed back the way an error page or a proxy might.
+  const echo = (init: RequestInit | undefined) => String(init?.body);
+
+  function answering(text: string) {
+    return Response.json({
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text }] }],
+    });
+  }
+
+  it.each<[string, typeof fetch, "failed" | "none"]>([
+    [
+      "the call fails with a body that quotes the request",
+      async (_url, init) => Response.json({ error: { message: echo(init) } }, { status: 500 }),
+      "failed",
+    ],
+    [
+      "the network fails with an error that quotes the request",
+      async (_url, init) => {
+        throw new TypeError(`fetch failed: ${echo(init)}`);
+      },
+      "failed",
+    ],
+    [
+      "the answer is garbage in the merchant's words",
+      async () => answering(JSON.stringify({ answers: "GROCERY MART is Food" })),
+      "failed",
+    ],
+    [
+      "the answer names merchants and categories it wasn't given",
+      async () =>
+        answering(JSON.stringify({ answers: [{ merchant: "GROCERY MART", category: "Food" }] })),
+      "none",
+    ],
+    ["the answer is not JSON", async () => answering("GROCERY MART: Food"), "failed"],
+  ])("writes nothing when %s", async (_name, fetchImpl, status) => {
+    const { createOpenAiCategorizationClient } = await vi.importActual<
+      typeof import("@/server/openai-categorization")
+    >("@/server/openai-categorization");
+    server.client = createOpenAiCategorizationClient(
+      { apiKey: "sk-test-not-a-real-key", model: "test-model" },
+      vi.fn(fetchImpl),
+    );
+    await importedRow(user, "GROCERY MART");
+
+    const { value: state, written } = await watchingOutput(() => actions.suggestCategoriesAction());
+
+    expect(written).toEqual([]);
+    // The run went the way the case says, so the silence is about that path.
+    expect(state.status).toBe(status);
+  });
+
+  it("writes nothing when the model client itself throws with the merchant's text", async () => {
+    server.client = fakeModel(new Error("could not place GROCERY MART")).client;
+    await importedRow(user, "GROCERY MART");
+
+    const { value: state, written } = await watchingOutput(() => actions.suggestCategoriesAction());
+
+    expect(written).toEqual([]);
+    expect(state.status).toBe("failed");
+  });
+});
