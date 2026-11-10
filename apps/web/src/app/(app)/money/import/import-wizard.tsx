@@ -59,6 +59,7 @@ import {
   acceptedFileTypes,
   acceptedFileTypesWithPdf,
   afterImportNote,
+  balanceUncheckedNote,
   failureReasons,
   pdfFailureReasons,
   formatSourceBadges,
@@ -698,6 +699,7 @@ function PdfPreviewForm({ state, pending, onSubmit }: StepProps<"pdf-preview">) 
         Read by AI from {state.filename}. AI can misread a statement, so check the numbers before
         you import.
       </p>
+      {state.balanceUnchecked && <Note>{balanceUncheckedNote}</Note>}
       <PreviewBody
         preview={state.preview}
         accountId={state.accountId}

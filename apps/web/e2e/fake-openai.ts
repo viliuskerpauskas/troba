@@ -70,8 +70,12 @@ function categorize(input: string): Response {
 // The fictional PDF e2e/money-pdf-import.spec.ts uploads is recognized by this line in it.
 const statementMarker = "EXAMPLE BANK STATEMENT FOR E2E";
 const statementAnswer = {
+  isStatement: true,
   accountIbans: ["DE89 3704 0044 0532 0130 00"],
   currency: "EUR",
+  // 500.00 - 42.15 + 1500.00: the rows add up, so the preview has no note about the total.
+  openingBalance: "500.00",
+  closingBalance: "1957.85",
   transactions: [
     {
       bookingDate: "2026-03-02",
