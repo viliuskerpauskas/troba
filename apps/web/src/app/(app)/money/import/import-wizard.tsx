@@ -832,6 +832,20 @@ function PreviewBody({
         <Stat term="Already imported, skipped" value={preview.rowsDuplicate} tone="quiet" />
         <Stat term="Can't be read" value={rowsFailed} tone={rowsFailed > 0 ? "bad" : "quiet"} />
       </dl>
+      {preview.mixedFormats && (
+        <section aria-labelledby="mixed-formats" className="rounded-xl border p-3 sm:p-4">
+          <h3 id="mixed-formats" className="text-sm font-medium">
+            Check for transactions imported twice
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {intentPrefix === "pdf-"
+              ? "This account has transactions imported from a CSV or spreadsheet file in this statement's dates."
+              : "This account has transactions imported from a PDF statement in this file's dates."}{" "}
+            They won&apos;t be detected as duplicates of these rows, so anything in both will be
+            imported twice.
+          </p>
+        </section>
+      )}
       {preview.debitCredit && (
         <section aria-labelledby="debit-credit" className="rounded-xl border p-3 sm:p-4">
           <h3 id="debit-credit" className="text-sm font-medium">

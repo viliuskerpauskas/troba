@@ -154,6 +154,7 @@ describe("the import wizard's PDF steps", () => {
         rowsFailed: 1,
         failed: [{ row: 2, reason: "invalid-date" }],
         debitCredit: null,
+        mixedFormats: false,
       },
     });
 
@@ -162,6 +163,7 @@ describe("the import wizard's PDF steps", () => {
     expect(html).not.toContain("profile");
     expect(html).toContain('value="pdf-commit"');
     expect(html).not.toContain("couldn");
+    expect(html).not.toContain("won&#x27;t be detected as duplicates");
   });
 
   it("says when the statement's total couldn't be checked", () => {
@@ -180,10 +182,57 @@ describe("the import wizard's PDF steps", () => {
         rowsFailed: 0,
         failed: [],
         debitCredit: null,
+        mixedFormats: false,
       },
     });
 
     expect(html).toContain("couldn&#x27;t be checked");
+  });
+});
+
+describe("the mixed-formats warning", () => {
+  const preview = (mixedFormats: boolean) => ({
+    ok: true as const,
+    account: { id: "a", name: "Example Bank" },
+    rowsParsed: 1,
+    rowsNew: 1,
+    rowsDuplicate: 0,
+    rowsFailed: 0,
+    failed: [],
+    debitCredit: null,
+    mixedFormats,
+  });
+  const pdf = (mixedFormats: boolean) =>
+    at({
+      step: "pdf-preview",
+      pdfImportId: "id-1",
+      filename: "statement.pdf",
+      accountId: null,
+      preview: preview(mixedFormats),
+    });
+  const file = (mixedFormats: boolean) =>
+    at({
+      step: "preview",
+      profile: { id: "p", name: "Example Bank", brand: null },
+      accountId: null,
+      preview: preview(mixedFormats),
+    });
+
+  it("says a PDF's rows won't be matched with the account's CSV or spreadsheet rows", () => {
+    const html = pdf(true);
+    expect(html).toContain("imported from a CSV or spreadsheet file");
+    expect(html).toContain("won&#x27;t be detected as duplicates");
+  });
+
+  it("says a file's rows won't be matched with the account's PDF rows", () => {
+    const html = file(true);
+    expect(html).toContain("imported from a PDF statement");
+    expect(html).toContain("won&#x27;t be detected as duplicates");
+  });
+
+  it("isn't shown without rows of the other kind", () => {
+    expect(pdf(false)).not.toContain("won&#x27;t be detected as duplicates");
+    expect(file(false)).not.toContain("won&#x27;t be detected as duplicates");
   });
 });
 

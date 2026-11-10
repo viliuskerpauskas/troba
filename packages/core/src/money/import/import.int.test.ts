@@ -149,6 +149,7 @@ describe("import", () => {
       rowsDuplicate: 0,
       failed: [],
       debitCredit: null,
+      mixedFormats: false,
     });
   });
 

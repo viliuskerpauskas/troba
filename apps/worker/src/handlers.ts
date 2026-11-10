@@ -1,4 +1,10 @@
-import { readPdfImport, type JobData, type JobName, type StatementModelClient } from "@troba/core";
+import {
+  deleteExpiredPdfImports,
+  readPdfImport,
+  type JobData,
+  type JobName,
+  type StatementModelClient,
+} from "@troba/core";
 import { pingDb, type Db } from "@troba/db";
 
 export type JobContext = {
@@ -29,5 +35,8 @@ export const handlers: JobHandlers = {
       client: statementClient,
       dailyLimit: pdfImportDailyLimit,
     });
+  },
+  "clean-up-pdf-imports": async (_data, { db }) => {
+    await deleteExpiredPdfImports(db);
   },
 };

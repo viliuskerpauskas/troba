@@ -1,5 +1,5 @@
 import { schema, type Db, type DbTransaction } from "@troba/db";
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, between, eq, inArray, isNotNull, isNull, like, notLike } from "drizzle-orm";
 import { accountColumns, createAccount, defaultCurrency, type Account } from "../accounts";
 import { listRules, ruleCategory } from "../rules";
 import {
@@ -69,7 +69,15 @@ export type ImportPreview = {
   debitCredit: DebitCreditCount[] | null;
 };
 
-export type PreviewImportResult = ({ ok: true } & ImportPreview) | ImportRefusal;
+export type PreviewImportResult =
+  | ({
+      ok: true;
+      // The account already has imported rows of the other kind (PDF versus CSV or spreadsheet)
+      // in the file's date range. Their dedup keys differ, so those rows won't be detected as
+      // duplicates: the preview warns.
+      mixedFormats: boolean;
+    } & ImportPreview)
+  | ImportRefusal;
 
 export async function previewImport(
   db: Db,
@@ -86,11 +94,52 @@ export async function previewPrepared(
   db: Db,
   userId: string,
   prepared: PreparedImport,
-): Promise<{ ok: true } & ImportPreview> {
+): Promise<Extract<PreviewImportResult, { ok: true }>> {
   const { rows, ...preview } = prepared;
   const existing = await existingDedupKeys(db, userId, preview.account.id, rows);
   const rowsDuplicate = rows.filter((row) => existing.has(row.dedupKey)).length;
-  return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate };
+  const mixedFormats = await hasOtherKindInRange(db, userId, preview.account.id, rows);
+  return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate, mixedFormats };
+}
+
+// A PDF row's dedup key starts with this; a CSV or spreadsheet row's never does.
+export const pdfDedupKeyPrefix = "pdf:";
+
+// Whether the account has imported rows of the other kind than `rows` (PDF versus CSV or
+// spreadsheet) between their first and last booking dates, both included. All rows of one import
+// are of one kind. Served by the (user_id, booked_on) index.
+async function hasOtherKindInRange(
+  db: Db,
+  userId: string,
+  accountId: string,
+  rows: ImportRow[],
+): Promise<boolean> {
+  const [first] = rows;
+  if (!first) return false;
+  let from = first.bookedOn;
+  let to = from;
+  for (const { bookedOn } of rows) {
+    if (bookedOn < from) from = bookedOn;
+    if (bookedOn > to) to = bookedOn;
+  }
+  const pdfKey = `${pdfDedupKeyPrefix}%`;
+  const otherKind = first.dedupKey.startsWith(pdfDedupKeyPrefix)
+    ? notLike(moneyTransactions.dedupKey, pdfKey)
+    : like(moneyTransactions.dedupKey, pdfKey);
+  const [found] = await db
+    .select({ id: moneyTransactions.id })
+    .from(moneyTransactions)
+    .where(
+      and(
+        eq(moneyTransactions.userId, userId),
+        eq(moneyTransactions.accountId, accountId),
+        eq(moneyTransactions.source, "csv_import"),
+        between(moneyTransactions.bookedOn, from, to),
+        otherKind,
+      ),
+    )
+    .limit(1);
+  return found !== undefined;
 }
 
 export type CreateImportAccountInput = {
