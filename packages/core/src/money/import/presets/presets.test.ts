@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { readCsv, readCsvHeaders } from "../csv";
+import { readTable, readTableHeaders } from "../table";
 import { headerFingerprint, parseRows } from "../profile";
-import { definePreset, importPresets, presetBrand } from ".";
+import { definePreset, importPresets, presetBrand, type ImportPreset } from ".";
 
 const example = {
   id: "example-bank",
@@ -20,9 +20,20 @@ const example = {
   },
 };
 
+// A preset's fictional fixture sits beside it, in the kind of file the bank exports.
+function fixtureName(preset: ImportPreset): string {
+  return `${preset.id}.fixture.${preset.kind === "spreadsheet" ? "xlsx" : "csv"}`;
+}
+
 describe("definePreset", () => {
   it("accepts a preset the profile schema accepts", () => {
     expect(definePreset(example).fingerprint).toBe(headerFingerprint(example.headers));
+  });
+
+  it("describes a CSV export unless it declares a spreadsheet", () => {
+    expect(definePreset(example).kind).toBe("text");
+    expect(definePreset({ ...example, kind: "spreadsheet" }).kind).toBe("spreadsheet");
+    expect(() => definePreset({ ...example, kind: "pdf" as "text" })).toThrow();
   });
 
   it("rejects a preset mapping a column it doesn't recognize", () => {
@@ -80,9 +91,9 @@ describe("presetBrand", () => {
 describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
   "preset %s",
   (id, preset) => {
-    const bytes = readFileSync(path.join(import.meta.dirname, `${id}.fixture.csv`));
+    const bytes = readFileSync(path.join(import.meta.dirname, fixtureName(preset)));
     const parsed = () => {
-      const table = readCsv(bytes, preset.profile);
+      const table = readTable(bytes, preset.profile);
       if (!table.ok) throw new Error(table.reason);
       const result = parseRows(preset.profile, table, { accountCurrency: "EUR" });
       if (!result.ok) throw new Error(result.reason);
@@ -90,7 +101,7 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
     };
 
     it("recognizes its fixture by its own fingerprint", () => {
-      const table = readCsvHeaders(bytes, preset.profile);
+      const table = readTableHeaders(bytes, preset.profile);
       expect(table.ok && headerFingerprint(table.headers)).toBe(preset.fingerprint);
     });
 
@@ -131,8 +142,8 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
 
 // Presets are found by their headers, so no two may be told apart by anything else.
 describe("the presets together", () => {
-  const fixtureOf = (id: string) =>
-    readFileSync(path.join(import.meta.dirname, `${id}.fixture.csv`));
+  const fixtureOf = (preset: ImportPreset) =>
+    readFileSync(path.join(import.meta.dirname, fixtureName(preset)));
 
   it("have their own ids and fingerprints", () => {
     expect(new Set(importPresets.map((preset) => preset.id)).size).toBe(importPresets.length);
@@ -144,13 +155,13 @@ describe("the presets together", () => {
   it.each(importPresets.map((preset) => [preset.id, preset] as const))(
     "never match another preset's file: %s",
     (id, preset) => {
-      const bytes = fixtureOf(id);
+      const bytes = fixtureOf(preset);
       for (const other of importPresets.filter((candidate) => candidate.id !== id)) {
         // Each is read with its own settings, as the upload flow does.
-        const table = readCsvHeaders(bytes, other.profile);
+        const table = readTableHeaders(bytes, other.profile);
         expect(table.ok && headerFingerprint(table.headers)).not.toBe(other.fingerprint);
       }
-      const own = readCsvHeaders(bytes, preset.profile);
+      const own = readTableHeaders(bytes, preset.profile);
       expect(own.ok && headerFingerprint(own.headers)).toBe(preset.fingerprint);
     },
   );

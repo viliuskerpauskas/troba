@@ -25,7 +25,7 @@ test("confirms the send, waits for the reading, then previews and saves a PDF st
 }) => {
   await signIn(page);
   await page.goto("/money/import");
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Nothing is sent before the user confirms.

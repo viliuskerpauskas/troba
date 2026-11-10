@@ -54,6 +54,10 @@ import {
 } from "./actions";
 import { importFields, requiredFields } from "./fields";
 import {
+  acceptedFiles,
+  acceptedFilesWithPdf,
+  acceptedFileTypes,
+  acceptedFileTypesWithPdf,
   afterImportNote,
   failureReasons,
   formatSourceBadges,
@@ -191,7 +195,8 @@ export function ImportWizard({
               <Field>
                 {/* The drop area says what to do; the label stays for screen readers. */}
                 <FieldLabel htmlFor="import-file" className="sr-only">
-                  CSV file from your bank
+                  Statement file from your bank (
+                  {pdfEnabled ? acceptedFileTypesWithPdf : acceptedFileTypes})
                 </FieldLabel>
                 <FileDrop
                   id="import-file"
@@ -403,29 +408,38 @@ function MappingForm({
               wrong, then read the file again.
             </FieldDescription>
           </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-delimiter">Delimiter</FieldLabel>
-            <NativeSelect id="profile-delimiter" name="delimiter" defaultValue={value("delimiter")}>
-              <NativeSelectOption value="detect">Detect</NativeSelectOption>
-              <NativeSelectOption value=";">Semicolon ;</NativeSelectOption>
-              <NativeSelectOption value=",">Comma ,</NativeSelectOption>
-              <NativeSelectOption value="tab">Tab</NativeSelectOption>
-            </NativeSelect>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-encoding">Encoding</FieldLabel>
-            <Input
-              id="profile-encoding"
-              name="encoding"
-              defaultValue={value("encoding")}
-              maxLength={40}
-              spellCheck={false}
-              aria-describedby="profile-encoding-hint"
-            />
-            <FieldDescription id="profile-encoding-hint">
-              utf-8 for most banks; older ones may use a code page such as windows-1252.
-            </FieldDescription>
-          </Field>
+          {/* A spreadsheet has neither: its first sheet is read as it is. */}
+          {state.fileKind === "csv" && (
+            <>
+              <Field>
+                <FieldLabel htmlFor="profile-delimiter">Delimiter</FieldLabel>
+                <NativeSelect
+                  id="profile-delimiter"
+                  name="delimiter"
+                  defaultValue={value("delimiter")}
+                >
+                  <NativeSelectOption value="detect">Detect</NativeSelectOption>
+                  <NativeSelectOption value=";">Semicolon ;</NativeSelectOption>
+                  <NativeSelectOption value=",">Comma ,</NativeSelectOption>
+                  <NativeSelectOption value="tab">Tab</NativeSelectOption>
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="profile-encoding">Encoding</FieldLabel>
+                <Input
+                  id="profile-encoding"
+                  name="encoding"
+                  defaultValue={value("encoding")}
+                  maxLength={40}
+                  spellCheck={false}
+                  aria-describedby="profile-encoding-hint"
+                />
+                <FieldDescription id="profile-encoding-hint">
+                  utf-8 for most banks; older ones may use a code page such as windows-1252.
+                </FieldDescription>
+              </Field>
+            </>
+          )}
           {/* Before any column is mapped: the headers to map may be the wrong ones. */}
           <Button
             type="submit"
@@ -585,7 +599,8 @@ function FilePreview({ table }: { table: MappingTable }) {
       }}
     >
       <TableCaption id="file-preview" className="mb-2 caption-top">
-        The file as read: {table.headers.length} columns, {delimiterNames[table.delimiter]}
+        The file as read: {table.headers.length} columns,{" "}
+        {table.delimiter === null ? "from its first sheet" : delimiterNames[table.delimiter]}
       </TableCaption>
       <TableHeader>
         <TableRow>
@@ -609,7 +624,7 @@ function FilePreview({ table }: { table: MappingTable }) {
   );
 }
 
-const delimiterNames: Record<MappingTable["delimiter"], string> = {
+const delimiterNames: Record<NonNullable<MappingTable["delimiter"]>, string> = {
   ",": "comma-separated",
   ";": "semicolon-separated",
   "\t": "tab-separated",
@@ -954,17 +969,17 @@ function FileDrop({
         </>
       ) : (
         <>
-          <p className="font-medium">
-            {over ? "Drop it here" : `Drag a ${pdfEnabled ? "CSV or PDF" : "CSV"} file here`}
+          <p className="font-medium">{over ? "Drop it here" : "Drag a statement file here"}</p>
+          <p className="text-sm text-muted-foreground">
+            {pdfEnabled ? acceptedFileTypesWithPdf : acceptedFileTypes}, or click to choose one
           </p>
-          <p className="text-sm text-muted-foreground">or click to choose one</p>
         </>
       )}
       <input
         id={id}
         type="file"
         name="file"
-        accept={pdfEnabled ? ".csv,text/csv,.pdf,application/pdf" : ".csv,text/csv"}
+        accept={pdfEnabled ? acceptedFilesWithPdf : acceptedFiles}
         required
         aria-describedby={describedBy}
         onChange={(event) => onFile(event.currentTarget.files?.[0] ?? null)}

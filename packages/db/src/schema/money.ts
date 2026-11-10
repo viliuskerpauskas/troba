@@ -28,6 +28,9 @@ export const categorySources = ["manual", "rule", "transfer"] as const;
 export const ruleFields = ["counterparty", "description"] as const;
 export const pdfImportStates = ["queued", "reading", "read", "failed"] as const;
 export type PdfImportState = (typeof pdfImportStates)[number];
+// How an import profile reads its files: a text file (CSV) or a spreadsheet's first sheet.
+export const importProfileKinds = ["text", "spreadsheet"] as const;
+export type ImportProfileKind = (typeof importProfileKinds)[number];
 
 const userId = () =>
   uuid("user_id")
@@ -92,6 +95,8 @@ export const moneyImportProfiles = pgTable(
     id: id(),
     userId: userId(),
     name: text("name").notNull(),
+    // A profile matches only files of its own kind. Delimiter and encoding apply to text only.
+    kind: text("kind", { enum: importProfileKinds }).default("text").notNull(),
     headerFingerprint: text("header_fingerprint").notNull(),
     skipLines: integer("skip_lines").default(0).notNull(),
     // Null: detected per file.
@@ -107,6 +112,7 @@ export const moneyImportProfiles = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    check("money_import_profiles_kind_check", sql`${table.kind} in (${oneOf(importProfileKinds)})`),
     index("money_import_profiles_user_id_fingerprint_idx").on(
       table.userId,
       table.headerFingerprint,

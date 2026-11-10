@@ -1,5 +1,5 @@
 {
-  "id": "8814abe8-fa1d-475f-9e5d-afd565f2ed79",
+  "id": "3c84ca0b-be19-4373-b362-4dbb989e7ac5",
   "prevId": "4a415a57-172d-4daf-93b4-a2979085bf20",
   "version": "7",
   "dialect": "postgresql",
@@ -1196,6 +1196,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'text'"
+        },
         "header_fingerprint": {
           "name": "header_fingerprint",
           "type": "text",
@@ -1302,7 +1309,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "money_import_profiles_kind_check": {
+          "name": "money_import_profiles_kind_check",
+          "value": "\"money_import_profiles\".\"kind\" in ('text', 'spreadsheet')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.money_imports": {
@@ -1469,118 +1481,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.money_pdf_imports": {
-      "name": "money_pdf_imports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "filename": {
-          "name": "filename",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'queued'"
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer": {
-          "name": "answer",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "failure_reason": {
-          "name": "failure_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "money_pdf_imports_user_id_created_at_idx": {
-          "name": "money_pdf_imports_user_id_created_at_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "money_pdf_imports_user_id_users_id_fk": {
-          "name": "money_pdf_imports_user_id_users_id_fk",
-          "tableFrom": "money_pdf_imports",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "money_pdf_imports_state_check": {
-          "name": "money_pdf_imports_state_check",
-          "value": "\"money_pdf_imports\".\"state\" in ('queued', 'reading', 'read', 'failed')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.money_rules": {

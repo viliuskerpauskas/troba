@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readCsv, type CsvTable, type ReadCsvOptions } from "./csv";
+import { readTable, type ReadTableOptions, type StatementTable } from "./table";
 import {
   dateFormats,
   importProfileFields,
@@ -119,7 +119,7 @@ function shapeOf(text: string): string {
   return shape;
 }
 
-function buildSample(table: CsvTable): MappingSample {
+function buildSample(table: StatementTable): MappingSample {
   const coded = new Map<number, string[]>();
   for (const [column] of table.headers.entries()) {
     const values = codedValuesOf(table, column);
@@ -153,7 +153,7 @@ function isCode(value: string): boolean {
 }
 
 // The column's distinct values when it is a coded one, else null.
-function codedValuesOf(table: CsvTable, column: number): string[] | null {
+function codedValuesOf(table: StatementTable, column: number): string[] | null {
   const values = new Set<string>();
   for (const cells of table.rows) {
     const value = (cells[column] ?? "").trim();
@@ -192,7 +192,7 @@ export const mappingAnswerJsonSchema: Record<string, unknown> = Object.fromEntri
 );
 
 export const mappingInstructions = [
-  "You map the columns of a bank statement CSV to the fields of an import profile.",
+  "You map the columns of a bank statement file (a CSV, or the first sheet of a spreadsheet) to the fields of an import profile.",
   "You get the header row, up to five sample rows and the coded values of some columns.",
   "Sample cells are masked: dates, amounts and currency codes are shown as they are; IBANs and long numbers are [IBAN] and [NUMBER]; other text is a shape in which A is an upper case letter, a a lower case letter and # a digit. Never ask for the real text.",
   "Answer with the header, copied exactly, of the column that holds each field, or null when the file has none.",
@@ -215,8 +215,8 @@ export type ProposedMapping = {
 export type ProposeMappingOptions = {
   // Null when no model is configured: nothing is read, built or sent.
   client: MappingModelClient | null;
-  // How the upload is read, as for readCsv. Absent: detected.
-  read?: ReadCsvOptions;
+  // How the upload is read, as for readTable. Absent: detected.
+  read?: ReadTableOptions;
   timeoutMs?: number;
 };
 
@@ -233,7 +233,7 @@ export async function proposeMapping(
   const { client, read = {}, timeoutMs = defaultMappingTimeoutMs } = options;
   if (client === null) return null;
 
-  const table = readCsv(bytes, read);
+  const table = readTable(bytes, read);
   if (!table.ok || table.headers.length === 0 || table.rows.length === 0) return null;
 
   let answer: unknown;
@@ -273,7 +273,11 @@ async function ask(
 }
 
 // The model's word is checked twice: against the profile schema, and by reading the file with it.
-function checkAnswer(answer: unknown, table: CsvTable, encoding: string): ProposedMapping | null {
+function checkAnswer(
+  answer: unknown,
+  table: StatementTable,
+  encoding: string,
+): ProposedMapping | null {
   const parsed = answerSchema.safeParse(answer);
   if (!parsed.success) return null;
   const { decimalSeparator, dateFormat, columns, debitValues } = parsed.data;

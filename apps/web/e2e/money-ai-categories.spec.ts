@@ -45,10 +45,10 @@ test("suggests a category after an import, changes nothing until it is accepted,
   await expect(disclosure).toContainText(
     "After the import is saved, the counterparty and description of the new transactions that no rule matched are sent to an AI service",
   );
-  await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
+  await expect(page.getByLabel("Statement file from your bank")).toHaveAccessibleDescription(
     /sent to an AI service/,
   );
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Account name").fill("Example Bank current");
   await page.getByRole("button", { name: "Create the account and preview" }).click();
@@ -135,7 +135,7 @@ test("dismisses a suggestion, asks again, accepts all after a confirmation, and 
     ),
   };
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(twoOfOne);
+  await page.getByLabel("Statement file from your bank").setInputFiles(twoOfOne);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByLabel("Account name").fill("Example Bank current");
   await page.getByRole("button", { name: "Create the account and preview" }).click();

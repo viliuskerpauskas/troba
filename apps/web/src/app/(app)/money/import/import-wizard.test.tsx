@@ -101,9 +101,13 @@ describe("the import wizard's upload step", () => {
 
 describe("the import wizard's PDF steps", () => {
   it("takes a PDF only when the server can read one", () => {
-    expect(upload(true, false, true)).toContain('accept=".csv,text/csv,.pdf,application/pdf"');
-    expect(upload(true, false, false)).toContain('accept=".csv,text/csv"');
-    expect(upload(true, false, false)).not.toContain("PDF");
+    const withPdf = upload(true, false, true);
+    expect(withPdf).toMatch(/accept="[^"]*\.pdf,application\/pdf"/);
+    expect(withPdf).toContain("CSV, XLSX, XLS, ODS or PDF");
+
+    const without = upload(true, false, false);
+    expect(without).not.toMatch(/accept="[^"]*pdf/);
+    expect(without).not.toContain("PDF");
   });
 
   it("says plainly what is sent before a PDF goes anywhere, and lets the user decline", () => {

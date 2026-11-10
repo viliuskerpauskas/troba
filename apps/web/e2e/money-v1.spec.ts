@@ -49,7 +49,7 @@ test("imports a statement, rules categorize it, and the month's totals add up", 
   // Upload → map → preview → confirm.
   await page.goto("/money");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
   await mapDebitCreditStatement(page);
@@ -168,9 +168,9 @@ test.describe("on a phone", () => {
     await checkPage(page, "Rules");
 
     await page.goto("/money/import");
-    await expect(page.getByLabel("CSV file from your bank")).toBeVisible();
+    await expect(page.getByLabel("Statement file from your bank")).toBeVisible();
     await checkPage(page, "Import: upload");
-    await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+    await page.getByLabel("Statement file from your bank").setInputFiles(statement);
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
     await checkPage(page, "Import: map");
@@ -204,7 +204,7 @@ test("keeps keyboard focus where the page changed", async ({ page }) => {
   await signIn(page, "e2e-money-focus@example.test", "198.51.100.32");
 
   await page.goto("/money/import");
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).press("Enter");
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
   await expectFocusInMain(page);
@@ -220,7 +220,7 @@ test("keeps keyboard focus where the page changed", async ({ page }) => {
   await expect(page.getByRole("status")).toHaveText(/^Imported 8 transactions/);
   await expectFocusInMain(page);
   await page.getByRole("button", { name: "Import another file" }).press("Enter");
-  await expect(page.getByLabel("CSV file from your bank")).toBeVisible();
+  await expect(page.getByLabel("Statement file from your bank")).toBeVisible();
   await expectFocusInMain(page);
 
   // Cancel is the safe default, and cancelling goes back to Delete.

@@ -8,15 +8,26 @@ export function tooLargeMessage(maxBytes: number): string {
   return `That file is over ${maxBytes / 1024 / 1024} MB. Export a shorter period.`;
 }
 
-export const notAStatementFileMessage =
-  "That isn't a statement file. Export your statement from your bank as CSV.";
-// A statement file troba recognises but doesn't import (here): spreadsheets not yet, PDFs only on a
-// server with an AI key (ADR-0018).
-export const unsupportedKindMessages = {
-  spreadsheet:
-    "Spreadsheet import isn't supported yet. Export your statement from your bank as CSV.",
-  pdf: "PDF import isn't available on this server. Export your statement from your bank as CSV.",
-} as const;
+// The statement files the import page takes, for its copy and its file picker.
+export const acceptedFileTypes = "CSV, XLSX, XLS or ODS";
+// Extensions and types both: some pickers filter by one, some by the other.
+export const acceptedFiles = [
+  ".csv",
+  ".xlsx",
+  ".xls",
+  ".ods",
+  "text/csv",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "application/vnd.oasis.opendocument.spreadsheet",
+].join(",");
+// The same with PDF, on a server that can read one (ADR-0018).
+export const acceptedFileTypesWithPdf = "CSV, XLSX, XLS, ODS or PDF";
+export const acceptedFilesWithPdf = `${acceptedFiles},.pdf,application/pdf`;
+
+export const notAStatementFileMessage = `That isn't a statement file. Export your statement from your bank as ${acceptedFileTypes}.`;
+// A PDF on a server with no AI key: PDFs are read by AI (ADR-0018).
+export const pdfUnavailableMessage = `PDF import isn't available on this server. Export your statement from your bank as ${acceptedFileTypes}.`;
 
 // Why the model's reading of a PDF statement failed. Nothing was saved either way.
 export const pdfFailureMessages: Record<PdfImportFailureReason, string> = {
@@ -32,6 +43,8 @@ export const readErrors = {
   "invalid-encoding": "The file doesn't read as that encoding. Try another, such as windows-1252.",
   "unterminated-quote":
     "The file has a quote that never closes. Check the lines above the header and the delimiter.",
+  "unreadable-workbook":
+    "troba can't open this spreadsheet. It may be damaged or protected with a password: export it from your bank again, without a password.",
 } as const;
 
 export const problemMessages: Record<ProfileFormProblem, string> = {
