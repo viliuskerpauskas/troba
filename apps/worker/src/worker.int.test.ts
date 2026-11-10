@@ -54,7 +54,14 @@ describe("worker", () => {
   });
 
   it("reads a queued PDF import through the statement model client", async () => {
-    const answer = { accountIbans: [], currency: "EUR", transactions: [] };
+    const answer = {
+      isStatement: true,
+      accountIbans: [],
+      currency: "EUR",
+      openingBalance: null,
+      closingBalance: null,
+      transactions: [],
+    };
     const statementClient: StatementModelClient = { readStatement: async () => answer };
     worker = await startWorker(database.url, { statementClient });
     const [user] = await db
@@ -83,7 +90,14 @@ describe("worker", () => {
     const statementClient: StatementModelClient = {
       readStatement: async () => {
         calls++;
-        return { accountIbans: [], currency: "EUR", transactions: [] };
+        return {
+          isStatement: true,
+          accountIbans: [],
+          currency: "EUR",
+          openingBalance: null,
+          closingBalance: null,
+          transactions: [],
+        };
       },
     };
     worker = await startWorker(database.url, { statementClient, pdfImportDailyLimit: 1 });

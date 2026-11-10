@@ -161,6 +161,29 @@ describe("the import wizard's PDF steps", () => {
     expect(html).toContain("Row 2: AI read a date that isn");
     expect(html).not.toContain("profile");
     expect(html).toContain('value="pdf-commit"');
+    expect(html).not.toContain("couldn");
+  });
+
+  it("says when the statement's total couldn't be checked", () => {
+    const html = at({
+      step: "pdf-preview",
+      pdfImportId: "id-1",
+      filename: "statement.pdf",
+      accountId: null,
+      balanceUnchecked: true,
+      preview: {
+        ok: true,
+        account: { id: "a", name: "Example Bank" },
+        rowsParsed: 1,
+        rowsNew: 1,
+        rowsDuplicate: 0,
+        rowsFailed: 0,
+        failed: [],
+        debitCredit: null,
+      },
+    });
+
+    expect(html).toContain("couldn&#x27;t be checked");
   });
 });
 

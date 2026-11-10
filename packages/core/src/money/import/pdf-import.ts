@@ -77,10 +77,16 @@ const statementTransaction = z
 
 export const statementAnswerSchema = z
   .object({
+    // False when the file isn't a bank account statement at all: it is refused.
+    isStatement: z.boolean(),
     // The IBANs of the account(s) the statement is for, as printed. More than one is refused.
     accountIbans: z.array(text(64)).max(10),
     // The statement's currency, if printed.
     currency: text(10).nullable(),
+    // The balances before the first row and after the last, decimal strings like the amounts, if
+    // printed. With both, the rows are checked against them (see checkBalance).
+    openingBalance: text(40).nullable(),
+    closingBalance: text(40).nullable(),
     transactions: z.array(statementTransaction).max(5000),
   })
   .strict();
@@ -93,10 +99,20 @@ const nullableString = { type: ["string", "null"] };
 export const statementAnswerJsonSchema: Record<string, unknown> = {
   type: "object",
   additionalProperties: false,
-  required: ["accountIbans", "currency", "transactions"],
+  required: [
+    "isStatement",
+    "accountIbans",
+    "currency",
+    "openingBalance",
+    "closingBalance",
+    "transactions",
+  ],
   properties: {
+    isStatement: { type: "boolean" },
     accountIbans: { type: "array", items: { type: "string" } },
     currency: nullableString,
+    openingBalance: nullableString,
+    closingBalance: nullableString,
     transactions: {
       type: "array",
       items: {
@@ -125,8 +141,10 @@ export const statementAnswerJsonSchema: Record<string, unknown> = {
 
 export const statementInstructions = [
   "You read a bank account statement given as a PDF and list every transaction on it, in the order printed.",
+  "isStatement: false if the file is not a bank account statement (an invoice, a receipt, a letter); then leave accountIbans and transactions empty and the rest null.",
   "accountIbans: the IBAN of the account the statement is for, as printed; an empty list if none is printed. Never the IBAN of a counterparty.",
   "currency: the account's currency as a three-letter ISO 4217 code, or null if not printed.",
+  "openingBalance and closingBalance: the account balance printed for the start and for the end of the statement period, as decimal strings like the amounts, or null if not printed. Never compute one.",
   "For each transaction: bookingDate as YYYY-MM-DD; amount as a decimal string with a point for decimals and no thousands separators, negative for money out and positive for money in (for example -42.15); currency as a three-letter code; counterparty, counterpartyIban and description as printed, or null.",
   "Copy values exactly as printed. Never invent, merge, round or leave out a transaction. Leave out balance lines, totals and page headers.",
 ].join("\n");
@@ -137,15 +155,29 @@ export const defaultStatementTimeoutMs = 120_000;
 // ---- PDF imports ----
 
 // Why a reading failed: unavailable, the model failed, timed out or there is no key; invalid-answer,
-// the answer isn't in the schema; daily-limit, the user's daily cap was reached before the model was
-// asked (readings started together, past what startPdfImport could tell).
-export type PdfImportFailureReason = "unavailable" | "invalid-answer" | "daily-limit";
+// the answer isn't in the schema; not-a-statement, the model says the file isn't a bank statement;
+// balance-mismatch, the rows don't add up to the statement's balances; daily-limit, the user's daily
+// cap was reached before the model was asked (readings started together, past what startPdfImport
+// could tell).
+export type PdfImportFailureReason =
+  "unavailable" | "invalid-answer" | "not-a-statement" | "balance-mismatch" | "daily-limit";
+
+// How the rows compare with the statement's printed balances. matched: they add up to the cent.
+// unchecked: the statement prints fewer than both, or a balance or an amount doesn't read, so the
+// user should review the preview more carefully. mismatch: opening + the amounts - closing is
+// differenceCents, in the statement's currency (null when it can't be told).
+export type BalanceCheck =
+  | { result: "matched" }
+  | { result: "unchecked" }
+  | { result: "mismatch"; differenceCents: bigint; currency: string | null };
 
 export type PdfImport = {
   id: string;
   filename: string;
   state: PdfImportState;
   failureReason: PdfImportFailureReason | null;
+  // Null while there is no answer: not read yet, or failed for another reason than the balances.
+  balance: BalanceCheck | null;
   createdAt: Date;
 };
 
@@ -154,6 +186,7 @@ const pdfImportColumns = {
   filename: moneyPdfImports.filename,
   state: moneyPdfImports.state,
   failureReason: moneyPdfImports.failureReason,
+  answer: moneyPdfImports.answer,
   createdAt: moneyPdfImports.createdAt,
 };
 
@@ -257,7 +290,9 @@ export async function readPdfImport(
   const outcome = await askModel(client, claimed.bytes, timeoutMs, claimUse);
   const ended = outcome.ok
     ? { state: "read" as const, answer: outcome.answer, failureReason: null }
-    : { state: "failed" as const, answer: null, failureReason: outcome.reason };
+    : // A mismatched answer is kept, as briefly as a read one, for the difference the page shows.
+      // It is never previewed or saved: only a read one is.
+      { state: "failed" as const, answer: outcome.answer ?? null, failureReason: outcome.reason };
   await db
     .update(moneyPdfImports)
     .set({ ...ended, bytes: null })
@@ -270,7 +305,10 @@ async function askModel(
   pdf: Uint8Array,
   timeoutMs: number,
   claimUse: () => Promise<boolean>,
-): Promise<{ ok: true; answer: StatementAnswer } | { ok: false; reason: PdfImportFailureReason }> {
+): Promise<
+  | { ok: true; answer: StatementAnswer }
+  | { ok: false; reason: PdfImportFailureReason; answer?: StatementAnswer }
+> {
   if (!client) return { ok: false, reason: "unavailable" };
   if (!(await claimUse())) return { ok: false, reason: "daily-limit" };
   const controller = new AbortController();
@@ -298,10 +336,43 @@ async function askModel(
   } finally {
     clearTimeout(timer);
   }
-  const answer = statementAnswerSchema.safeParse(value);
-  return answer.success
-    ? { ok: true, answer: answer.data }
-    : { ok: false, reason: "invalid-answer" };
+  const parsed = statementAnswerSchema.safeParse(value);
+  if (!parsed.success) return { ok: false, reason: "invalid-answer" };
+  const answer = parsed.data;
+  if (!answer.isStatement) return { ok: false, reason: "not-a-statement" };
+  if (checkBalance(answer).result === "mismatch") {
+    return { ok: false, reason: "balance-mismatch", answer };
+  }
+  return { ok: true, answer };
+}
+
+// Opening + the amounts against closing, in cents from the decimal strings, never through a float.
+// Every row counts, whatever else is wrong with it: the balances are the statement's own.
+export function checkBalance(answer: StatementAnswer): BalanceCheck {
+  if (answer.openingBalance === null || answer.closingBalance === null) {
+    return { result: "unchecked" };
+  }
+  const opening = parseCents(answer.openingBalance);
+  const closing = parseCents(answer.closingBalance);
+  if (opening === null || closing === null) return { result: "unchecked" };
+  let total = opening;
+  for (const transaction of answer.transactions) {
+    const amount = parseCents(transaction.amount);
+    if (amount === null) return { result: "unchecked" };
+    total += amount;
+  }
+  const differenceCents = total - closing;
+  if (differenceCents === 0n) return { result: "matched" };
+  return { result: "mismatch", differenceCents, currency: balanceCurrency(answer) };
+}
+
+// The statement's currency, or else the one every row is in.
+function balanceCurrency(answer: StatementAnswer): string | null {
+  const printed = answer.currency?.trim().toUpperCase();
+  if (printed && currencyCode.test(printed)) return printed;
+  const rowCurrencies = new Set(answer.transactions.map((t) => t.currency.trim().toUpperCase()));
+  const [only] = rowCurrencies;
+  return rowCurrencies.size === 1 && only && currencyCode.test(only) ? only : null;
 }
 
 export async function getPdfImport(
@@ -335,14 +406,24 @@ export async function discardPdfImport(db: Db, userId: string, pdfImportId: stri
     .where(and(eq(moneyPdfImports.id, pdfImportId), eq(moneyPdfImports.userId, userId)));
 }
 
-function toPdfImport(row: {
+function toPdfImport({
+  answer,
+  ...row
+}: {
   id: string;
   filename: string;
   state: PdfImportState;
   failureReason: string | null;
+  answer: unknown;
   createdAt: Date;
 }): PdfImport {
-  return { ...row, failureReason: row.failureReason as PdfImportFailureReason | null };
+  // Checked when it was stored; checked again since it came back from the database.
+  const stored = answer === null ? null : statementAnswerSchema.parse(answer);
+  return {
+    ...row,
+    failureReason: row.failureReason as PdfImportFailureReason | null,
+    balance: stored && checkBalance(stored),
+  };
 }
 
 // ---- Preview and commit ----

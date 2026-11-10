@@ -37,8 +37,11 @@ const pdf = new TextEncoder().encode("%PDF-1.7\n% a fictional statement\n");
 const ownIban = "DE89370400440532013000";
 
 const answer = {
+  isStatement: true,
   accountIbans: [ownIban],
   currency: "EUR",
+  openingBalance: "100.00",
+  closingBalance: "57.85",
   transactions: [
     {
       bookingDate: "2026-03-02",
@@ -197,6 +200,8 @@ describe("a confirmed PDF import", () => {
     await workerReads(pdfImportId, answer);
 
     const preview = step(await status(), "pdf-preview");
+    // The balances add up, so there is nothing to say about them.
+    expect(preview.balanceUnchecked).toBeUndefined();
     expect(preview.preview).toMatchObject({
       ok: true,
       account: { id: result.account.id },
@@ -252,6 +257,46 @@ describe("a confirmed PDF import", () => {
       step: "upload",
     });
     expect(await pdfImportRows(session.userId)).toEqual([]);
+  });
+
+  it("shows a statement that doesn't add up as failed, with the difference", async () => {
+    const { pdfImportId } = await confirmed();
+    await workerReads(pdfImportId, { ...answer, closingBalance: "57.86" });
+
+    const failed = step(
+      await actions.pdfImportStatusAction(form({ pdfImportId }, false)),
+      "pdf-failed",
+    );
+    expect(failed.message).toContain("didn't add up");
+    expect(failed.message).toContain("€0.01 less than");
+    expect(failed.message).toContain("Nothing was saved");
+    expect(
+      await actions.commitPdfImportAction(form({ pdfImportId, accountId: "" }, false)),
+    ).toMatchObject({ step: "pdf-failed" });
+    expect(await owned("money_transactions", session.userId)).toEqual([]);
+  });
+
+  it("says in the preview when the statement prints no balances to check", async () => {
+    const { pdfImportId } = await confirmed();
+    await workerReads(pdfImportId, { ...answer, openingBalance: null });
+
+    const preview = step(
+      await actions.pdfImportStatusAction(form({ pdfImportId }, false)),
+      "pdf-preview",
+    );
+    expect(preview.balanceUnchecked).toBe(true);
+  });
+
+  it("refuses a file AI says isn't a bank statement", async () => {
+    const { pdfImportId } = await confirmed();
+    await workerReads(pdfImportId, { ...answer, isStatement: false });
+
+    const failed = step(
+      await actions.pdfImportStatusAction(form({ pdfImportId }, false)),
+      "pdf-failed",
+    );
+    expect(failed.message).toContain("isn't a bank statement");
+    expect(failed.message).toContain("Nothing was saved");
   });
 
   it("is out of another user's reach", async () => {

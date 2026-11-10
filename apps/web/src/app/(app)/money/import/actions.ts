@@ -2,6 +2,7 @@
 
 import {
   assertNever,
+  centsToDecimal,
   checkPdfImport,
   commitImport,
   commitPdfImport,
@@ -51,9 +52,11 @@ import { jobQueue } from "@/server/jobs";
 import { requireMoneyUser } from "@/server/money";
 import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
+import { formatAmount } from "../format";
 import {
   formatSources,
   notAStatementFileMessage,
+  balanceMismatchMessage,
   pdfDailyLimitMessage,
   pdfFailureMessages,
   pdfReadingCappedMessage,
@@ -132,6 +135,8 @@ export type ImportState =
       pdfImportId: string;
       filename: string;
       accountId: string | null;
+      // Set when the statement's balances couldn't be checked against its rows (BalanceCheck).
+      balanceUnchecked?: true;
       preview: PreviewView;
       error?: string;
     }
@@ -678,9 +683,10 @@ async function pdfImportState(
     case "reading":
       return { step: "pdf-reading", pdfImportId, filename };
     case "failed": {
-      const reason = pdfImport.failureReason ?? "unavailable";
       const message =
-        reason === "daily-limit" ? await pdfReadingCapped(userId) : pdfFailureMessages[reason];
+        pdfImport.failureReason === "daily-limit"
+          ? await pdfReadingCapped(userId)
+          : pdfFailedMessage(pdfImport);
       return { step: "pdf-failed", pdfImportId, filename, message };
     }
     case "read": {
@@ -694,10 +700,26 @@ async function pdfImportState(
         pdfImportId,
         filename,
         accountId,
+        ...(pdfImport.balance?.result === "unchecked" && { balanceUnchecked: true as const }),
         preview: await previewView(userId, result),
       };
     }
     default:
       return assertNever(pdfImport.state);
   }
+}
+
+// Every failure but the daily limit, which pdfReadingCapped says.
+function pdfFailedMessage({ failureReason, balance }: PdfImport): string {
+  if (failureReason === "daily-limit") return pdfFailureMessages.unavailable;
+  if (failureReason !== "balance-mismatch") {
+    return pdfFailureMessages[failureReason ?? "unavailable"];
+  }
+  if (balance?.result !== "mismatch") return pdfFailureMessages["invalid-answer"];
+  const { differenceCents, currency } = balance;
+  const gap = differenceCents < 0n ? -differenceCents : differenceCents;
+  return balanceMismatchMessage(
+    currency ? formatAmount(gap, currency, { signed: false }) : centsToDecimal(gap),
+    differenceCents < 0n,
+  );
 }

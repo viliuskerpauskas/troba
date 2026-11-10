@@ -29,13 +29,29 @@ export const notAStatementFileMessage = `That isn't a statement file. Export you
 // A PDF on a server with no AI key: PDFs are read by AI (ADR-0018).
 export const pdfUnavailableMessage = `PDF import isn't available on this server. Export your statement from your bank as ${acceptedFileTypes}.`;
 
-// Why the model's reading of a PDF statement failed. Nothing was saved either way. The daily limit
-// is told apart, with when (pdfReadingCappedMessage).
-export const pdfFailureMessages: Record<Exclude<PdfImportFailureReason, "daily-limit">, string> = {
+// Why the model's reading of a PDF statement failed. Nothing was saved either way. A balance
+// mismatch has a message of its own, with the difference (balanceMismatchMessage), and so does the
+// daily limit, with when (pdfReadingCappedMessage).
+export const pdfFailureMessages: Record<
+  Exclude<PdfImportFailureReason, "balance-mismatch" | "daily-limit">,
+  string
+> = {
   unavailable: "AI couldn't read the statement just now. Nothing was saved. Try again in a while.",
   "invalid-answer":
     "AI's reading of the statement couldn't be used. Nothing was saved. Try again, or export the statement as CSV.",
+  "not-a-statement":
+    "AI says this file isn't a bank statement. Nothing was saved. Upload the statement PDF your bank gives you.",
 };
+
+// The opening balance plus what AI read isn't the closing balance: it misread or missed a row.
+// difference: the gap, formatted and unsigned; less when the rows come to less than the closing.
+export function balanceMismatchMessage(difference: string, less: boolean): string {
+  return `The statement didn't add up: its opening balance plus the transactions AI read is ${difference} ${less ? "less" : "more"} than its closing balance, so AI misread or missed something. Nothing was saved. Try again, or export the statement as CSV.`;
+}
+
+// Under a PDF preview whose rows couldn't be checked against the statement's balances.
+export const balanceUncheckedNote =
+  "The statement doesn't print both an opening and a closing balance, so its total couldn't be checked. Check the transactions carefully before you import.";
 
 // The page limit on PDF statements (T154), checked before anything is sent.
 export function tooManyPagesMessage(pages: number, maxPages: number): string {
