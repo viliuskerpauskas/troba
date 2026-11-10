@@ -1,5 +1,5 @@
 import { schema, type Db } from "@troba/db";
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { claimAiCategorizeMerchants, defaultAiCategorizeDailyLimit } from "./ai-categories-limit";
 import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
@@ -317,8 +317,9 @@ async function findMerchants(
   return [...merchants.values()];
 }
 
-// Marks the rows as asked and gives each its merchant's suggestion. Only rows that are still
-// uncategorized and unasked are touched, so a category set in the meantime, or another run's
+// Marks the rows as asked and gives each its merchant's suggestion, every merchant of the batch in
+// one statement (a page of rows at a time, for a merchant with a long history). Only rows that are
+// still uncategorized and unasked are touched, so a category set in the meantime, or another run's
 // answer, is kept. The category is read again in the update, so one deleted or foreign since the
 // answer is no suggestion rather than an error. Returns the number of rows that got a suggestion.
 async function store(
@@ -326,29 +327,30 @@ async function store(
   userId: string,
   merchants: { rowIds: string[]; categoryId: string | null }[],
 ): Promise<number> {
+  const rows = merchants.flatMap(({ rowIds, categoryId }) =>
+    rowIds.map((id) => ({ id, categoryId })),
+  );
   return db.transaction(async (tx) => {
     let suggested = 0;
-    for (const { rowIds, categoryId } of merchants) {
-      for (let i = 0; i < rowIds.length; i += pageSize) {
-        const updated = await tx
-          .update(moneyTransactions)
-          .set({
-            suggestedCategoryId: categoryId
-              ? sql`(select id from money_categories where id = ${categoryId} and user_id = ${userId})`
-              : null,
-            suggestionAskedAt: sql`now()`,
-          })
-          .where(
-            and(
-              eq(moneyTransactions.userId, userId),
-              inArray(moneyTransactions.id, rowIds.slice(i, i + pageSize)),
-              isNull(moneyTransactions.categoryId),
-              isNull(moneyTransactions.suggestionAskedAt),
-            ),
-          )
-          .returning({ suggested: moneyTransactions.suggestedCategoryId });
-        suggested += updated.filter((row) => row.suggested !== null).length;
-      }
+    for (let i = 0; i < rows.length; i += pageSize) {
+      const page = rows.slice(i, i + pageSize);
+      // Each row id with its suggestion, kept only if the category is still one of the user's.
+      const answers = sql`(
+        select answer.id, category.id as category_id
+        from unnest(${sql.param(page.map((row) => row.id))}::uuid[], ${sql.param(page.map((row) => row.categoryId))}::uuid[]) as answer(id, category_id)
+        left join money_categories category
+          on category.id = answer.category_id and category.user_id = ${userId}
+      ) as answers`;
+      const updated = await tx.execute<{ suggested: string | null }>(sql`
+        update ${moneyTransactions}
+        set suggested_category_id = answers.category_id, suggestion_asked_at = now()
+        from ${answers}
+        where ${moneyTransactions.id} = answers.id
+          and ${moneyTransactions.userId} = ${userId}
+          and ${moneyTransactions.categoryId} is null
+          and ${moneyTransactions.suggestionAskedAt} is null
+        returning ${moneyTransactions.suggestedCategoryId} as suggested`);
+      suggested += updated.rows.filter((row) => row.suggested !== null).length;
     }
     return suggested;
   });
