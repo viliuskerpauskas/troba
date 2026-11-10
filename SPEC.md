@@ -8,7 +8,7 @@ Each module gets its own `SPEC-<id>.md` before it's built. This table is the ind
 |---|---|---|---|---|
 | platform | Monorepo scaffold, Docker Compose, Caddy, CI/CD (PR checks → staging → prod), migrations on deploy. No worker until receipts-ocr | — | v1 | [SPEC-platform.md](SPEC-platform.md) |
 | identity | Accounts, sign-up/sign-in, sessions, per-user data isolation, invite-only sign-up for friends | platform | v1 | [SPEC-identity.md](SPEC-identity.md) |
-| money | Financial accounts, transactions (bank CSV import + manual), categories and rules, receipt attachments, monthly spending view | identity | v1 | [SPEC-money.md](SPEC-money.md) |
+| money | Financial accounts, transactions (statement file import from CSV and spreadsheets, + manual), categories and rules, receipt attachments, monthly spending view | identity | v1 | [SPEC-money.md](SPEC-money.md) |
 | receipts-ocr | Read attached receipts into line items (product, quantity, price) | money | later | — |
 | price-insights | Per-product price history and comparison (milk, bread), deeper category analysis | receipts-ocr | later | — |
 | bank-sync | Automatic bank sync through a licensed open-banking aggregator, feeding the money import pipeline | money | later | — |

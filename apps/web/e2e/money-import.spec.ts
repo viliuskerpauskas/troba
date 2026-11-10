@@ -7,6 +7,7 @@ import {
   listImportProfiles,
   saveImportProfile,
 } from "@troba/core";
+import { writeWorkbook } from "@troba/core/test-spreadsheet";
 import { formatSourceBadges, type FormatSource } from "../src/app/(app)/money/import/messages";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
@@ -49,7 +50,7 @@ test("maps an unknown format once, imports it, and matches it on the next upload
   await signIn(page, "e2e-import@example.test", "198.51.100.21");
 
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // The mapping step: the preamble line is skipped, and the headers come from the file.
@@ -103,7 +104,7 @@ test("maps an unknown format once, imports it, and matches it on the next upload
 
   // The same file again: found by its columns, and every row is already there.
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
   await expectProfile(page, "Example Bank");
   await expectFound(page, "saved");
@@ -125,7 +126,7 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
 }) => {
   await signIn(page, "e2e-import-signed@example.test", "198.51.100.23");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
+  await page.getByLabel("Statement file from your bank").setInputFiles(sixtyRows);
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByLabel("Lines above the header")).toHaveValue("0");
 
@@ -202,7 +203,7 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   });
   expect(saved).toMatchObject({ ok: true });
   await page.getByRole("button", { name: "Import another file" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
+  await page.getByLabel("Statement file from your bank").setInputFiles(sixtyRows);
   await page.getByRole("button", { name: "Continue" }).click();
   await expectProfile(page, "Example Bank (copy)");
   // Picking the account keeps the note on how the profile was found.
@@ -228,7 +229,7 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
   await signIn(page, "e2e-import-preset@example.test", "198.51.100.25");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByLabel("Statement file from your bank").setInputFiles(file);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // No mapping: the file's own account is the only thing the user is asked for.
@@ -248,7 +249,7 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   // The same file again: the user's own copy reads it, and nothing is added twice.
   await page.getByRole("link", { name: "View transactions" }).click();
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByLabel("Statement file from your bank").setInputFiles(file);
   await page.getByRole("button", { name: "Continue" }).click();
   await expectProfile(page, preset.profile.name);
   await expectFound(page, "saved");
@@ -265,7 +266,7 @@ test("reads a known bank's file with signed amounts that names no account, and t
   const file = path.join(presetsFolder, `${preset.id}.fixture.csv`);
   await signIn(page, "e2e-import-preset-2@example.test", "198.51.100.28");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(file);
+  await page.getByLabel("Statement file from your bank").setInputFiles(file);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // No mapping step, and no IBAN in the file: the user picks one of their accounts.
@@ -320,10 +321,10 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   // The server has a key, so the upload step says what would be sent.
   const disclosure = page.getByText(/are sent to an AI service to suggest how to map the columns/);
   await expect(disclosure).toBeVisible();
-  await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
+  await expect(page.getByLabel("Statement file from your bank")).toHaveAccessibleDescription(
     /Nothing is sent for formats troba knows/,
   );
-  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByLabel("Statement file from your bank").setInputFiles(modelKnown);
   await page.getByRole("button", { name: "Continue" }).click();
 
   // Prefilled, with a note that is announced (the same region, now filled), shown in the page and
@@ -361,9 +362,77 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
 
   // The saved profile finds the next upload; no model is involved.
   await page.getByRole("button", { name: "Import another file" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
+  await page.getByLabel("Statement file from your bank").setInputFiles(modelKnown);
   await page.getByRole("button", { name: "Continue" }).click();
   await expectProfile(page, "Example Bank (AI)");
+});
+
+// Fictional: the same format as an XLSX with a statement title, typed dates and typed amounts. The
+// model says decimal commas, which apply to text cells only: typed amounts are read exactly.
+const workbook = {
+  name: "statement.xlsx",
+  mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  buffer: Buffer.from(
+    writeWorkbook(
+      [
+        ["Example Bank statement"],
+        ["Booked", "Sum", "Who", "Note"],
+        [{ date: "2026-05-01" }, -12.5, "GROCERY MART", "Card purchase"],
+        [{ date: "2026-05-02" }, 1200, "ACME LTD", "Salary May"],
+        [{ date: "2026-05-03" }, -0.1, "COFFEE HUT", "Rounding"],
+      ],
+      { more: [[["Notes"], ["Not a transaction"]]] },
+    ),
+  ),
+};
+
+test("imports a spreadsheet from its first sheet, to the cent, and matches it next time", async ({
+  page,
+}) => {
+  await signIn(page, "e2e-import-xlsx@example.test", "198.51.100.29");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await expect(page.getByText("CSV, XLSX, XLS or ODS, or click to choose one")).toBeVisible();
+  await page.getByLabel("Statement file from your bank").setInputFiles(workbook);
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // The mapping step, filled in by the AI, with nothing about delimiters or encodings.
+  await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();
+  await expect(page.getByLabel("Lines above the header")).toHaveValue("1");
+  await expect(page.getByLabel("Delimiter")).toHaveCount(0);
+  await expect(page.getByLabel("Encoding")).toHaveCount(0);
+  await expect(page.getByRole("table")).toContainText("from its first sheet");
+  await expect(page.getByRole("table")).toContainText("2026-05-01");
+  await expect(page.getByRole("table")).not.toContainText("Not a transaction");
+  await expect(page.getByLabel("Booking date")).toHaveValue("Booked");
+  await expect(page.getByLabel("Profile name")).toHaveValue("statement");
+  await expectNoSideways(page);
+
+  await page.getByLabel("Profile name").fill("Example Bank (sheet)");
+  await page.getByRole("button", { name: "Save profile and preview" }).click();
+  await expectProfile(page, "Example Bank (sheet)");
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { "Rows in the file": 3, New: 3, "Can't be read": 0 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "Import 3 transactions" }).click();
+  await expect(page.getByRole("status")).toHaveText("Imported 3 transactions into Cash.");
+
+  await page.getByRole("link", { name: "View transactions" }).click();
+  const list = page.getByRole("list", { name: "Transactions, newest first" }).getByRole("listitem");
+  await expect(list).toHaveCount(3);
+  await expect(list.filter({ hasText: "COFFEE HUT" })).toContainText("-€0.10");
+  await expect(list.filter({ hasText: "ACME LTD" })).toContainText("+€1,200.00");
+  await expect(list.filter({ hasText: "GROCERY MART" })).toContainText("2026-05-01");
+
+  // The same workbook again: its saved profile is found, and nothing is added twice.
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("Statement file from your bank").setInputFiles(workbook);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expectProfile(page, "Example Bank (sheet)");
+  await expectFound(page, "saved");
+  await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expectSummary(page, { New: 0, "Already imported, skipped": 3 });
 });
 
 test("shows the plain mapping form, with a note, when the AI can't suggest one", async ({
@@ -371,7 +440,7 @@ test("shows the plain mapping form, with a note, when the AI can't suggest one",
 }) => {
   await signIn(page, "e2e-import-ai-off@example.test", "198.51.100.27");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(statement);
+  await page.getByLabel("Statement file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeVisible();

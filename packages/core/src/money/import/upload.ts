@@ -1,4 +1,5 @@
 import { maxImportFileBytes } from "./import";
+import { isWorkbookContainer } from "./spreadsheet";
 
 // Which kind of statement file an upload is (SPEC-money M3): a CSV, a spreadsheet (XLSX, XLS or
 // ODS) or a PDF. The content decides the kind and the declared type has to allow it, so a file
@@ -38,8 +39,6 @@ const declaredTypes: Record<StatementFileKind, ReadonlySet<string>> = {
   pdf: new Set(["application/pdf", "application/x-pdf", "application/octet-stream", ""]),
 };
 
-const zipMagic = [0x50, 0x4b, 0x03, 0x04]; // XLSX and ODS
-const oleMagic = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]; // XLS
 const pdfMagic = [...new TextEncoder().encode("%PDF-")];
 
 // CSV has no magic bytes, so the content check is that the start reads as text: no control
@@ -60,7 +59,8 @@ function isText(bytes: Uint8Array): boolean {
 
 function contentKind(bytes: Uint8Array): StatementFileKind | null {
   if (bytes.byteLength === 0) return null;
-  if (startsWith(bytes, zipMagic) || startsWith(bytes, oleMagic)) return "spreadsheet";
+  // A ZIP (XLSX, ODS) or OLE container (XLS).
+  if (isWorkbookContainer(bytes)) return "spreadsheet";
   // Checked before text: a PDF starts with a text line before its binary streams.
   if (startsWith(bytes, pdfMagic)) return "pdf";
   if (isText(bytes)) return "csv";

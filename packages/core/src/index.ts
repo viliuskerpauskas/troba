@@ -25,6 +25,8 @@ export * from "./money/import/presets";
 export * from "./money/import/profile";
 export * from "./money/import/profiles";
 export * from "./money/import/resolve";
+export * from "./money/import/spreadsheet";
+export * from "./money/import/table";
 export * from "./money/import/upload";
 export * from "./money/month";
 export * from "./money/report";
