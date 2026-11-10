@@ -391,7 +391,8 @@ test("imports a spreadsheet from its first sheet, to the cent, and matches it ne
 }) => {
   await signIn(page, "e2e-import-xlsx@example.test", "198.51.100.29");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  await expect(page.getByText("CSV, XLSX, XLS or ODS, or click to choose one")).toBeVisible();
+  // The E2E server has a (made-up) OpenAI key, so PDF is offered too.
+  await expect(page.getByText("CSV, XLSX, XLS, ODS or PDF, or click to choose one")).toBeVisible();
   await page.getByLabel("Statement file from your bank").setInputFiles(workbook);
   await page.getByRole("button", { name: "Continue" }).click();
 

@@ -78,8 +78,16 @@ export async function previewImport(
 ): Promise<PreviewImportResult> {
   const prepared = await prepareImport(db, userId, input);
   if (!prepared.ok) return prepared;
-  const { rows, ...preview } = prepared;
+  return previewPrepared(db, userId, prepared);
+}
 
+// The preview of rows ready to save: how many are new, how many already saved.
+export async function previewPrepared(
+  db: Db,
+  userId: string,
+  prepared: PreparedImport,
+): Promise<{ ok: true } & ImportPreview> {
+  const { rows, ...preview } = prepared;
   const existing = await existingDedupKeys(db, userId, preview.account.id, rows);
   const rowsDuplicate = rows.filter((row) => existing.has(row.dedupKey)).length;
   return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate };
@@ -109,7 +117,18 @@ export async function createImportAccount(
   input: CreateImportAccountInput,
 ): Promise<CreateImportAccountResult> {
   const file = { profile: input.profile, bytes: input.bytes, filename: "" };
-  const prepared = await prepareImport(db, userId, file);
+  return createAccountForRows(db, userId, input.name, () => prepareImport(db, userId, file));
+}
+
+// createImportAccount for any statement file: `prepare` reads the file again, with no account
+// picked, each time it is called.
+export async function createAccountForRows(
+  db: Db,
+  userId: string,
+  name: string,
+  prepare: () => Promise<PreparedImport | ImportRefusal>,
+): Promise<CreateImportAccountResult> {
+  const prepared = await prepare();
   if (prepared.ok) return { ok: true, account: prepared.account };
   switch (prepared.reason) {
     case "account-required":
@@ -117,7 +136,7 @@ export async function createImportAccount(
     case "unknown-account": {
       const { iban, currency } = prepared;
       const created = await createAccount(db, userId, {
-        name: input.name,
+        name,
         type: "bank",
         currency,
         iban,
@@ -125,7 +144,7 @@ export async function createImportAccount(
       if (created.ok) return created;
       // The IBAN was read and parsed from the file, and the account is a bank account, so only
       // iban-taken can happen: another request created it first.
-      const again = await prepareImport(db, userId, file);
+      const again = await prepare();
       if (again.ok) return { ok: true, account: again.account };
       throw new Error(`createImportAccount: ${created.reason}`);
     }
@@ -153,69 +172,80 @@ export async function commitImport(
   return db.transaction(async (tx) => {
     const prepared = await prepareImport(tx, userId, input);
     if (!prepared.ok) return prepared;
-    const { rows, ...preview } = prepared;
-    const { account, rowsParsed, failed } = preview;
-
-    const [created] = await tx
-      .insert(moneyImports)
-      .values({
-        userId,
-        accountId: account.id,
-        profileId: input.profileId ?? null,
-        filename: input.filename,
-        rowsParsed,
-        rowsNew: 0,
-        rowsDuplicate: 0,
-        rowsFailed: failed.length,
-      })
-      .returning({ id: moneyImports.id });
-    const importId = created!.id;
-    const transfer = await transferDetection(tx, userId);
-    const rules = await listRules(tx, userId);
-
-    let rowsNew = 0;
-    for (let i = 0; i < rows.length; i += insertBatchSize) {
-      const inserted = await tx
-        .insert(moneyTransactions)
-        .values(
-          rows.slice(i, i + insertBatchSize).map((row) => ({
-            userId,
-            accountId: account.id,
-            bookedOn: row.bookedOn,
-            amountCents: row.amountCents,
-            currency: row.currency,
-            originalAmountCents: row.originalAmountCents,
-            originalCurrency: row.originalCurrency,
-            counterparty: row.counterparty,
-            counterpartyIban: row.counterpartyIban,
-            description: row.description,
-            bankTxType: row.bankTxType,
-            // User rules (SPEC-money M5) categorize the rows transfer detection left.
-            ...(transfer(row) ?? ruleCategory(rules, row)),
-            source: "csv_import" as const,
-            importId,
-            dedupKey: row.dedupKey,
-            raw: row.raw,
-          })),
-        )
-        .onConflictDoNothing({
-          target: [
-            moneyTransactions.userId,
-            moneyTransactions.accountId,
-            moneyTransactions.dedupKey,
-          ],
-        })
-        .returning({ id: moneyTransactions.id });
-      rowsNew += inserted.length;
-    }
-
-    const rowsDuplicate = rows.length - rowsNew;
-    await tx
-      .update(moneyImports)
-      .set({ rowsNew, rowsDuplicate })
-      .where(and(eq(moneyImports.id, importId), eq(moneyImports.userId, userId)));
-    return { ...preview, importId, rowsNew, rowsDuplicate };
+    return savePrepared(tx, userId, prepared, {
+      profileId: input.profileId ?? null,
+      filename: input.filename,
+    });
   });
+}
+
+// What commit does once the file is read: the import record and every new row, in the caller's
+// transaction.
+export async function savePrepared(
+  tx: DbTransaction,
+  userId: string,
+  prepared: PreparedImport,
+  record: { profileId: string | null; filename: string },
+): Promise<{ ok: true; importId: string } & ImportPreview> {
+  const { rows, ...preview } = prepared;
+  const { account, rowsParsed, failed } = preview;
+
+  const [created] = await tx
+    .insert(moneyImports)
+    .values({
+      userId,
+      accountId: account.id,
+      profileId: record.profileId,
+      filename: record.filename,
+      rowsParsed,
+      rowsNew: 0,
+      rowsDuplicate: 0,
+      rowsFailed: failed.length,
+    })
+    .returning({ id: moneyImports.id });
+  const importId = created!.id;
+  const transfer = await transferDetection(tx, userId);
+  const rules = await listRules(tx, userId);
+
+  let rowsNew = 0;
+  for (let i = 0; i < rows.length; i += insertBatchSize) {
+    const inserted = await tx
+      .insert(moneyTransactions)
+      .values(
+        rows.slice(i, i + insertBatchSize).map((row) => ({
+          userId,
+          accountId: account.id,
+          bookedOn: row.bookedOn,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          originalAmountCents: row.originalAmountCents,
+          originalCurrency: row.originalCurrency,
+          counterparty: row.counterparty,
+          counterpartyIban: row.counterpartyIban,
+          description: row.description,
+          bankTxType: row.bankTxType,
+          // User rules (SPEC-money M5) categorize the rows transfer detection left.
+          ...(transfer(row) ?? ruleCategory(rules, row)),
+          // Any statement file, PDF too: an imported row keeps what the statement said.
+          source: "csv_import" as const,
+          importId,
+          dedupKey: row.dedupKey,
+          raw: row.raw,
+        })),
+      )
+      .onConflictDoNothing({
+        target: [moneyTransactions.userId, moneyTransactions.accountId, moneyTransactions.dedupKey],
+      })
+      .returning({ id: moneyTransactions.id });
+    rowsNew += inserted.length;
+  }
+
+  const rowsDuplicate = rows.length - rowsNew;
+  await tx
+    .update(moneyImports)
+    .set({ rowsNew, rowsDuplicate })
+    .where(and(eq(moneyImports.id, importId), eq(moneyImports.userId, userId)));
+  return { ...preview, importId, rowsNew, rowsDuplicate };
 }
 
 // Money moved between the user's own accounts is a transfer, not spending: a row whose
@@ -235,17 +265,38 @@ async function transferDetection(tx: DbTransaction, userId: string) {
     .orderBy(asc(moneyCategories.createdAt), asc(moneyCategories.id))
     .limit(1);
 
-  return (row: ParsedRow) =>
+  return (row: ImportRow) =>
     transfers && row.counterpartyIban && ownIbans.has(row.counterpartyIban)
       ? { categoryId: transfers.id, categorySource: "transfer" as const }
       : null;
 }
 
+// A row ready to save, from any statement file. A CSV's raw is its cells by header; a PDF's is the
+// model's row.
+export type ImportRow = Omit<ParsedRow, "raw"> & { raw: Record<string, unknown> };
+
 // The preview without its duplicate counts, plus the rows that could be saved.
-type PreparedImport = { ok: true; rows: ParsedRow[] } & Omit<
+export type PreparedImport = { ok: true; rows: ImportRow[] } & Omit<
   ImportPreview,
   "rowsNew" | "rowsDuplicate"
 >;
+
+// A statement file's rows, whatever its kind, read for the currency of the account they go to.
+export type RowSource = {
+  // Data rows in the file.
+  rowsParsed: number;
+  read: (accountCurrency: string) =>
+    | {
+        ok: true;
+        ownIban: string | null;
+        rows: ImportRow[];
+        failed: ImportRowFailure[];
+        debitCredit: DebitCreditCount[] | null;
+      }
+    | Extract<ImportRefusal, { reason: "missing-columns" | "multiple-own-ibans" }>;
+  // The currency offered for a new account, when the file states one; else its first row's.
+  currency?: string | null;
+};
 
 // What preview and commit share: the file read with its profile, and the account it goes to.
 async function prepareImport(
@@ -267,9 +318,23 @@ async function prepareImport(
   }
   const table = readTable(input.bytes, profile);
   if (!table.ok) return table;
+  return prepareRows(db, userId, input.accountId, {
+    rowsParsed: table.rows.length,
+    read: (accountCurrency) => parseRows(profile, table, { accountCurrency }),
+  });
+}
+
+// The account a statement file's rows go to, and the rows that can go there.
+export async function prepareRows(
+  db: Db | DbTransaction,
+  userId: string,
+  // The account the user picked, a candidate id from the client.
+  accountId: string | null | undefined,
+  source: RowSource,
+): Promise<PreparedImport | ImportRefusal> {
   // The account isn't known until the file's own IBAN is read, so the first pass assumes the
   // default currency and is redone in the account's when that differs.
-  let parsed = parseRows(profile, table, { accountCurrency: defaultCurrency });
+  let parsed = source.read(defaultCurrency);
   if (!parsed.ok) return parsed;
 
   let account: Account | undefined;
@@ -280,21 +345,21 @@ async function prepareImport(
       .from(moneyAccounts)
       .where(and(eq(moneyAccounts.userId, userId), eq(moneyAccounts.iban, parsed.ownIban)));
     if (!account) {
-      const currency = parsed.rows[0]?.currency ?? defaultCurrency;
+      const currency = source.currency ?? parsed.rows[0]?.currency ?? defaultCurrency;
       return { ok: false, reason: "unknown-account", iban: parsed.ownIban, currency };
     }
-    if (input.accountId && input.accountId !== account.id) {
+    if (accountId && accountId !== account.id) {
       return { ok: false, reason: "account-mismatch" };
     }
   } else {
-    if (!input.accountId) return { ok: false, reason: "account-required" };
+    if (!accountId) return { ok: false, reason: "account-required" };
     // Archived accounts are hidden from pickers.
     [account] = await db
       .select(accountColumns)
       .from(moneyAccounts)
       .where(
         and(
-          eq(moneyAccounts.id, input.accountId),
+          eq(moneyAccounts.id, accountId),
           eq(moneyAccounts.userId, userId),
           isNull(moneyAccounts.archivedAt),
         ),
@@ -303,10 +368,10 @@ async function prepareImport(
   }
 
   if (account.currency !== defaultCurrency) {
-    parsed = parseRows(profile, table, { accountCurrency: account.currency });
+    parsed = source.read(account.currency);
     if (!parsed.ok) return parsed;
   }
-  const rows: ParsedRow[] = [];
+  const rows: ImportRow[] = [];
   const failed: ImportRowFailure[] = [...parsed.failed];
   for (const row of parsed.rows) {
     if (row.currency === account.currency) rows.push(row);
@@ -317,7 +382,7 @@ async function prepareImport(
   return {
     ok: true,
     account,
-    rowsParsed: table.rows.length,
+    rowsParsed: source.rowsParsed,
     rows,
     failed,
     debitCredit: parsed.debitCredit,
@@ -325,7 +390,7 @@ async function prepareImport(
 }
 
 // Served by the unique dedup index. Batched like the inserts, one parameter per key.
-async function existingDedupKeys(db: Db, userId: string, accountId: string, rows: ParsedRow[]) {
+async function existingDedupKeys(db: Db, userId: string, accountId: string, rows: ImportRow[]) {
   const existing = new Set<string | null>();
   for (let i = 0; i < rows.length; i += lookupBatchSize) {
     const found = await db

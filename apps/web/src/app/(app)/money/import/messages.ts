@@ -1,4 +1,4 @@
-import type { AfterImportSuggestions, ImportRowFailure } from "@troba/core";
+import type { AfterImportSuggestions, ImportRowFailure, PdfImportFailureReason } from "@troba/core";
 import type { ProfileFormProblem } from "./profile-form";
 
 // What the import wizard tells the user, by reason. Shared with the client wizard, so it imports
@@ -21,12 +21,20 @@ export const acceptedFiles = [
   "application/vnd.ms-excel",
   "application/vnd.oasis.opendocument.spreadsheet",
 ].join(",");
+// The same with PDF, on a server that can read one (ADR-0018).
+export const acceptedFileTypesWithPdf = "CSV, XLSX, XLS, ODS or PDF";
+export const acceptedFilesWithPdf = `${acceptedFiles},.pdf,application/pdf`;
 
 export const notAStatementFileMessage = `That isn't a statement file. Export your statement from your bank as ${acceptedFileTypes}.`;
-// A statement file troba recognises but doesn't import yet.
-export const unsupportedKindMessages = {
-  pdf: `PDF import isn't supported yet. Export your statement from your bank as ${acceptedFileTypes}.`,
-} as const;
+// A PDF on a server with no AI key: PDFs are read by AI (ADR-0018).
+export const pdfUnavailableMessage = `PDF import isn't available on this server. Export your statement from your bank as ${acceptedFileTypes}.`;
+
+// Why the model's reading of a PDF statement failed. Nothing was saved either way.
+export const pdfFailureMessages: Record<PdfImportFailureReason, string> = {
+  unavailable: "AI couldn't read the statement just now. Nothing was saved. Try again in a while.",
+  "invalid-answer":
+    "AI's reading of the statement couldn't be used. Nothing was saved. Try again, or export the statement as CSV.",
+};
 export const startAgainMessage = "Something changed since the last step. Upload the file again.";
 
 // Why the file can't be read with the profile's settings.
@@ -60,6 +68,14 @@ export const failureReasons: Record<ImportRowFailure["reason"], string> = {
   "invalid-own-iban": "the account IBAN isn't valid",
   "duplicate-transaction-id": "another row has the same transaction ID",
   "currency-mismatch": "the row's currency isn't the account's",
+};
+
+// The same for a PDF statement, which has no profile: what the AI read can't be used.
+export const pdfFailureReasons: Record<ImportRowFailure["reason"], string> = {
+  ...failureReasons,
+  "invalid-date": "AI read a date that isn't a real date",
+  "invalid-amount": "AI read an amount that isn't a number of cents",
+  "invalid-currency": "AI read a currency that isn't a three-letter code",
 };
 
 // Why the mapping form opened the way it did for a file no profile fits, shown above it: "ai" when

@@ -1,4 +1,5 @@
 // The worker process: `node worker.js` in the image, `pnpm --filter @troba/worker dev` locally.
+import { createOpenAiStatementClient, openAiConfigFrom } from "@troba/core";
 import { startWorker } from "./worker";
 
 const url = process.env.DATABASE_URL;
@@ -7,7 +8,11 @@ if (!url) {
   process.exit(1);
 }
 
-const worker = await startWorker(url);
+// Without a key, the web app offers no PDF import, and one queued before the key was removed fails.
+const openAi = openAiConfigFrom(process.env);
+const worker = await startWorker(url, {
+  statementClient: openAi && createOpenAiStatementClient(openAi),
+});
 // e2e: playwright.config.ts waits for this line.
 console.log("worker started");
 

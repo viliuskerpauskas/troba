@@ -10,7 +10,14 @@ export type StatementFileKind = "csv" | "spreadsheet" | "pdf";
 
 export type StatementFileCheck =
   | { ok: true; kind: StatementFileKind }
-  | { ok: false; reason: "file-too-large" | "not-a-statement-file" };
+  | { ok: false; reason: "file-too-large" | "not-a-statement-file" }
+  // A PDF, on a server that can't read one: PDFs are read by a model (ADR-0018), and there is no key.
+  | { ok: false; reason: "pdf-unavailable" };
+
+export type StatementFileCheckOptions = {
+  // The server has a statement model client. Off unless the caller says so.
+  pdfAvailable?: boolean;
+};
 
 // Browsers declare files inconsistently. Windows with a spreadsheet app installed says
 // application/vnd.ms-excel for a CSV, some say text/plain, and some send no type at all or a
@@ -68,11 +75,15 @@ function contentKind(bytes: Uint8Array): StatementFileKind | null {
 }
 
 // The size limit comes first, so that an oversized file is refused before its content is read.
-export function checkStatementFile(file: { type: string; bytes: Uint8Array }): StatementFileCheck {
+export function checkStatementFile(
+  file: { type: string; bytes: Uint8Array },
+  { pdfAvailable = false }: StatementFileCheckOptions = {},
+): StatementFileCheck {
   if (file.bytes.byteLength > maxImportFileBytes) return { ok: false, reason: "file-too-large" };
   const kind = contentKind(file.bytes);
   if (!kind || !declaredTypes[kind].has(file.type.toLowerCase())) {
     return { ok: false, reason: "not-a-statement-file" };
   }
+  if (kind === "pdf" && !pdfAvailable) return { ok: false, reason: "pdf-unavailable" };
   return { ok: true, kind };
 }

@@ -596,34 +596,3 @@ describe("the wizard, for a spreadsheet statement file", () => {
     });
   });
 });
-
-describe("startImportAction, for a PDF", () => {
-  const pdf = new TextEncoder().encode("%PDF-1.7\n%âãÏÓ\n1 0 obj\n");
-  const pdfFile = { name: "statement.pdf", type: "application/pdf" };
-
-  it("refuses it as not supported yet, reading and saving nothing", async () => {
-    const model = fakeModel(goodAnswer);
-    server.client = model.client;
-
-    const state = await actions.startImportAction(upload(pdf, {}, pdfFile));
-
-    expect(state).toEqual({
-      step: "upload",
-      error: expect.stringContaining("isn't supported yet"),
-    });
-    expect(model.requests).toEqual([]);
-    expect(await listImportProfiles(db, session.userId)).toEqual([]);
-  });
-
-  it("refuses it at the confirm step too", async () => {
-    const state = await actions.commitImportAction(
-      upload(pdf, { profileId: "00000000-0000-4000-8000-000000000000", accountId: "" }, pdfFile),
-    );
-
-    expect(state).toEqual({
-      step: "upload",
-      error: expect.stringContaining("isn't supported yet"),
-    });
-    expect(await listTransactions(db, session.userId)).toEqual([]);
-  });
-});

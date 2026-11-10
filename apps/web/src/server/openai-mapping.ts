@@ -1,9 +1,9 @@
 import type { MappingModelClient } from "@troba/core";
 import { openAiConfig, type OpenAiConfig } from "./env";
-import { structuredResponse } from "./openai-responses";
+import { structuredResponse } from "@troba/core";
 
 // The model client behind AI-suggested import mappings (ADR-0015). The request carries only what
-// core's proposeMapping built, the scrubbed sample; see openai-responses.ts for the transport.
+// core's proposeMapping built, the scrubbed sample; see packages/core/src/openai/responses.ts for the transport.
 
 export function createOpenAiMappingClient(
   config: OpenAiConfig,

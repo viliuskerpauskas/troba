@@ -22,7 +22,7 @@ Let a signed-in user see where their money goes and how it's spent. They get tra
 - The form works on a 360px-wide phone screen and in under 15 seconds of typing.
 - Manual transactions can be edited and deleted (delete asks for confirmation).
 
-**M3. Statement file import with import profiles (CSV and spreadsheets)**
+**M3. Statement file import: CSV and spreadsheets with import profiles, and PDF read by AI**
 
 A **statement file** is what the user's bank exports: a CSV, or a spreadsheet (XLSX, old binary XLS or ODS). No bank-specific parser code ships in the repo. Every format is described as an **import profile** (see [Import profile](#import-profile)), stored in the user's own data. A profile comes from a built-in **preset**, from an AI suggestion the user confirmed, or from the user's own mapping. A preset is a data file naming one bank's export format, and the only place a bank name may appear ([ADR-0015](docs/adr/0015-import-presets-and-ai-mapping.md)).
 
@@ -47,6 +47,15 @@ A **statement file** is what the user's bank exports: a CSV, or a spreadsheet (X
 - Auto-rules (M5) are applied to imported rows on save.
 - Each imported transaction keeps the original raw row (JSONB) for debugging and later re-parsing.
 - On imported transactions, only category and note are editable. Date, amount and counterparty stay as the bank reported them. Imported transactions can be deleted.
+
+**PDF statements** ([ADR-0018](docs/adr/0018-pdf-statements-read-by-a-model.md)) have no import profile: an AI model reads them, text or scanned, and only when the server has an OpenAI key. Without one the import page doesn't offer PDF, and a PDF upload is refused with a message saying PDF import isn't available.
+
+- **Consent, every time.** Before anything is sent, the page says the whole statement goes to the AI provider, including amounts, names and account numbers, and asks the user to confirm. There is no "don't ask again". Declining sends and keeps nothing. Unlike the mapping sample above, nothing is masked.
+- **Reading.** Confirming creates a user-owned **PDF import** holding the file, in state `queued`, and queues a job on the worker (`apps/worker`), which moves it to `reading` and ends it `read` or `failed`. The worker sends the PDF as a file input with a strict JSON schema, asks the provider not to store it, uses a timeout and makes one attempt. Nothing from the exchange is logged; an error carries an HTTP status at most. The file's bytes are deleted as soon as the reading ends, either way.
+- **The answer** is parsed with a fixed schema: the statement's own IBAN(s) and currency, if printed, and for each transaction a booking date, a signed decimal-string amount, a currency, and optionally a counterparty, counterparty IBAN and description. An answer that fails the schema fails the reading. Amounts become cents through the same decimal-string parser as CSV, never through a float; a row with an unusable date, amount or currency is a failed row with a reason.
+- **The page** shows a "reading your statement" state, which is still there when the user leaves and comes back, then the ordinary preview, with a note under its heading that it was read by AI, or a failure that saves nothing and offers to try again.
+- **Then it is an ordinary import:** account matching by the statement's own IBAN (offer to create the account, more than one own IBAN refused, the user picks the account when none is printed), the currency rule, Transfers and rules, the preview, the all-or-nothing save and AI category suggestions after it (M5). The save reads the stored answer, never anything the client sends back, and deletes the PDF import. The import history shows it with no profile, and each transaction's raw JSONB is the model's row for it.
+- **Duplicates.** A PDF row has no bank transaction id, and the model's text can differ between readings, so its dedup key is its date, amount and currency plus its occurrence within the statement: a re-import adds nothing, and two equal rows in one statement stay two. A PDF row never matches a CSV row for the same payment.
 
 **M4. Categories**
 - Each new user gets a default set: Food, Transport, Bills, Housing, Health, Shopping, Entertainment, Income, Transfers, Other.

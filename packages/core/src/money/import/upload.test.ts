@@ -52,9 +52,22 @@ describe("checkStatementFile", () => {
     "application/x-pdf",
     "application/octet-stream",
     "",
-  ])("accepts a PDF declared as %j", (type) => {
-    expect(checkStatementFile({ type, bytes: pdf })).toEqual({ ok: true, kind: "pdf" });
+  ])("accepts a PDF declared as %j when PDF import is available", (type) => {
+    expect(checkStatementFile({ type, bytes: pdf }, { pdfAvailable: true })).toEqual({
+      ok: true,
+      kind: "pdf",
+    });
   });
+
+  it.each([{}, { pdfAvailable: false }])(
+    "refuses a PDF as unavailable when the server can't read one (%j)",
+    (options) => {
+      expect(checkStatementFile({ type: "application/pdf", bytes: pdf }, options)).toEqual({
+        ok: false,
+        reason: "pdf-unavailable",
+      });
+    },
+  );
 
   it.each([
     ["an image named .xlsx", xlsxType, png],

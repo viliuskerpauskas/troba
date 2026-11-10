@@ -35,6 +35,9 @@ services:
     command: ["node", "worker.js"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-troba}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-troba}
+      # Reads PDF statements (ADR-0018). Optional: unset, the web app offers no PDF import.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
     # On SIGTERM the worker lets running jobs finish for up to 25 s; past this Docker kills it, and
     # pg-boss retries the job once it expires.
     stop_grace_period: 30s

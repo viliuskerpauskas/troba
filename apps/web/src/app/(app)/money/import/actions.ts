@@ -3,24 +3,32 @@
 import {
   assertNever,
   commitImport,
+  commitPdfImport,
   createImportAccount,
+  createPdfImportAccount,
+  discardPdfImport,
   getImportProfile,
+  getPdfImport,
   checkStatementFile,
   listAccounts,
   maxImportFileBytes,
   presetBrand,
   previewImport,
+  previewPdfImport,
   proposeMappingWithinLimit,
   readTable,
   resolveImportFormat,
   saveImportProfile,
+  startPdfImport,
   suggestAfterImport,
   type Account,
   type AfterImportSuggestions,
+  type CommitImportResult,
   type Delimiter,
   type ImportInput,
   type ImportRefusal,
   type ImportRowFailure,
+  type PdfImport,
   type PresetBrand,
   type PreviewImportResult,
   type ReadTableOptions,
@@ -30,19 +38,21 @@ import {
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
-import { aiCategorizeDailyLimit, aiMappingDailyLimit } from "@/server/env";
+import { aiCategorizeDailyLimit, aiMappingDailyLimit, pdfImportEnabled } from "@/server/env";
+import { jobQueue } from "@/server/jobs";
 import { requireMoneyUser } from "@/server/money";
 import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
 import {
   formatSources,
   notAStatementFileMessage,
+  pdfFailureMessages,
+  pdfUnavailableMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
   suggestions,
   tooLargeMessage,
-  unsupportedKindMessages,
   type FormatSource,
   type Suggestion,
 } from "./messages";
@@ -98,6 +108,22 @@ export type ImportState =
       preview: PreviewView;
       error?: string;
     }
+  // A PDF statement (ADR-0018): first what will be sent, for the user to confirm on every import.
+  // Nothing is sent, or kept, before that.
+  | { step: "pdf-confirm"; filename: string; error?: string }
+  // Queued for the worker or being read by the model; the page asks again until it ends.
+  | { step: "pdf-reading"; pdfImportId: string; filename: string }
+  // Nothing was saved; the user can start again.
+  | { step: "pdf-failed"; pdfImportId: string; filename: string; message: string }
+  // Read: the ordinary preview, of the stored answer.
+  | {
+      step: "pdf-preview";
+      pdfImportId: string;
+      filename: string;
+      accountId: string | null;
+      preview: PreviewView;
+      error?: string;
+    }
   | {
       step: "done";
       accountName: string;
@@ -141,27 +167,43 @@ const FoundField = z.enum(formatSources).optional().catch(undefined);
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
 type Upload = { filename: string; bytes: Uint8Array; kind: TabularFileKind };
+// A PDF statement (ADR-0018), read by the model rather than with a profile.
+type PdfUpload = { filename: string; bytes: Uint8Array; kind: "pdf" };
 
-// The file every step sends. Checked before anything reads it: the declared size, then the
-// kind of statement file from its declared type and content. A CSV or a spreadsheet imports so
-// far; a PDF doesn't yet.
+// The file every step of a CSV or spreadsheet sends again. A PDF there was swapped in.
 async function readUpload(formData: FormData): Promise<Upload | { error: string }> {
+  const upload = await readStatementUpload(formData);
+  if ("error" in upload) return upload;
+  return upload.kind === "pdf" ? { error: startAgainMessage } : upload;
+}
+
+// The file the upload step sends. Checked before anything reads it: the declared size, then the
+// kind of statement file from its declared type and content. A CSV or a spreadsheet imports, and a
+// PDF when the server can read one.
+async function readStatementUpload(
+  formData: FormData,
+): Promise<Upload | PdfUpload | { error: string }> {
   const file = z.file().safeParse(formData.get("file"));
   if (!file.success || file.data.size === 0) return { error: "Choose a statement file to import." };
   if (file.data.size > maxImportFileBytes) return { error: tooLarge };
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  const checked = checkStatementFile({ type: file.data.type, bytes });
+  const checked = checkStatementFile(
+    { type: file.data.type, bytes },
+    { pdfAvailable: pdfImportEnabled() },
+  );
   if (!checked.ok) {
+    if (checked.reason === "pdf-unavailable") return { error: pdfUnavailableMessage };
     return { error: checked.reason === "file-too-large" ? tooLarge : notAStatementFileMessage };
   }
-  if (checked.kind === "pdf") return { error: unsupportedKindMessages.pdf };
   return { filename: file.data.name.slice(0, 200), bytes, kind: checked.kind };
 }
 
 export async function startImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
-  const upload = await readUpload(formData);
+  const upload = await readStatementUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
+  // Nothing is sent or kept until the user confirms.
+  if (upload.kind === "pdf") return { step: "pdf-confirm", filename: upload.filename };
   // A workbook that can't be opened is refused before anything is matched or sent anywhere.
   if (upload.kind === "spreadsheet") {
     const table = readTable(upload.bytes);
@@ -323,9 +365,16 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   if (!result.ok)
     return previewState(userId, input.profile, input.upload, input.accountId, input.found);
 
-  // The import is committed, and nothing from here can undo or fail it. The model is asked for at
-  // most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
-  // suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+  return doneState(userId, result);
+}
+
+// The import is committed, and nothing from here can undo or fail it. The model is asked for at
+// most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
+// suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+async function doneState(
+  userId: string,
+  result: Extract<CommitImportResult, { ok: true }>,
+): Promise<ImportState> {
   const suggestions: AfterImportSuggestions =
     result.rowsNew > 0
       ? await suggestAfterImport(db(), userId, {
@@ -487,4 +536,129 @@ function mappingState(
     profileId,
     ...(suggestion && { suggestion }),
   };
+}
+
+// ---- PDF statements (ADR-0018) ----
+
+// The user confirmed the send: the PDF import is created and queued for the worker.
+export async function startPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const upload = await readStatementUpload(formData);
+  if ("error" in upload) return { step: "upload", error: upload.error };
+  if (upload.kind !== "pdf") return { step: "upload", error: startAgainMessage };
+  const started = await startPdfImport(db(), userId, upload, { queue: await jobQueue() });
+  if (!started.ok) {
+    const error = started.reason === "file-too-large" ? tooLarge : notAStatementFileMessage;
+    return { step: "upload", error };
+  }
+  return { step: "pdf-reading", pdfImportId: started.pdfImportId, filename: upload.filename };
+}
+
+// Where one of the user's PDF imports stands now: asked while it's read, and on coming back. One
+// that is gone (saved, dropped or another user's) is the upload step.
+export async function pdfImportStatusAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload" };
+  return pdfImportState(userId, found, null);
+}
+
+export async function previewPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload", error: startAgainMessage };
+  return pdfImportState(userId, found, input.accountId);
+}
+
+// The preview offered a bank account for the statement's own IBAN.
+export async function createPdfImportAccountAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  const found = input && (await getPdfImport(db(), userId, input.pdfImportId));
+  if (!found) return { step: "upload", error: startAgainMessage };
+  const name = AccountName.safeParse(formData.get("accountName"));
+  if (!name.success) {
+    const state = await pdfImportState(userId, found, null);
+    const error = "Enter a name for the account, up to 100 characters.";
+    return state.step === "pdf-preview" ? { ...state, error } : state;
+  }
+  const created = await createPdfImportAccount(db(), userId, {
+    pdfImportId: found.id,
+    name: name.data,
+  });
+  if (created.ok) revalidatePath("/money/accounts");
+  // Refused or not: the preview shows where the statement stands now.
+  return pdfImportState(userId, found, null);
+}
+
+// Commits the stored answer, never anything this form sends but the PDF import and account ids.
+export async function commitPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  if (!input) return { step: "upload", error: startAgainMessage };
+  const result = await commitPdfImport(db(), userId, input);
+  if (!result.ok) {
+    // Refused after the preview accepted it: show the preview again, which says why.
+    const found = await getPdfImport(db(), userId, input.pdfImportId);
+    if (!found) return { step: "upload", error: startAgainMessage };
+    return pdfImportState(userId, found, input.accountId);
+  }
+  return doneState(userId, result);
+}
+
+// Start over, or try again after a failure: the PDF import is dropped, whatever its state, and a
+// job that hasn't run yet finds nothing to read.
+export async function discardPdfImportAction(formData: FormData): Promise<ImportState> {
+  const { userId } = await requireMoneyUser();
+  const input = readPdfInput(formData);
+  if (input) await discardPdfImport(db(), userId, input.pdfImportId);
+  return { step: "upload" };
+}
+
+// The PDF import and the account picked: candidate ids, checked by core against the user's rows.
+function readPdfInput(formData: FormData) {
+  const pdfImportId = Id.safeParse(formData.get("pdfImportId"));
+  const accountId = OptionalId.safeParse(formData.get("accountId") ?? "");
+  if (!pdfImportId.success || !accountId.success) return null;
+  return { pdfImportId: pdfImportId.data, accountId: accountId.data };
+}
+
+type PdfState = Extract<ImportState, { step: "pdf-reading" | "pdf-failed" | "pdf-preview" }>;
+
+async function pdfImportState(
+  userId: string,
+  pdfImport: PdfImport,
+  accountId: string | null,
+): Promise<PdfState> {
+  const { id: pdfImportId, filename } = pdfImport;
+  switch (pdfImport.state) {
+    case "queued":
+    case "reading":
+      return { step: "pdf-reading", pdfImportId, filename };
+    case "failed":
+      return {
+        step: "pdf-failed",
+        pdfImportId,
+        filename,
+        message: pdfFailureMessages[pdfImport.failureReason ?? "unavailable"],
+      };
+    case "read": {
+      const result = await previewPdfImport(db(), userId, { pdfImportId, accountId });
+      // Saved or dropped since it was looked up.
+      if (!result.ok && result.reason === "pdf-import-not-found") {
+        return { step: "pdf-failed", pdfImportId, filename, message: startAgainMessage };
+      }
+      return {
+        step: "pdf-preview",
+        pdfImportId,
+        filename,
+        accountId,
+        preview: await previewView(userId, result),
+      };
+    }
+    default:
+      return assertNever(pdfImport.state);
+  }
 }
