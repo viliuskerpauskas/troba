@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { pdfDailyLimitMessage, pdfReadingCappedMessage, tooManyPagesMessage } from "./messages";
+import {
+  pagesUnknownMessage,
+  pdfDailyLimitMessage,
+  pdfReadingCappedMessage,
+  tooManyPagesMessage,
+} from "./messages";
 
 // The PDF limits' messages (T154): when the next PDF import is possible is said relative to now,
 // since the server doesn't know the user's time zone.
@@ -45,6 +50,14 @@ describe("tooManyPagesMessage", () => {
   it("says the pages, the limit and to split it", () => {
     expect(tooManyPagesMessage(34, 20)).toBe(
       "That PDF has 34 pages, and troba reads up to 20 at a time. Split it into shorter PDFs and import each one.",
+    );
+  });
+});
+
+describe("pagesUnknownMessage", () => {
+  it("says nothing was sent, the limit and what to do instead", () => {
+    expect(pagesUnknownMessage(20)).toBe(
+      "troba couldn't tell how many pages that PDF has, so nothing was sent. It reads PDFs of up to 20 pages that aren't password-protected. Save the statement as a new PDF, or export it as CSV, XLSX, XLS or ODS.",
     );
   });
 });

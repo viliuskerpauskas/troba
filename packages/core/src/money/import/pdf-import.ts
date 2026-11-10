@@ -159,9 +159,8 @@ export const defaultStatementTimeoutMs = 120_000;
 // the answer isn't in the schema; not-a-statement, the model says the file isn't a bank statement;
 // balance-mismatch, the rows don't add up to the statement's balances; daily-limit, the user's daily
 // cap was reached before the model was asked (readings started together, past what startPdfImport
-// could tell).
-export type PdfImportFailureReason =
-  "unavailable" | "invalid-answer" | "not-a-statement" | "balance-mismatch" | "daily-limit";
+// could tell). The column's check constraint holds the database to the same list.
+export type PdfImportFailureReason = schema.PdfImportFailureReason;
 
 // How the rows compare with the statement's printed balances. matched: they add up to the cent.
 // unchecked: the statement prints fewer than both, or a balance or an amount doesn't read, so the
@@ -196,6 +195,8 @@ const pdfImportColumns = {
 export type PdfImportRefusal =
   | { ok: false; reason: "file-too-large" | "not-a-pdf" }
   | { ok: false; reason: "too-many-pages"; pages: number; maxPages: number }
+  // The page count can't be read (encrypted object streams, say), so the page limit can't be kept.
+  | { ok: false; reason: "pages-unknown"; maxPages: number }
   | { ok: false; reason: "daily-limit"; limit: number; nextAt: Date };
 
 export type PdfImportLimitOptions = {
@@ -206,7 +207,8 @@ export type PdfImportLimitOptions = {
 // Whether this PDF may be sent for the user, checked on upload and again before it is queued;
 // `left` is how many PDF imports the user has left today, this one included. The page limit goes
 // first, so a long statement is told to split before it is told to wait. A PDF whose page count
-// can't be read (encrypted object streams, say) is let through, still bound by the size limit.
+// can't be read (encrypted object streams, say) is refused too: nothing longer than the limit is
+// sent, and that can't be told for it.
 export async function checkPdfImport(
   db: Db,
   userId: string,
@@ -220,7 +222,8 @@ export async function checkPdfImport(
   if (!checked.ok || checked.kind !== "pdf") return { ok: false, reason: "not-a-pdf" };
 
   const pages = countPdfPages(bytes);
-  if (pages !== null && pages > maxPdfPages) {
+  if (pages === null) return { ok: false, reason: "pages-unknown", maxPages: maxPdfPages };
+  if (pages > maxPdfPages) {
     return { ok: false, reason: "too-many-pages", pages, maxPages: maxPdfPages };
   }
   const allowance = await pdfImportAllowance(db, userId, dailyLimit);
@@ -348,7 +351,9 @@ async function askModel(
 }
 
 // Opening + the amounts against closing, in cents from the decimal strings, never through a float.
-// Every row counts, whatever else is wrong with it: the balances are the statement's own.
+// Every row counts, whatever else is wrong with it: the balances are the statement's own. The sum
+// is in one currency (CODING_STANDARDS "Money"): a row in another currency than the statement's
+// leaves the total unchecked rather than adding unlike amounts.
 export function checkBalance(answer: StatementAnswer): BalanceCheck {
   if (answer.openingBalance === null || answer.closingBalance === null) {
     return { result: "unchecked" };
@@ -356,6 +361,11 @@ export function checkBalance(answer: StatementAnswer): BalanceCheck {
   const opening = parseCents(answer.openingBalance);
   const closing = parseCents(answer.closingBalance);
   if (opening === null || closing === null) return { result: "unchecked" };
+  const currency = balanceCurrency(answer);
+  if (currency === null) return { result: "unchecked" };
+  const inCurrency = (t: StatementAnswer["transactions"][number]) =>
+    t.currency.trim().toUpperCase() === currency;
+  if (!answer.transactions.every(inCurrency)) return { result: "unchecked" };
   let total = opening;
   for (const transaction of answer.transactions) {
     const amount = parseCents(transaction.amount);
@@ -364,10 +374,10 @@ export function checkBalance(answer: StatementAnswer): BalanceCheck {
   }
   const differenceCents = total - closing;
   if (differenceCents === 0n) return { result: "matched" };
-  return { result: "mismatch", differenceCents, currency: balanceCurrency(answer) };
+  return { result: "mismatch", differenceCents, currency };
 }
 
-// The statement's currency, or else the one every row is in.
+// The statement's currency, or else the one every row is in; null when neither can be told.
 function balanceCurrency(answer: StatementAnswer): string | null {
   const printed = answer.currency?.trim().toUpperCase();
   if (printed && currencyCode.test(printed)) return printed;
@@ -431,7 +441,7 @@ function toPdfImport({
   id: string;
   filename: string;
   state: PdfImportState;
-  failureReason: string | null;
+  failureReason: PdfImportFailureReason | null;
   answer: unknown;
   createdAt: Date;
 }): PdfImport {
@@ -439,7 +449,6 @@ function toPdfImport({
   const stored = answer === null ? null : statementAnswerSchema.parse(answer);
   return {
     ...row,
-    failureReason: row.failureReason as PdfImportFailureReason | null,
     balance: stored && checkBalance(stored),
   };
 }
@@ -575,7 +584,9 @@ function rowSource(answer: StatementAnswer): RowSource {
       originalAmountCents: null,
       originalCurrency: null,
       counterparty: transaction.counterparty?.trim() || null,
-      counterpartyIban: transaction.counterpartyIban && parseIban(transaction.counterpartyIban),
+      counterpartyIban: transaction.counterpartyIban
+        ? parseIban(transaction.counterpartyIban)
+        : null,
       description: transaction.description?.trim() || null,
       bankTxType: null,
       dedupKey: `${pdfDedupKeyPrefix}${hash}:${occurrence}`,

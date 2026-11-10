@@ -58,7 +58,10 @@ async function start(userId: string) {
   const started = await startPdfImport(
     db,
     userId,
-    { filename: "statement.pdf", bytes: new TextEncoder().encode("%PDF-1.7\n") },
+    {
+      filename: "statement.pdf",
+      bytes: new TextEncoder().encode("%PDF-1.7\n<< /Type /Pages /Kids [] /Count 1 >>\n"),
+    },
     { queue },
   );
   if (!started.ok) throw new Error(`startPdfImport failed: ${started.reason}`);

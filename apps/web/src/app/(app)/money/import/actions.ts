@@ -67,6 +67,7 @@ import {
   suggestions,
   tooLargeMessage,
   tooManyPagesMessage,
+  pagesUnknownMessage,
   type FormatSource,
   type Suggestion,
 } from "./messages";
@@ -590,6 +591,8 @@ function pdfRefusalMessage(refusal: PdfImportRefusal): string {
       return notAStatementFileMessage;
     case "too-many-pages":
       return tooManyPagesMessage(refusal.pages, refusal.maxPages);
+    case "pages-unknown":
+      return pagesUnknownMessage(refusal.maxPages);
     case "daily-limit":
       return pdfDailyLimitMessage(refusal.limit, refusal.nextAt);
     default:

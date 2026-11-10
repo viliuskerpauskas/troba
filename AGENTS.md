@@ -1,6 +1,6 @@
 # AGENTS.md
 
-troba is a self-hosted personal hub. The first module is money tracking: bank statement imports (CSV and spreadsheets), manual entries, categories with auto-rules, receipt attachments, and monthly spending by category. It's multi-user (owner plus a few friends) and runs on the owner's VPS.
+troba is a self-hosted personal hub. The first module is money tracking: bank statement imports (CSV, spreadsheets, and PDF read by AI), manual entries, categories with auto-rules, receipt attachments, and monthly spending by category. It's multi-user (owner plus a few friends) and runs on the owner's VPS.
 
 Read before working:
 - Intent and scope: [docs/intent/personal-hub.md](docs/intent/personal-hub.md)

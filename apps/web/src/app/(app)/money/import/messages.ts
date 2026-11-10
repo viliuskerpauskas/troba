@@ -58,6 +58,11 @@ export function tooManyPagesMessage(pages: number, maxPages: number): string {
   return `That PDF has ${pages} pages, and troba reads up to ${maxPages} at a time. Split it into shorter PDFs and import each one.`;
 }
 
+// A PDF whose page count can't be read (encrypted, say): the page limit can't be kept, so it isn't sent.
+export function pagesUnknownMessage(maxPages: number): string {
+  return `troba couldn't tell how many pages that PDF has, so nothing was sent. It reads PDFs of up to ${maxPages} pages that aren't password-protected. Save the statement as a new PDF, or export it as ${acceptedFileTypes}.`;
+}
+
 // The daily cap on PDF imports (T154): refused before anything was sent, with when the next is
 // possible, or, for a reading that met the cap after it was queued, the same said afterwards.
 // `nextAt` null means a place is free again now.

@@ -99,7 +99,12 @@ export async function pdfImportAllowance(
           db
             .select({ id: moneyAiPdfImportUses.id })
             .from(moneyAiPdfImportUses)
-            .where(eq(moneyAiPdfImportUses.pdfImportId, moneyPdfImports.id)),
+            .where(
+              and(
+                eq(moneyAiPdfImportUses.userId, userId),
+                eq(moneyAiPdfImportUses.pdfImportId, moneyPdfImports.id),
+              ),
+            ),
         ),
       ),
     );

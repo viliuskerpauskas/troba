@@ -69,6 +69,27 @@ describe("countPdfPages", () => {
     expect(countPdfPages(encode("%PDF-1.7\n% a fictional statement\n"))).toBeNull();
   });
 
+  it("is null once the object streams inflate to more than 8 MB together", () => {
+    // Each stream inflates to 1 MB, well under the bound alone; nine of them pass it.
+    const padding = " ".repeat(1024 * 1024 - 100);
+    const stream = deflateSync(Buffer.from(`<</Type/Pages/Count 3/Kids[]>>${padding}`, "latin1"));
+    const object = (n: number) =>
+      new Uint8Array([
+        ...encode(`${n} 0 obj\n<< /Type /ObjStm /Filter /FlateDecode >>\nstream\n`),
+        ...stream,
+        ...encode("\nendstream\nendobj\n"),
+      ]);
+    const pdf = (streams: number) =>
+      new Uint8Array([
+        ...encode("%PDF-1.7\n"),
+        ...Array.from({ length: streams }, (_, i) => [...object(i + 1)]).flat(),
+        ...encode("%%EOF\n"),
+      ]);
+
+    expect(countPdfPages(pdf(7))).toBe(3);
+    expect(countPdfPages(pdf(9))).toBeNull();
+  });
+
   it("skips a stream that doesn't inflate", () => {
     const bytes = encode(
       `%PDF-1.7\n<< /Filter /FlateDecode >>\nstream\nnot deflated\nendstream\n${pageObjects(2)}`,

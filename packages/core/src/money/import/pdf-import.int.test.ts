@@ -31,7 +31,9 @@ let db: Db;
 let queue: JobQueue;
 let userCount = 0;
 
-const pdf = new TextEncoder().encode("%PDF-1.7\n% a fictional statement\n");
+const pdf = new TextEncoder().encode(
+  "%PDF-1.7\n% a fictional statement\n<< /Type /Pages /Kids [] /Count 1 >>\n",
+);
 // Fictional IBANs from the published test ranges.
 const ownIban = "DE89370400440532013000";
 const otherOwnIban = "GB82WEST12345698765432";
@@ -499,6 +501,18 @@ describe("PDF import", () => {
       ).toMatchObject({ ok: true });
     });
 
+    it("refuses a PDF whose pages can't be counted, before anything is queued or sent", async () => {
+      const userId = await createUser();
+      const unknown = new TextEncoder().encode("%PDF-1.7\n% no page tree\n%%EOF\n");
+
+      expect(
+        await startPdfImport(db, userId, { filename: "statement.pdf", bytes: unknown }, { queue }),
+      ).toEqual({ ok: false, reason: "pages-unknown", maxPages: 20 });
+      expect(await latestPdfImport(db, userId)).toBeNull();
+      expect(await pendingJobs(userId)).toBe(0);
+      expect(await uses(userId)).toHaveLength(0);
+    });
+
     it("checks the page limit before the cap, so a long PDF says to split it", async () => {
       const userId = await createUser();
       await readWith(userId, answer());
@@ -620,6 +634,21 @@ describe("PDF import", () => {
         balance: { result: "unchecked" },
       });
       expect(await previewPdfImport(db, userId, { pdfImportId })).toMatchObject({ ok: true });
+    });
+
+    it("can't check the total when a row is in another currency than the statement", async () => {
+      const userId = await createUser();
+      // Summed regardless of currency, these would match.
+      const transactions = [row({ amount: "-4.20" }), row({ amount: "-1.00", currency: "USD" })];
+      const pdfImportId = await readWith(
+        userId,
+        answer({ currency: "EUR", openingBalance: "10.00", closingBalance: "4.80", transactions }),
+      );
+
+      expect(await getPdfImport(db, userId, pdfImportId)).toMatchObject({
+        state: "read",
+        balance: { result: "unchecked" },
+      });
     });
 
     it("can't check the total when a row's amount doesn't read", async () => {

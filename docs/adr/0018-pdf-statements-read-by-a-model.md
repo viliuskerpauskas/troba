@@ -37,7 +37,8 @@ This is a third, separate exception to ADR-0015's "no free text" rule. ADR-0015'
 4. When the statement prints both balances, opening plus the sum of the amounts must equal closing, in cents, or the import is refused with the difference shown. When it doesn't print them, the preview says the total could not be checked.
 5. Everything after that is the ordinary import: account matching, transfer detection, rules, preview, an all-or-nothing save, and AI categorization (ADR-0016).
 6. The call runs as a pg-boss job in `apps/worker` ([ADR-0003](0003-pg-boss-for-background-jobs.md)), not in the request. The PDF is not stored; each row's raw JSONB is the model's row.
-7. Limits: 5 MB, 20 pages, and a per-user daily cap of PDF imports (10 by default, overridable by env), separate from the other AI caps.
+7. Limits: 5 MB, 20 pages, and a per-user daily cap of PDF imports (10 by default, overridable by env), separate from the other AI caps. A PDF whose page count can't be read is refused, since the page limit can't be kept for it.
+8. A PDF import that is never confirmed or abandoned is deleted 24 hours after it was started, whatever its state, by an hourly worker job (`deleteExpiredPdfImports`). It is the second retention clean-up that may skip the `user_id` filter (CODING_STANDARDS "Ownership"): it takes no input, deletes only by age, and a two-user test shows it deletes each user's expired rows and no one's fresh ones. It filters on `created_at` alone with no index of its own, since the table holds at most a day of each user's unconfirmed imports. Deleting a `queued` or `reading` row too means a worker that crashed or a job that never ran can't leave a statement's bytes on the server.
 
 ### Consequences
 

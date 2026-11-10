@@ -14,7 +14,10 @@ const email = "e2e-pdf-import@example.test";
 const statement = {
   name: "statement.pdf",
   mimeType: "application/pdf",
-  buffer: Buffer.from("%PDF-1.7\n% EXAMPLE BANK STATEMENT FOR E2E\n%%EOF\n", "latin1"),
+  buffer: Buffer.from(
+    "%PDF-1.7\n% EXAMPLE BANK STATEMENT FOR E2E\n<< /Type /Pages /Kids [] /Count 1 >>\n%%EOF\n",
+    "latin1",
+  ),
 };
 
 // SPEC-money success criterion 6: every page works at 360px.

@@ -33,7 +33,9 @@ let queue: JobQueue;
 let actions: typeof import("./actions");
 let userCount = 0;
 
-const pdf = new TextEncoder().encode("%PDF-1.7\n% a fictional statement\n");
+const pdf = new TextEncoder().encode(
+  "%PDF-1.7\n% a fictional statement\n<< /Type /Pages /Kids [] /Count 1 >>\n",
+);
 const ownIban = "DE89370400440532013000";
 
 const answer = {
@@ -359,6 +361,20 @@ describe("the limits on PDF imports (T154)", () => {
     expect(await pdfImportRows(session.userId)).toEqual([]);
     expect(await jobCount()).toBe(jobs);
     step(await actions.startImportAction(pdfForm(pdfOf(20))), "pdf-confirm");
+  });
+
+  it("refuses a PDF whose pages can't be counted on upload and on confirm", async () => {
+    const jobs = await jobCount();
+    const unknown = new TextEncoder().encode("%PDF-1.7\n% no page tree\n%%EOF\n");
+
+    for (const action of [actions.startImportAction, actions.startPdfImportAction]) {
+      expect(await action(pdfForm(unknown))).toMatchObject({
+        step: "upload",
+        error: expect.stringContaining("couldn't tell how many pages that PDF has"),
+      });
+    }
+    expect(await pdfImportRows(session.userId)).toEqual([]);
+    expect(await jobCount()).toBe(jobs);
   });
 
   it("refuses the 11th PDF import in a day, saying when the next one is possible", async () => {

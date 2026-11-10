@@ -28,6 +28,15 @@ export const categorySources = ["manual", "rule", "transfer"] as const;
 export const ruleFields = ["counterparty", "description"] as const;
 export const pdfImportStates = ["queued", "reading", "read", "failed"] as const;
 export type PdfImportState = (typeof pdfImportStates)[number];
+// Why a PDF import's reading failed (core's PdfImportFailureReason says what each means).
+export const pdfImportFailureReasons = [
+  "unavailable",
+  "invalid-answer",
+  "not-a-statement",
+  "balance-mismatch",
+  "daily-limit",
+] as const;
+export type PdfImportFailureReason = (typeof pdfImportFailureReasons)[number];
 // How an import profile reads its files: a text file (CSV) or a spreadsheet's first sheet.
 export const importProfileKinds = ["text", "spreadsheet"] as const;
 export type ImportProfileKind = (typeof importProfileKinds)[number];
@@ -143,7 +152,7 @@ export const moneyPdfImports = pgTable(
     // The model's validated answer, once read. Never logged.
     answer: jsonb("answer"),
     // Why the reading failed; set with the failed state.
-    failureReason: text("failure_reason"),
+    failureReason: text("failure_reason", { enum: pdfImportFailureReasons }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -151,6 +160,10 @@ export const moneyPdfImports = pgTable(
     // The import page shows the user's latest one.
     index("money_pdf_imports_user_id_created_at_idx").on(table.userId, table.createdAt),
     check("money_pdf_imports_state_check", sql`${table.state} in (${oneOf(pdfImportStates)})`),
+    check(
+      "money_pdf_imports_failure_reason_check",
+      sql`${table.failureReason} is null or ${table.failureReason} in (${oneOf(pdfImportFailureReasons)})`,
+    ),
   ],
 );
 
