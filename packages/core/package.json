@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./test-spreadsheet": "./src/money/import/spreadsheet-fixture.ts"
   },
   "dependencies": {
     "@troba/db": "workspace:*",
     "drizzle-orm": "0.45.4",
     "pg-boss": "12.38.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "4.6.7"
   }
 }

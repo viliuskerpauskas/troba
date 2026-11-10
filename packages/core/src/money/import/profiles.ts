@@ -1,11 +1,19 @@
 import { schema, type Db } from "@troba/db";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
-import { readCsv, readCsvHeaders } from "./csv";
 import { maxImportFileBytes } from "./import";
 import { headerFingerprint, importProfileSchema, type ImportProfile } from "./profile";
+import {
+  readTable,
+  readTableHeaders,
+  tableKindOf,
+  type TableKind,
+  type TableReadFailure,
+} from "./table";
 
 // Saved import profiles (SPEC-money M3): a user teaches troba their bank's format once, and later
-// uploads find it by the file's exact header set.
+// uploads find it by the file's exact header set. A profile has the kind of the file it was saved
+// for, a text file or a spreadsheet, and matches only files of that kind (ADR-0019): the same
+// headers in a bank's CSV and its spreadsheet hold differently written dates and amounts.
 
 // A user keeps one profile per bank format, so a handful. The limit bounds the picker and the
 // work of matching an upload, which reads the file once per way the profiles read files.
@@ -13,7 +21,7 @@ export const importProfileListLimit = 100;
 
 const { moneyImportProfiles } = schema;
 
-export type SavedImportProfile = { id: string } & ImportProfile;
+export type SavedImportProfile = { id: string; kind: TableKind } & ImportProfile;
 
 // The headers a profile's fingerprint is taken from depend on how the file is read: a preamble
 // above the header, the delimiter and the encoding are the profile's own.
@@ -30,7 +38,7 @@ export type SaveImportProfileInput = {
 export type SaveImportProfileResult =
   | { ok: true; profile: SavedImportProfile }
   | { ok: false; reason: "file-too-large" | "not-found" | "too-many-profiles" }
-  | { ok: false; reason: "unknown-encoding" | "invalid-encoding" | "unterminated-quote" }
+  | { ok: false; reason: TableReadFailure }
   // The profile maps a header the file doesn't have.
   | { ok: false; reason: "missing-columns"; columns: string[] };
 
@@ -40,8 +48,13 @@ export async function saveImportProfile(
   input: SaveImportProfileInput,
 ): Promise<SaveImportProfileResult> {
   if (input.bytes.byteLength > maxImportFileBytes) return { ok: false, reason: "file-too-large" };
-  const profile = importProfileSchema.parse(input.profile);
-  const table = readCsv(input.bytes, profile);
+  // The kind is the file's, never the client's word.
+  const kind = tableKindOf(input.bytes);
+  const parsed = importProfileSchema.parse(input.profile);
+  // A spreadsheet has no delimiter or encoding to remember.
+  const profile: ImportProfile =
+    kind === "spreadsheet" ? { ...parsed, delimiter: null, encoding: "utf-8" } : parsed;
+  const table = readTable(input.bytes, profile);
   if (!table.ok) return table;
   const missing = Object.values(profile.columns).filter((name) => !table.headers.includes(name));
   if (missing.length > 0) return { ok: false, reason: "missing-columns", columns: missing };
@@ -55,7 +68,7 @@ export async function saveImportProfile(
       return { ok: false, reason: "too-many-profiles" };
   }
 
-  const values = { ...profile, headerFingerprint: headerFingerprint(table.headers) };
+  const values = { ...profile, kind, headerFingerprint: headerFingerprint(table.headers) };
   const [saved] = input.profileId
     ? await db
         .update(moneyImportProfiles)
@@ -69,7 +82,7 @@ export async function saveImportProfile(
         .values({ userId, ...values })
         .returning({ id: moneyImportProfiles.id });
   if (!saved) return { ok: false, reason: "not-found" };
-  return { ok: true, profile: { id: saved.id, ...profile } };
+  return { ok: true, profile: { id: saved.id, kind, ...profile } };
 }
 
 // The user's profiles by name, for picking one by hand.
@@ -96,15 +109,19 @@ export async function getImportProfile(
   return row ? toSaved(row) : null;
 }
 
-// The user's profile for this file's format, or null. The start of the file is read once per
-// distinct way the user's profiles read files, and the fingerprints are looked up together. When
-// two match, the one saved last.
+// The user's profile for this file's format, or null. Only profiles of the file's kind are tried.
+// The start of the file is read once per distinct way those profiles read files, and the
+// fingerprints are looked up together. When two match, the one saved last.
 export async function matchImportProfile(
   db: Db,
   userId: string,
   bytes: Uint8Array,
 ): Promise<SavedImportProfile | null> {
   if (bytes.byteLength > maxImportFileBytes) return null;
+  const ofKind = and(
+    eq(moneyImportProfiles.userId, userId),
+    eq(moneyImportProfiles.kind, tableKindOf(bytes)),
+  );
   const settings = await db
     .selectDistinct({
       skipLines: moneyImportProfiles.skipLines,
@@ -112,13 +129,13 @@ export async function matchImportProfile(
       encoding: moneyImportProfiles.encoding,
     })
     .from(moneyImportProfiles)
-    .where(eq(moneyImportProfiles.userId, userId))
+    .where(ofKind)
     .limit(importProfileListLimit);
 
   const fingerprints = new Map<string, ReadSettings[]>();
   for (const setting of settings) {
     const read = readSettingsOf(setting);
-    const table = readCsvHeaders(bytes, read);
+    const table = readTableHeaders(bytes, read);
     if (!table.ok) continue;
     const fingerprint = headerFingerprint(table.headers);
     fingerprints.set(fingerprint, [...(fingerprints.get(fingerprint) ?? []), read]);
@@ -128,12 +145,7 @@ export async function matchImportProfile(
   const candidates = await db
     .select()
     .from(moneyImportProfiles)
-    .where(
-      and(
-        eq(moneyImportProfiles.userId, userId),
-        inArray(moneyImportProfiles.headerFingerprint, [...fingerprints.keys()]),
-      ),
-    )
+    .where(and(ofKind, inArray(moneyImportProfiles.headerFingerprint, [...fingerprints.keys()])))
     .orderBy(desc(moneyImportProfiles.updatedAt), desc(moneyImportProfiles.id))
     .limit(importProfileListLimit);
   // Only a profile whose own settings produced the fingerprint: the same headers read another way
@@ -166,5 +178,5 @@ function sameSettings(a: ReadSettings, b: ReadSettings): boolean {
 
 // Rows are only written through importProfileSchema, so they parse.
 function toSaved(row: typeof moneyImportProfiles.$inferSelect): SavedImportProfile {
-  return { id: row.id, ...importProfileSchema.parse(row) };
+  return { id: row.id, kind: row.kind, ...importProfileSchema.parse(row) };
 }

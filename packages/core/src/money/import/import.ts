@@ -2,7 +2,6 @@ import { schema, type Db, type DbTransaction } from "@troba/db";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { accountColumns, createAccount, defaultCurrency, type Account } from "../accounts";
 import { listRules, ruleCategory } from "../rules";
-import { readCsv } from "./csv";
 import {
   parseRows,
   type DebitCreditCount,
@@ -10,18 +9,19 @@ import {
   type ParsedRow,
   type RowFailureReason,
 } from "./profile";
+import { readTable, tableKindOf, type TableReadFailure } from "./table";
 
-// Bank CSV import (SPEC-money M3, persistence): a file read with its profile becomes a preview of
-// what would be saved, and on confirm the new rows are saved in one transaction. Commit reads the
-// file again rather than trusting a preview the client sends back.
+// Statement file import (SPEC-money M3, persistence): a CSV or spreadsheet read with its profile
+// becomes a preview of what would be saved, and on confirm the new rows are saved in one
+// transaction. Commit reads the file again rather than trusting a preview the client sends back.
 //
 // Descriptions and raw rows can hold masked card numbers: never log them.
 
 const { moneyAccounts, moneyCategories, moneyImportProfiles, moneyImports, moneyTransactions } =
   schema;
 
-// The largest file read: readCsv decodes and splits the whole file in memory, with no bound of
-// its own. An upload handler should check it too, before reading the body.
+// The largest file read: the readers decode and split the whole file in memory, with no bound of
+// their own. An upload handler should check it too, before reading the body.
 export const maxImportFileBytes = 5 * 1024 * 1024;
 
 export type ImportInput = {
@@ -39,7 +39,10 @@ export type ImportInput = {
 export type ImportRefusal =
   | { ok: false; reason: "file-too-large" }
   | { ok: false; reason: "profile-not-found" }
-  | { ok: false; reason: "unknown-encoding" | "invalid-encoding" | "unterminated-quote" }
+  // The saved profile reads the other kind of file (a CSV profile for a spreadsheet, or the
+  // reverse).
+  | { ok: false; reason: "wrong-file-kind" }
+  | { ok: false; reason: TableReadFailure }
   | { ok: false; reason: "missing-columns"; columns: string[] }
   | { ok: false; reason: "multiple-own-ibans" }
   // The UI offers to create a bank account with this IBAN and currency.
@@ -254,14 +257,15 @@ async function prepareImport(
   const { profile } = input;
   if (input.profileId) {
     const [saved] = await db
-      .select({ id: moneyImportProfiles.id })
+      .select({ kind: moneyImportProfiles.kind })
       .from(moneyImportProfiles)
       .where(
         and(eq(moneyImportProfiles.id, input.profileId), eq(moneyImportProfiles.userId, userId)),
       );
     if (!saved) return { ok: false, reason: "profile-not-found" };
+    if (saved.kind !== tableKindOf(input.bytes)) return { ok: false, reason: "wrong-file-kind" };
   }
-  const table = readCsv(input.bytes, profile);
+  const table = readTable(input.bytes, profile);
   if (!table.ok) return table;
   // The account isn't known until the file's own IBAN is read, so the first pass assumes the
   // default currency and is redone in the account's when that differs.

@@ -8,13 +8,24 @@ export function tooLargeMessage(maxBytes: number): string {
   return `That file is over ${maxBytes / 1024 / 1024} MB. Export a shorter period.`;
 }
 
-export const notAStatementFileMessage =
-  "That isn't a statement file. Export your statement from your bank as CSV.";
+// The statement files the import page takes, for its copy and its file picker.
+export const acceptedFileTypes = "CSV, XLSX, XLS or ODS";
+// Extensions and types both: some pickers filter by one, some by the other.
+export const acceptedFiles = [
+  ".csv",
+  ".xlsx",
+  ".xls",
+  ".ods",
+  "text/csv",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "application/vnd.oasis.opendocument.spreadsheet",
+].join(",");
+
+export const notAStatementFileMessage = `That isn't a statement file. Export your statement from your bank as ${acceptedFileTypes}.`;
 // A statement file troba recognises but doesn't import yet.
 export const unsupportedKindMessages = {
-  spreadsheet:
-    "Spreadsheet import isn't supported yet. Export your statement from your bank as CSV.",
-  pdf: "PDF import isn't supported yet. Export your statement from your bank as CSV.",
+  pdf: `PDF import isn't supported yet. Export your statement from your bank as ${acceptedFileTypes}.`,
 } as const;
 export const startAgainMessage = "Something changed since the last step. Upload the file again.";
 
@@ -24,6 +35,8 @@ export const readErrors = {
   "invalid-encoding": "The file doesn't read as that encoding. Try another, such as windows-1252.",
   "unterminated-quote":
     "The file has a quote that never closes. Check the lines above the header and the delimiter.",
+  "unreadable-workbook":
+    "troba can't open this spreadsheet. It may be damaged or protected with a password: export it from your bank again, without a password.",
 } as const;
 
 export const problemMessages: Record<ProfileFormProblem, string> = {

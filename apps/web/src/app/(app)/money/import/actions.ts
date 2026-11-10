@@ -11,7 +11,7 @@ import {
   presetBrand,
   previewImport,
   proposeMappingWithinLimit,
-  readCsv,
+  readTable,
   resolveImportFormat,
   saveImportProfile,
   suggestAfterImport,
@@ -23,8 +23,9 @@ import {
   type ImportRowFailure,
   type PresetBrand,
   type PreviewImportResult,
-  type ReadCsvOptions,
+  type ReadTableOptions,
   type SavedImportProfile,
+  type StatementFileKind,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -64,13 +65,19 @@ export type MappingTable = {
   // The first rows, for the user to see which column is which.
   sampleRows: string[][];
   skipLines: number;
-  delimiter: Delimiter;
+  // Null for a spreadsheet, which has none.
+  delimiter: Delimiter | null;
 };
+
+// The statement files the wizard imports so far.
+export type TabularFileKind = Exclude<StatementFileKind, "pdf">;
 
 export type ImportState =
   | { step: "upload"; error?: string }
   | {
       step: "mapping";
+      // A spreadsheet has no delimiter or encoding for the form to ask about.
+      fileKind: TabularFileKind;
       // Null when the file can't be read with the form's settings; the error says why.
       table: MappingTable | null;
       values: ProfileFormValues;
@@ -133,27 +140,33 @@ const FoundField = z.enum(formatSources).optional().catch(undefined);
 
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
-type Upload = { filename: string; bytes: Uint8Array };
+type Upload = { filename: string; bytes: Uint8Array; kind: TabularFileKind };
 
 // The file every step sends. Checked before anything reads it: the declared size, then the
-// kind of statement file from its declared type and content. Only a CSV imports so far.
+// kind of statement file from its declared type and content. A CSV or a spreadsheet imports so
+// far; a PDF doesn't yet.
 async function readUpload(formData: FormData): Promise<Upload | { error: string }> {
   const file = z.file().safeParse(formData.get("file"));
-  if (!file.success || file.data.size === 0) return { error: "Choose a CSV file to import." };
+  if (!file.success || file.data.size === 0) return { error: "Choose a statement file to import." };
   if (file.data.size > maxImportFileBytes) return { error: tooLarge };
   const bytes = new Uint8Array(await file.data.arrayBuffer());
   const checked = checkStatementFile({ type: file.data.type, bytes });
   if (!checked.ok) {
     return { error: checked.reason === "file-too-large" ? tooLarge : notAStatementFileMessage };
   }
-  if (checked.kind !== "csv") return { error: unsupportedKindMessages[checked.kind] };
-  return { filename: file.data.name.slice(0, 200), bytes };
+  if (checked.kind === "pdf") return { error: unsupportedKindMessages.pdf };
+  return { filename: file.data.name.slice(0, 200), bytes, kind: checked.kind };
 }
 
 export async function startImportAction(formData: FormData): Promise<ImportState> {
   const { userId } = await requireMoneyUser();
   const upload = await readUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
+  // A workbook that can't be opened is refused before anything is matched or sent anywhere.
+  if (upload.kind === "spreadsheet") {
+    const table = readTable(upload.bytes);
+    if (!table.ok) return { step: "upload", error: readErrors[table.reason] };
+  }
 
   // The file's columns decide: the user's own profile, else a preset (now copied into theirs).
   const resolved = await resolveImportFormat(db(), userId, upload.bytes);
@@ -201,7 +214,7 @@ export async function startImportAction(formData: FormData): Promise<ImportState
 
 // The name a new profile starts with, for the user to change.
 function startingName(upload: Upload): string {
-  return upload.filename.replace(/\.csv$/i, "").slice(0, 100);
+  return upload.filename.replace(/\.(csv|xlsx|xls|ods)$/i, "").slice(0, 100);
 }
 
 // The mapping step again, read with the skip lines, delimiter and encoding the user corrected.
@@ -424,6 +437,10 @@ function refusalMessage(
     case "invalid-encoding":
     case "unterminated-quote":
       return `${readErrors[refusal.reason]} Edit the profile to fix it.`;
+    case "unreadable-workbook":
+      return readErrors[refusal.reason];
+    case "wrong-file-kind":
+      return "This profile is for another kind of file (a CSV or a spreadsheet). Upload the file again to find its own.";
     case "missing-columns":
       return `This file has no column named ${refusal.columns.join(", ")}, which the profile needs. Edit the profile, or pick another.`;
     case "multiple-own-ibans":
@@ -441,13 +458,14 @@ function mappingState(
   upload: Upload,
   values: ProfileFormValues,
   profileId: string | null,
-  options: ReadCsvOptions,
+  options: ReadTableOptions,
   suggestion?: Suggestion,
 ): Extract<ImportState, { step: "mapping" }> {
-  const table = readCsv(upload.bytes, options);
+  const table = readTable(upload.bytes, options);
   if (!table.ok) {
     return {
       step: "mapping",
+      fileKind: upload.kind,
       table: null,
       values,
       profileId,
@@ -457,6 +475,7 @@ function mappingState(
   }
   return {
     step: "mapping",
+    fileKind: upload.kind,
     table: {
       headers: table.headers,
       sampleRows: table.rows.slice(0, sampleRowCount),

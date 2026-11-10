@@ -1,0 +1,2 @@
+ALTER TABLE "money_import_profiles" ADD COLUMN "kind" text DEFAULT 'text' NOT NULL;--> statement-breakpoint
+ALTER TABLE "money_import_profiles" ADD CONSTRAINT "money_import_profiles_kind_check" CHECK ("money_import_profiles"."kind" in ('text', 'spreadsheet'));

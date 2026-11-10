@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  createAccount,
   importPresets,
   importProfileListLimit,
   listImportProfiles,
+  listTransactions,
   type MappingModelClient,
   type MappingModelRequest,
 } from "@troba/core";
+import { encryptedWorkbook, writeWorkbook } from "@troba/core/test-spreadsheet";
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -478,22 +481,131 @@ describe("startImportAction, for everything else", () => {
   });
 });
 
-describe("startImportAction, for a statement file that isn't a CSV", () => {
-  const zip = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
-  const ole = Uint8Array.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00]);
-  const pdf = new TextEncoder().encode("%PDF-1.7\n%âãÏÓ\n1 0 obj\n");
-  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+describe("the wizard, for a spreadsheet statement file", () => {
   const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const xlsxFile = { name: "statement.xlsx", type: xlsxType };
+  const ownIban = "DE89370400440532013000";
+  // A statement title, then typed dates and amounts.
+  const sheet = writeWorkbook([
+    ["Example Bank statement"],
+    ["Booked", "Amount", "Payee", "Account"],
+    [{ date: "2026-03-01" }, -4.2, "GROCERY MART", ownIban],
+    [{ date: "2026-03-05" }, 1234.56, "EXAMPLE EMPLOYER", ownIban],
+  ]);
+  const sheetAnswer = {
+    ...goodAnswer,
+    dateFormat: "YYYY-MM-DD",
+    columns: {
+      ...Object.fromEntries(Object.keys(goodAnswer.columns).map((field) => [field, null])),
+      bookingDate: "Booked",
+      amount: "Amount",
+      counterparty: "Payee",
+      ownIban: "Account",
+    },
+  };
+
+  const sheetUpload = (bytes: Uint8Array, extra: Record<string, string> = {}) =>
+    upload(bytes, extra, xlsxFile);
+
+  it("suggests a mapping from the same scrubbed sample as a CSV's, and imports to the cent", async () => {
+    const model = fakeModel(sheetAnswer);
+    server.client = model.client;
+    const account = await createAccount(db, session.userId, {
+      name: "Example Bank",
+      type: "bank",
+      currency: "EUR",
+      iban: ownIban,
+    });
+    expect(account.ok).toBe(true);
+
+    const suggested = mapping(await actions.startImportAction(sheetUpload(sheet)));
+
+    expect(suggested).toMatchObject({
+      suggestion: "ai",
+      fileKind: "spreadsheet",
+      table: { headers: ["Booked", "Amount", "Payee", "Account"], skipLines: 1, delimiter: null },
+      values: { name: "statement" },
+    });
+    expect(model.requests).toHaveLength(1);
+    expect(model.requests[0]!.sample).toEqual({
+      headers: ["Booked", "Amount", "Payee", "Account"],
+      rows: [
+        ["2026-03-01", "-4.2", "AAAAAAA AAAA", "[IBAN]"],
+        ["2026-03-05", "1234.56", "AAAAAAA AAAAAAAA", "[IBAN]"],
+      ],
+      codedValues: [],
+    });
+
+    const preview = await actions.saveProfileAction(
+      sheetUpload(sheet, { ...suggested.values, suggestion: "ai" }),
+    );
+    if (preview.step !== "preview") throw new Error(`expected the preview, got ${preview.step}`);
+    expect(preview.preview).toMatchObject({ ok: true, rowsNew: 2, rowsFailed: 0 });
+
+    const done = await actions.commitImportAction(
+      sheetUpload(sheet, { profileId: preview.profile.id, accountId: "" }),
+    );
+    expect(done).toMatchObject({ step: "done", rowsNew: 2 });
+    const saved = await listTransactions(db, session.userId);
+    expect(saved.map((row) => [row.bookedOn, row.amountCents])).toEqual([
+      ["2026-03-05", 123456n],
+      ["2026-03-01", -420n],
+    ]);
+
+    // The next upload of the format finds the saved profile.
+    expect(await actions.startImportAction(sheetUpload(sheet))).toMatchObject({
+      step: "preview",
+      found: "saved",
+    });
+  });
+
+  it("opens the manual form for a spreadsheet when the AI is off", async () => {
+    const state = mapping(await actions.startImportAction(sheetUpload(sheet)));
+
+    expect(state).toMatchObject({
+      suggestion: "off",
+      fileKind: "spreadsheet",
+      table: { headers: ["Booked", "Amount", "Payee", "Account"], delimiter: null },
+    });
+  });
 
   it.each([
-    ["an XLSX", zip, { name: "statement.xlsx", type: xlsxType }],
-    ["an XLS", ole, { name: "statement.xls", type: "application/vnd.ms-excel" }],
-    ["a PDF", pdf, { name: "statement.pdf", type: "application/pdf" }],
-  ])("refuses %s as not supported yet, reading and saving nothing", async (_, bytes, file) => {
+    ["an encrypted workbook", encryptedWorkbook()],
+    ["a cut-off XLSX", Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00])],
+  ])("refuses %s with a clear message, sending and saving nothing", async (_, bytes) => {
     const model = fakeModel(goodAnswer);
     server.client = model.client;
 
-    const state = await actions.startImportAction(upload(bytes, {}, file));
+    const state = await actions.startImportAction(sheetUpload(bytes));
+
+    expect(state).toEqual({
+      step: "upload",
+      error: expect.stringContaining("can't open this spreadsheet"),
+    });
+    expect(model.requests).toEqual([]);
+    expect(await listImportProfiles(db, session.userId)).toEqual([]);
+  });
+
+  it("refuses an image named .xlsx as not a statement file", async () => {
+    const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    const state = await actions.startImportAction(sheetUpload(png));
+
+    expect(state).toEqual({
+      step: "upload",
+      error: expect.stringContaining("isn't a statement file"),
+    });
+  });
+});
+
+describe("startImportAction, for a PDF", () => {
+  const pdf = new TextEncoder().encode("%PDF-1.7\n%âãÏÓ\n1 0 obj\n");
+  const pdfFile = { name: "statement.pdf", type: "application/pdf" };
+
+  it("refuses it as not supported yet, reading and saving nothing", async () => {
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+
+    const state = await actions.startImportAction(upload(pdf, {}, pdfFile));
 
     expect(state).toEqual({
       step: "upload",
@@ -503,30 +615,15 @@ describe("startImportAction, for a statement file that isn't a CSV", () => {
     expect(await listImportProfiles(db, session.userId)).toEqual([]);
   });
 
-  it("refuses an image named .xlsx as not a statement file", async () => {
-    const state = await actions.startImportAction(
-      upload(png, {}, { name: "statement.xlsx", type: xlsxType }),
-    );
-
-    expect(state).toEqual({
-      step: "upload",
-      error: expect.stringContaining("isn't a statement file"),
-    });
-  });
-
-  it("refuses a spreadsheet at the confirm step too", async () => {
+  it("refuses it at the confirm step too", async () => {
     const state = await actions.commitImportAction(
-      upload(
-        zip,
-        { profileId: "00000000-0000-4000-8000-000000000000", accountId: "" },
-        { name: "statement.xlsx", type: xlsxType },
-      ),
+      upload(pdf, { profileId: "00000000-0000-4000-8000-000000000000", accountId: "" }, pdfFile),
     );
 
     expect(state).toEqual({
       step: "upload",
       error: expect.stringContaining("isn't supported yet"),
     });
-    expect(await db.select().from(schema.moneyTransactions)).toEqual([]);
+    expect(await listTransactions(db, session.userId)).toEqual([]);
   });
 });

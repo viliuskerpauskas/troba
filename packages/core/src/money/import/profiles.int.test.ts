@@ -147,6 +147,7 @@ describe("listImportProfiles and getImportProfile", () => {
     expect(await getImportProfile(db, userId, profileId)).toEqual({
       ...debitCreditProfile,
       id: profileId,
+      kind: "text",
       name: "Another bank",
     });
     expect(await getImportProfile(db, other, profileId)).toBeNull();
