@@ -1,13 +1,11 @@
-import {
-  ensureMoneyDefaults,
-  listAccounts,
-  listCategories,
-  listTransactions,
-  setAiCategorization,
-  type CategorizationModelClient,
-  type CategorizationRequest,
-} from "@troba/core";
+import { listTransactions, setAiCategorization, type CategorizationModelClient } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  recordingModel,
+  type MoneyUser,
+} from "@troba/core/test-ai-categories";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,45 +31,22 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
 let actions: typeof import("./suggestion-review-actions");
-let userCount = 0;
-let rowCount = 0;
 
-async function createUser(name: string) {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name, email: `suggest-review${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  await ensureMoneyDefaults(db, user!.id);
-  const [cash] = await listAccounts(db, user!.id);
-  const categories = await listCategories(db, user!.id);
-  return {
-    userId: user!.id,
-    cashId: cash!.id,
-    category: (categoryName: string) => categories.find((c) => c.name === categoryName)!.id,
-  };
+function createUser(name: string) {
+  return createMoneyUser(db, name);
 }
 
-type TestUser = Awaited<ReturnType<typeof createUser>>;
-
 // An imported row the model asked about; with `suggested`, it carries that suggestion.
-async function askedRow(user: TestUser, counterparty: string, suggested?: string) {
-  const [row] = await db
-    .insert(schema.moneyTransactions)
-    .values({
-      userId: user.userId,
-      accountId: user.cashId,
-      bookedOn: "2026-10-05",
-      amountCents: -1250n,
-      currency: "EUR",
-      source: "csv_import",
-      dedupKey: `review-action-row-${++rowCount}`,
+async function askedRow(user: MoneyUser, counterparty: string, suggested?: string) {
+  const [id] = await insertImportedRows(db, user, [
+    {
       counterparty,
       description: "CARD PAYMENT",
       suggestedCategoryId: suggested ?? null,
       suggestionAskedAt: new Date(),
-    })
-    .returning({ id: schema.moneyTransactions.id });
-  return row!.id;
+    },
+  ]);
+  return id!;
 }
 
 beforeAll(async () => {
@@ -86,7 +61,7 @@ afterAll(async () => {
   await database.drop();
 });
 
-let user: TestUser;
+let user: MoneyUser;
 
 beforeEach(async () => {
   user = await createUser("Example User");
@@ -227,19 +202,12 @@ describe("dismissSuggestionAction", () => {
 
 describe("askAgainAction", () => {
   function fakeModel() {
-    const requests: CategorizationRequest[] = [];
-    const client: CategorizationModelClient = {
-      async suggestCategories(request) {
-        requests.push(request);
-        return {
-          answers: request.payload.merchants.map((merchant) => ({
-            merchant: merchant.id,
-            category: request.payload.categories.find((c) => c.name === "Food")!.id,
-          })),
-        };
-      },
-    };
-    return { client, requests };
+    return recordingModel((request) => ({
+      answers: request.payload.merchants.map((merchant) => ({
+        merchant: merchant.id,
+        category: request.payload.categories.find((c) => c.name === "Food")!.id,
+      })),
+    }));
   }
 
   it("offers a dismissed merchant to the model again", async () => {

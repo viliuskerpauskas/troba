@@ -30,7 +30,8 @@ export type SuggestAfterImportOptions = {
   client: CategorizationModelClient | null;
   // The import that was just saved. Required: this never runs over the user's whole history.
   importId: string;
-  dailyLimit?: number;
+  // See SuggestCategoriesOptions.
+  dailyLimit: number;
   // Per model request.
   timeoutMs?: number;
   // How long to wait for the whole run before answering "pending".

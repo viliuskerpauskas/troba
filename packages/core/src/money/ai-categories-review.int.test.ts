@@ -1,8 +1,14 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAccounts } from "./accounts";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  readTransaction,
+  testAiCategorizeDailyLimit,
+  type MoneyUser,
+} from "./ai-categories-fixture";
 import {
   suggestCategories,
   type CategorizationModelClient,
@@ -15,8 +21,7 @@ import {
   dismissSuggestion,
   resetSuggestionAsks,
 } from "./ai-categories-review";
-import { deleteCategory, listCategories } from "./categories";
-import { ensureMoneyDefaults } from "./defaults";
+import { deleteCategory } from "./categories";
 import { monthlyReport } from "./report";
 import { updateTransaction } from "./transactions";
 
@@ -25,22 +30,9 @@ import { updateTransaction } from "./transactions";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
-let userCount = 0;
-let rowCount = 0;
 
-type TestUser = Awaited<ReturnType<typeof createUser>>;
-
-async function createUser() {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name: "Jordan Quinn", email: `review${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  const userId = user!.id;
-  await ensureMoneyDefaults(db, userId);
-  const [cash] = await listAccounts(db, userId);
-  const categories = await listCategories(db, userId);
-  const category = (name: string) => categories.find((c) => c.name === name)!.id;
-  return { userId, cashId: cash!.id, category };
+function createUser() {
+  return createMoneyUser(db);
 }
 
 type Row = {
@@ -53,25 +45,17 @@ type Row = {
   amountCents?: bigint;
 };
 
-async function insertRows(user: TestUser, rows: Row[]): Promise<string[]> {
-  const inserted = await db
-    .insert(schema.moneyTransactions)
-    .values(
-      rows.map(({ asked, ...row }) => ({
-        userId: user.userId,
-        accountId: user.cashId,
-        bookedOn: "2026-10-05",
-        amountCents: -1250n,
-        currency: "EUR",
-        source: "csv_import" as const,
-        dedupKey: `review-row-${++rowCount}`,
-        categorySource: row.categoryId ? ("rule" as const) : null,
-        suggestionAskedAt: asked || row.suggestedCategoryId ? new Date() : null,
-        ...row,
-      })),
-    )
-    .returning({ id: schema.moneyTransactions.id });
-  return inserted.map((row) => row.id);
+// Rows as the engine leaves them: `asked` marks one asked about, as a suggestion does.
+function insertRows(user: MoneyUser, rows: Row[]): Promise<string[]> {
+  return insertImportedRows(
+    db,
+    user,
+    rows.map(({ asked, ...row }) => ({
+      categorySource: row.categoryId ? ("rule" as const) : null,
+      suggestionAskedAt: asked || row.suggestedCategoryId ? new Date() : null,
+      ...row,
+    })),
+  );
 }
 
 // The month's EUR spending by category name (Uncategorized for none), in cents.
@@ -85,12 +69,8 @@ function spentBy(report: Awaited<ReturnType<typeof monthlyReport>>): Record<stri
   );
 }
 
-async function readRow(userId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(schema.moneyTransactions)
-    .where(and(eq(schema.moneyTransactions.id, id), eq(schema.moneyTransactions.userId, userId)));
-  return row!;
+function readRow(userId: string, id: string) {
+  return readTransaction(db, userId, id);
 }
 
 describe("reviewing suggested categories", () => {
@@ -270,7 +250,7 @@ describe("reviewing suggested categories", () => {
           return { answers: [] };
         },
       };
-      await suggestCategories(db, user.userId, { client });
+      await suggestCategories(db, user.userId, { dailyLimit: testAiCategorizeDailyLimit, client });
       expect(requests).toHaveLength(0);
     });
 
@@ -327,7 +307,10 @@ describe("reviewing suggested categories", () => {
           };
         },
       };
-      const result = await suggestCategories(db, user.userId, { client });
+      const result = await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client,
+      });
 
       expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 2, failed: false, capped: false });
       expect(

@@ -1,7 +1,7 @@
 import { schema, type Db } from "@troba/db";
 import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { claimAiCategorizeMerchants, defaultAiCategorizeDailyLimit } from "./ai-categories-limit";
+import { claimAiCategorizeMerchants } from "./ai-categories-limit";
 import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 import { maskMerchantText } from "./ai-categories-mask";
 import { merchantKey } from "./merchant-key";
@@ -117,8 +117,9 @@ export type SuggestCategoriesOptions = {
   // Only the rows of this import (T136 runs it after an import is saved). Absent: all the user's.
   importId?: string;
   maxMerchants?: number;
-  // Merchants one user may have categorized in a rolling 24 hours (T138). Default 200.
-  dailyLimit?: number;
+  // Merchants one user may have categorized in a rolling 24 hours (T138): AI_CATEGORIZE_DAILY_LIMIT,
+  // read by the web app, which holds its default as it does the AI mapping's.
+  dailyLimit: number;
   // For each request.
   timeoutMs?: number;
 };
@@ -162,7 +163,7 @@ export async function suggestCategories(
     client,
     importId,
     maxMerchants = maxMerchantsPerRun,
-    dailyLimit = defaultAiCategorizeDailyLimit,
+    dailyLimit,
     timeoutMs = defaultCategorizationTimeoutMs,
   } = options;
   const result: SuggestCategoriesResult = {

@@ -2,38 +2,30 @@ import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAccounts } from "./accounts";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  readTransaction,
+  recordingModel,
+  testAiCategorizeDailyLimit,
+  type MoneyUser,
+} from "./ai-categories-fixture";
 import { aiCategorizationEnabledFor, setAiCategorization } from "./ai-categorization-setting";
 import {
   suggestCategories,
   type CategorizationModelClient,
   type CategorizationRequest,
 } from "./ai-categories";
-import { deleteCategory, listCategories } from "./categories";
-import { ensureMoneyDefaults } from "./defaults";
+import { deleteCategory } from "./categories";
 import { monthlyReport } from "./report";
 import { applyRulesToUncategorized, createRule } from "./rules";
 import { updateTransaction } from "./transactions";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
-let userCount = 0;
-let rowCount = 0;
 
-type TestUser = Awaited<ReturnType<typeof createUser>>;
-
-// A user with the money defaults. The name is the one the masking has to keep out of requests.
-async function createUser(name = "Jordan Quinn") {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name, email: `suggest${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  const userId = user!.id;
-  await ensureMoneyDefaults(db, userId);
-  const [cash] = await listAccounts(db, userId);
-  const categories = await listCategories(db, userId);
-  const category = (categoryName: string) => categories.find((c) => c.name === categoryName)!.id;
-  return { userId, cashId: cash!.id, category };
+function createUser(name?: string) {
+  return createMoneyUser(db, name);
 }
 
 type Row = {
@@ -46,32 +38,12 @@ type Row = {
   amountCents?: bigint;
 };
 
-// Straight into the table, as an import leaves it. Returns the new rows' ids.
-async function insertRows(user: TestUser, rows: Row[]): Promise<string[]> {
-  const inserted = await db
-    .insert(schema.moneyTransactions)
-    .values(
-      rows.map((row) => ({
-        userId: user.userId,
-        accountId: user.cashId,
-        bookedOn: "2026-10-05",
-        amountCents: -1250n,
-        currency: "EUR",
-        source: "csv_import" as const,
-        dedupKey: `row-${++rowCount}`,
-        ...row,
-      })),
-    )
-    .returning({ id: schema.moneyTransactions.id });
-  return inserted.map((row) => row.id);
+function insertRows(user: MoneyUser, rows: Row[]): Promise<string[]> {
+  return insertImportedRows(db, user, rows);
 }
 
-async function readRow(userId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(schema.moneyTransactions)
-    .where(and(eq(schema.moneyTransactions.id, id), eq(schema.moneyTransactions.userId, userId)));
-  return row!;
+function readRow(userId: string, id: string) {
+  return readTransaction(db, userId, id);
 }
 
 async function countUnasked(userId: string) {
@@ -98,19 +70,12 @@ function shops(count: number): Row[] {
 // A model that answers by merchant text: { "GROCERY MART": categoryId | "none" }. It records every
 // request it got.
 function fakeModel(answers: Record<string, string>) {
-  const requests: CategorizationRequest[] = [];
-  const client: CategorizationModelClient = {
-    async suggestCategories(request) {
-      requests.push(request);
-      return {
-        answers: request.payload.merchants.flatMap((merchant) => {
-          const category = answers[merchant.counterparty ?? merchant.description ?? ""];
-          return category === undefined ? [] : [{ merchant: merchant.id, category }];
-        }),
-      };
-    },
-  };
-  return { client, requests };
+  return recordingModel((request) => ({
+    answers: request.payload.merchants.flatMap((merchant) => {
+      const category = answers[merchant.counterparty ?? merchant.description ?? ""];
+      return category === undefined ? [] : [{ merchant: merchant.id, category }];
+    }),
+  }));
 }
 
 describe("suggested categories", () => {
@@ -129,7 +94,10 @@ describe("suggested categories", () => {
     const model = fakeModel({ "GROCERY MART": user.category("Food") });
     const before = await monthlyReport(db, user.userId, "2026-10");
 
-    const result = await suggestCategories(db, user.userId, { client: model.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false, capped: false });
     expect(await readRow(user.userId, id!)).toMatchObject({
@@ -175,7 +143,10 @@ describe("suggested categories", () => {
     await insertRows(other, [{ counterparty: "OTHER USERS SHOP", description: "CASEY LANE" }]);
     const model = fakeModel({});
 
-    await suggestCategories(db, user.userId, { client: model.client });
+    await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(model.requests).toHaveLength(1);
     const { payload } = model.requests[0]!;
@@ -241,7 +212,10 @@ describe("suggested categories", () => {
       "OTHER SHOP": user.category("Shopping"),
     });
 
-    const result = await suggestCategories(db, user.userId, { client: model.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 3, failed: false, capped: false });
     const rows = await Promise.all(ids.map((id) => readRow(user.userId, id)));
@@ -271,7 +245,10 @@ describe("suggested categories", () => {
     ]);
     const model = fakeModel({});
 
-    await suggestCategories(db, user.userId, { client: model.client });
+    await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(model.requests[0]!.payload.merchants).toEqual([
       { id: "m1", counterparty: "TRAM CO", description: null },
@@ -296,7 +273,10 @@ describe("suggested categories", () => {
       "SHOP E": user.category("Health"),
     });
 
-    const result = await suggestCategories(db, user.userId, { client: model.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 5, rowsSuggested: 1, failed: false, capped: false });
     const rows = await Promise.all(ids.map((id) => readRow(user.userId, id)));
@@ -315,7 +295,10 @@ describe("suggested categories", () => {
     const [id] = await insertRows(user, [{ counterparty: "MYSTERY LTD" }]);
     const first = fakeModel({ "MYSTERY LTD": "none" });
 
-    const result = await suggestCategories(db, user.userId, { client: first.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: first.client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 1, rowsSuggested: 0, failed: false, capped: false });
     expect(await readRow(user.userId, id!)).toMatchObject({
@@ -323,7 +306,12 @@ describe("suggested categories", () => {
       suggestionAskedAt: expect.any(Date),
     });
     const second = fakeModel({ "MYSTERY LTD": user.category("Food") });
-    expect(await suggestCategories(db, user.userId, { client: second.client })).toEqual({
+    expect(
+      await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client: second.client,
+      }),
+    ).toEqual({
       merchantsAsked: 0,
       rowsSuggested: 0,
       failed: false,
@@ -336,12 +324,16 @@ describe("suggested categories", () => {
     const user = await createUser();
     await insertRows(user, [{ counterparty: "GROCERY MART" }]);
     await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
       client: fakeModel({ "GROCERY MART": user.category("Food") }).client,
     });
     await insertRows(user, [{ counterparty: "NEW SHOP" }]);
     const model = fakeModel({});
 
-    await suggestCategories(db, user.userId, { client: model.client });
+    await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(model.requests[0]!.payload.merchants).toEqual([
       { id: "m1", counterparty: "NEW SHOP", description: null },
@@ -370,7 +362,11 @@ describe("suggested categories", () => {
     ];
 
     for (const client of clients) {
-      const result = await suggestCategories(db, user.userId, { client, timeoutMs: 20 });
+      const result = await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client,
+        timeoutMs: 20,
+      });
       expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: true, capped: false });
     }
 
@@ -381,7 +377,10 @@ describe("suggested categories", () => {
     });
     // A client that works afterwards still finds the row.
     const model = fakeModel({ "GROCERY MART": user.category("Food") });
-    const retry = await suggestCategories(db, user.userId, { client: model.client });
+    const retry = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
     expect(retry.rowsSuggested).toBe(1);
   });
 
@@ -401,7 +400,10 @@ describe("suggested categories", () => {
       },
     };
 
-    const result = await suggestCategories(db, user.userId, { client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 50, rowsSuggested: 50, failed: true, capped: false });
     expect(await countUnasked(user.userId)).toBe(70);
@@ -412,7 +414,10 @@ describe("suggested categories", () => {
     await insertRows(user, shops(130));
     const model = fakeModel({});
 
-    const all = await suggestCategories(db, user.userId, { client: model.client });
+    const all = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(all.merchantsAsked).toBe(130);
     expect(model.requests.map((request) => request.payload.merchants.length)).toEqual([50, 50, 30]);
@@ -421,6 +426,7 @@ describe("suggested categories", () => {
     await insertRows(bounded, shops(130));
     const first = fakeModel({});
     const run = await suggestCategories(db, bounded.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
       client: first.client,
       maxMerchants: 60,
     });
@@ -428,7 +434,11 @@ describe("suggested categories", () => {
     expect(first.requests.map((request) => request.payload.merchants.length)).toEqual([50, 10]);
     // The next run picks up where this one stopped.
     const next = fakeModel({});
-    await suggestCategories(db, bounded.userId, { client: next.client, maxMerchants: 60 });
+    await suggestCategories(db, bounded.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: next.client,
+      maxMerchants: 60,
+    });
     expect(next.requests[0]!.payload.merchants[0]!.counterparty).toBe("SHOP 060");
   });
 
@@ -441,7 +451,10 @@ describe("suggested categories", () => {
     for (let i = 0; i < rows.length; i += 1000) await insertRows(user, rows.slice(i, i + 1000));
     const model = fakeModel({ "GROCERY MART": user.category("Food"), "TRAM CO": "none" });
 
-    const result = await suggestCategories(db, user.userId, { client: model.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(result).toEqual({
       merchantsAsked: 2,
@@ -460,7 +473,10 @@ describe("suggested categories", () => {
     const [theirs] = await insertRows(other, [{ counterparty: "GROCERY MART" }]);
     const model = fakeModel({ "GROCERY MART": user.category("Food") });
 
-    await suggestCategories(db, user.userId, { client: model.client });
+    await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(model.requests[0]!.payload.merchants).toHaveLength(1);
     expect(await readRow(other.userId, theirs!)).toMatchObject({
@@ -491,7 +507,11 @@ describe("suggested categories", () => {
       .where(eq(schema.moneyTransactions.id, inImport!));
     const model = fakeModel({});
 
-    await suggestCategories(db, user.userId, { client: model.client, importId: imported!.id });
+    await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+      importId: imported!.id,
+    });
 
     expect(model.requests[0]!.payload.merchants).toEqual([
       { id: "m1", counterparty: "IMPORTED SHOP", description: null },
@@ -511,7 +531,10 @@ describe("suggested categories", () => {
     await insertRows(user, [{ counterparty: "GROCERY MART" }]);
     const model = fakeModel({});
 
-    const result = await suggestCategories(db, user.userId, { client: model.client });
+    const result = await suggestCategories(db, user.userId, {
+      dailyLimit: testAiCategorizeDailyLimit,
+      client: model.client,
+    });
 
     expect(result).toEqual({ merchantsAsked: 0, rowsSuggested: 0, failed: false, capped: false });
     expect(model.requests).toHaveLength(0);
@@ -645,10 +668,16 @@ describe("suggested categories", () => {
       await insertRows(user, shops(5));
       const model = fakeModel({});
 
-      await suggestCategories(db, user.userId, { client: model.client });
+      await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client: model.client,
+      });
       await db.insert(schema.moneyAiCategorizeUses).values({ userId: user.userId, merchants: 195 });
       await insertRows(user, [{ counterparty: "ONE TOO MANY" }]);
-      const result = await suggestCategories(db, user.userId, { client: model.client });
+      const result = await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client: model.client,
+      });
 
       expect(result.capped).toBe(true);
       expect(sentMerchants(model.requests)).toBe(5);
@@ -656,9 +685,10 @@ describe("suggested categories", () => {
   });
 
   describe("a suggestion lives only on an uncategorized row", () => {
-    async function suggested(user: TestUser) {
+    async function suggested(user: MoneyUser) {
       const [id] = await insertRows(user, [{ counterparty: "GROCERY MART" }]);
       await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
         client: fakeModel({ "GROCERY MART": user.category("Food") }).client,
       });
       expect(await readRow(user.userId, id!)).toMatchObject({
@@ -772,7 +802,10 @@ describe("suggested categories", () => {
       await setAiCategorization(db, optedOut.userId, false);
       const model = fakeModel({ "GROCERY MART": other.category("Food") });
 
-      const refused = await suggestCategories(db, optedOut.userId, { client: model.client });
+      const refused = await suggestCategories(db, optedOut.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client: model.client,
+      });
       expect(refused).toEqual({
         merchantsAsked: 0,
         rowsSuggested: 0,
@@ -785,7 +818,10 @@ describe("suggested categories", () => {
         suggestionAskedAt: null,
       });
 
-      const asked = await suggestCategories(db, other.userId, { client: model.client });
+      const asked = await suggestCategories(db, other.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client: model.client,
+      });
       expect(asked).toEqual({ merchantsAsked: 1, rowsSuggested: 1, failed: false, capped: false });
       expect(await readRow(other.userId, theirs!)).toMatchObject({
         suggestedCategoryId: other.category("Food"),
@@ -805,7 +841,7 @@ describe("suggested categories", () => {
         },
       };
 
-      await suggestCategories(db, user.userId, { client });
+      await suggestCategories(db, user.userId, { dailyLimit: testAiCategorizeDailyLimit, client });
 
       expect(requests).toHaveLength(1);
     });
@@ -814,6 +850,7 @@ describe("suggested categories", () => {
       const user = await createUser();
       const [id] = await insertRows(user, [{ counterparty: "GROCERY MART" }]);
       await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
         client: fakeModel({ "GROCERY MART": user.category("Food") }).client,
       });
 
