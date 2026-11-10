@@ -1,6 +1,4 @@
 import {
-  ensureMoneyDefaults,
-  listAccounts,
   listCategories,
   listTransactions,
   setAiCategorization,
@@ -8,6 +6,12 @@ import {
   type CategorizationRequest,
 } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  recordingModel,
+  type MoneyUser,
+} from "@troba/core/test-ai-categories";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,22 +42,12 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
 let actions: typeof import("./suggestion-actions");
-let userCount = 0;
-let rowCount = 0;
 
 type Answer = (request: CategorizationRequest) => unknown;
 
 // Records what it was asked and answers as told; an Error is thrown.
 function fakeModel(answer: Answer | Error) {
-  const requests: CategorizationRequest[] = [];
-  const client: CategorizationModelClient = {
-    async suggestCategories(request) {
-      requests.push(request);
-      if (answer instanceof Error) throw answer;
-      return answer(request);
-    },
-  };
-  return { client, requests };
+  return recordingModel(answer);
 }
 
 // Puts every merchant in the named category.
@@ -66,28 +60,12 @@ function everythingIn(categoryName: string): Answer {
   });
 }
 
-async function createUser(name: string) {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name, email: `suggest-action${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  await ensureMoneyDefaults(db, user!.id);
-  const [cash] = await listAccounts(db, user!.id);
-  return { userId: user!.id, cashId: cash!.id };
+function createUser(name: string) {
+  return createMoneyUser(db, name);
 }
 
-async function importedRow(user: { userId: string; cashId: string }, counterparty: string) {
-  await db.insert(schema.moneyTransactions).values({
-    userId: user.userId,
-    accountId: user.cashId,
-    bookedOn: "2026-10-05",
-    amountCents: -1250n,
-    currency: "EUR",
-    source: "csv_import",
-    dedupKey: `action-row-${++rowCount}`,
-    counterparty,
-    description: "CARD PAYMENT",
-  });
+async function importedRow(user: MoneyUser, counterparty: string) {
+  await insertImportedRows(db, user, [{ counterparty, description: "CARD PAYMENT" }]);
 }
 
 beforeAll(async () => {

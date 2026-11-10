@@ -29,6 +29,8 @@ export const users = pgTable(
     lastActiveAt: timestamptz("last_active_at"),
     // The user's own switch for AI-suggested transaction categories (ADR-0016). On by default; it
     // only matters when the server has an OpenAI key. Off, nothing of theirs is ever sent.
+    // Added by migration 0008_daily_spitfire.sql, whose name drizzle-kit chose: it is applied, so
+    // it keeps that name (migrations are forward-only). Later migrations are named for what they do.
     aiCategorization: boolean("ai_categorization").default(true).notNull(),
   },
   (table) => [check("users_role_check", sql`${table.role} in ('admin', 'user')`)],

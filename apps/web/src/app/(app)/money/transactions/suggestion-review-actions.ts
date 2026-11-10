@@ -18,14 +18,18 @@ import { suggestCategoriesAction, type SuggestState } from "./suggestion-actions
 // or ask again about the merchants dismissed or not placed. The results are counts and fixed
 // sentences; nothing here logs or returns a merchant's text.
 
+// The server has a key and the user hasn't turned suggestions off: the asking and accepting
+// controls are offered only then.
+async function aiOfferedTo(userId: string): Promise<boolean> {
+  return categorizationModelClient() !== null && (await aiCategorizationEnabledFor(db(), userId));
+}
+
 // "Ask again": reopens the dismissed and unplaced merchants, then asks about them like the
 // "Suggest categories" button does. Nothing is reopened when the server has no key or the user
 // turned suggestions off.
 export async function askAgainAction(): Promise<SuggestState> {
   const { userId } = await requireUser();
-  if (!categorizationModelClient() || !(await aiCategorizationEnabledFor(db(), userId))) {
-    return { status: "off", message: "" };
-  }
+  if (!(await aiOfferedTo(userId))) return { status: "off", message: "" };
 
   await resetSuggestionAsks(db(), userId);
   return suggestCategoriesAction();
@@ -37,6 +41,7 @@ export type ReviewState = { ok: boolean; message: string };
 const TransactionId = z.uuid();
 const notFoundMessage = "That transaction doesn't exist.";
 const staleMessage = "That suggestion is no longer there, so nothing was changed.";
+const offMessage = "AI suggestions are turned off, so nothing was changed.";
 
 function transactions(rows: number): string {
   return rows === 1 ? "1 transaction" : `${rows} transactions`;
@@ -44,8 +49,11 @@ function transactions(rows: number): string {
 
 // Gives every uncategorized row of the row's merchant the suggested category, as the user's own
 // choice. The id comes from the client, so it is checked, and read through the user filter.
+// Refused, with nothing changed, when the server has no key or the user turned suggestions off, as
+// "Accept all" is.
 export async function acceptSuggestionAction(transactionId: string): Promise<ReviewState> {
   const { userId } = await requireUser();
+  if (!(await aiOfferedTo(userId))) return { ok: false, message: offMessage };
   const id = TransactionId.safeParse(transactionId);
   if (!id.success) return { ok: false, message: notFoundMessage };
 
@@ -67,9 +75,7 @@ export async function acceptSuggestionAction(transactionId: string): Promise<Rev
 // no key or the user turned suggestions off, as the other asking controls are.
 export async function acceptAllSuggestionsAction(): Promise<ReviewState> {
   const { userId } = await requireUser();
-  if (!categorizationModelClient() || !(await aiCategorizationEnabledFor(db(), userId))) {
-    return { ok: false, message: "AI suggestions are turned off, so nothing was changed." };
-  }
+  if (!(await aiOfferedTo(userId))) return { ok: false, message: offMessage };
 
   const result = await acceptAllSuggestions(db(), userId);
   if (result.rows === 0) {
@@ -86,9 +92,12 @@ export async function acceptAllSuggestionsAction(): Promise<ReviewState> {
   };
 }
 
-// Drops the suggestion on the row's merchant; a later run doesn't ask about it again.
+// Drops the suggestion on the row's merchant; a later run doesn't ask about it again. Refused
+// without a key on the server, where the page doesn't mention suggestions at all. A user who turned
+// suggestions off can still dismiss the ones they have: nothing is sent.
 export async function dismissSuggestionAction(transactionId: string): Promise<ReviewState> {
   const { userId } = await requireUser();
+  if (!categorizationModelClient()) return { ok: false, message: offMessage };
   const id = TransactionId.safeParse(transactionId);
   if (!id.success) return { ok: false, message: notFoundMessage };
 
