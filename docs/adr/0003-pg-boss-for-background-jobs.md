@@ -60,3 +60,5 @@ The worker is a separate Node app (`apps/worker`) sharing `packages/db` and `pac
 ## More Information
 
 Checked 2026-10-11 on npm: `pg-boss` `latest` is 12.37.1 (10.x is a maintenance line). Re-check the major's API when `apps/worker` is added.
+
+`apps/worker` was added with PDF statement import (T148, ticket T150) rather than receipts-ocr, at pg-boss 12.38.0. Jobs are queued through `queueJob` in `packages/core`, inside the caller's Drizzle transaction when given one (pg-boss's `fromDrizzle` adapter); pg-boss keeps its tables in its own `pgboss` schema.

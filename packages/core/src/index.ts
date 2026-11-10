@@ -5,6 +5,7 @@ export * from "./identity/password-resets";
 export * from "./identity/sessions";
 export * from "./identity/sign-in-limit";
 export * from "./identity/users";
+export * from "./jobs/queue";
 export * from "./money/accounts";
 export * from "./money/ai-categories";
 export * from "./money/ai-categories-import";
