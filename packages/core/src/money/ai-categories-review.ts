@@ -1,15 +1,13 @@
 import { schema, type Db, type DbTransaction } from "@troba/db";
 import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { merchantKey } from "./merchant-key";
 
 // What the user does with a suggested category (SPEC-money M5, ADR-0016): accept it, dismiss it,
 // or have the dismissed and unplaced merchants offered to the model again. A suggestion is
 // per merchant: one decision covers every uncategorized row of it, with the merchant the engine
-// groups by (the counterparty ignoring case, the description when there is none).
+// groups by (merchantKey).
 
 const { moneyTransactions, moneyCategories } = schema;
-
-// The engine's merchant key, in SQL.
-const merchantKey = sql`lower(coalesce(nullif(btrim(${moneyTransactions.counterparty}), ''), nullif(btrim(${moneyTransactions.description}), '')))`;
 
 export type ReviewFailure =
   // No such row for this user. A row of someone else's reads the same.
@@ -27,7 +25,7 @@ export type DismissSuggestionResult = { ok: true; rows: number } | ReviewFailure
 async function readSuggestion(db: Db | DbTransaction, userId: string, transactionId: string) {
   const [row] = await db
     .select({
-      key: sql<string | null>`${merchantKey}`,
+      key: merchantKey(),
       categoryId: moneyTransactions.categoryId,
       suggestedCategoryId: moneyTransactions.suggestedCategoryId,
     })
@@ -41,7 +39,7 @@ function uncategorizedOf(userId: string, key: string): SQL | undefined {
   return and(
     eq(moneyTransactions.userId, userId),
     isNull(moneyTransactions.categoryId),
-    sql`${merchantKey} = ${key}`,
+    sql`${merchantKey()} = ${key}`,
   );
 }
 
@@ -134,7 +132,7 @@ export async function countPendingSuggestions(db: Db, userId: string): Promise<P
   const [counts] = await db
     .select({
       rows: sql<number>`count(*)::int`,
-      merchants: sql<number>`count(distinct ${merchantKey})::int`,
+      merchants: sql<number>`count(distinct ${merchantKey()})::int`,
     })
     .from(moneyTransactions)
     .where(pendingSuggestionOf(userId));
@@ -204,7 +202,7 @@ export async function acceptAllSuggestions(db: Db, userId: string): Promise<Pend
               ),
             ),
           )
-          .returning({ key: sql<string | null>`${merchantKey}` });
+          .returning({ key: merchantKey() });
       } catch (error) {
         if (!isForeignKeyViolation(error) || attempt >= attemptsPerPage) throw error;
       }

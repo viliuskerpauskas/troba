@@ -1,13 +1,11 @@
-import {
-  ensureMoneyDefaults,
-  listAccounts,
-  listCategories,
-  listTransactions,
-  setAiCategorization,
-  type CategorizationModelClient,
-  type CategorizationRequest,
-} from "@troba/core";
+import { listTransactions, setAiCategorization, type CategorizationModelClient } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  recordingModel,
+  type MoneyUser,
+} from "@troba/core/test-ai-categories";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,45 +31,22 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
 let actions: typeof import("./suggestion-review-actions");
-let userCount = 0;
-let rowCount = 0;
 
-async function createUser(name: string) {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name, email: `suggest-review${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  await ensureMoneyDefaults(db, user!.id);
-  const [cash] = await listAccounts(db, user!.id);
-  const categories = await listCategories(db, user!.id);
-  return {
-    userId: user!.id,
-    cashId: cash!.id,
-    category: (categoryName: string) => categories.find((c) => c.name === categoryName)!.id,
-  };
+function createUser(name: string) {
+  return createMoneyUser(db, name);
 }
 
-type TestUser = Awaited<ReturnType<typeof createUser>>;
-
 // An imported row the model asked about; with `suggested`, it carries that suggestion.
-async function askedRow(user: TestUser, counterparty: string, suggested?: string) {
-  const [row] = await db
-    .insert(schema.moneyTransactions)
-    .values({
-      userId: user.userId,
-      accountId: user.cashId,
-      bookedOn: "2026-10-05",
-      amountCents: -1250n,
-      currency: "EUR",
-      source: "csv_import",
-      dedupKey: `review-action-row-${++rowCount}`,
+async function askedRow(user: MoneyUser, counterparty: string, suggested?: string) {
+  const [id] = await insertImportedRows(db, user, [
+    {
       counterparty,
       description: "CARD PAYMENT",
       suggestedCategoryId: suggested ?? null,
       suggestionAskedAt: new Date(),
-    })
-    .returning({ id: schema.moneyTransactions.id });
-  return row!.id;
+    },
+  ]);
+  return id!;
 }
 
 beforeAll(async () => {
@@ -86,7 +61,7 @@ afterAll(async () => {
   await database.drop();
 });
 
-let user: TestUser;
+let user: MoneyUser;
 
 beforeEach(async () => {
   user = await createUser("Example User");
@@ -94,7 +69,14 @@ beforeEach(async () => {
   server.client = null;
 });
 
+// The accept and dismiss controls are shown only while the server has a key.
+function withKey() {
+  server.client = { suggestCategories: async () => ({ answers: [] }) };
+}
+
 describe("acceptSuggestionAction", () => {
+  beforeEach(withKey);
+
   it("categorizes the merchant's rows as the user's own choice and says how many", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
     await askedRow(user, "GROCERY MART");
@@ -138,9 +120,37 @@ describe("acceptSuggestionAction", () => {
       expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
     ]);
   });
+
+  it("changes nothing without a key on the server", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    server.client = null;
+
+    expect(await actions.acceptSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  it("changes nothing for a user who turned suggestions off", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.acceptSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
 });
 
 describe("dismissSuggestionAction", () => {
+  beforeEach(withKey);
+
   it("removes the merchant's suggestions and says how many", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
     await askedRow(user, "GROCERY MART", user.category("Food"));
@@ -163,30 +173,48 @@ describe("dismissSuggestionAction", () => {
       message: "That transaction doesn't exist.",
     });
   });
+
+  it("changes nothing without a key on the server", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    server.client = null;
+
+    expect(await actions.dismissSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  // The page keeps the suggestions an opted-out user already has dismissable: dismissing sends
+  // nothing anywhere.
+  it("still dismisses for a user who turned suggestions off", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.dismissSuggestionAction(id)).toEqual({
+      ok: true,
+      message: "Dismissed the suggestion on 1 transaction.",
+    });
+  });
 });
 
 describe("askAgainAction", () => {
   function fakeModel() {
-    const requests: CategorizationRequest[] = [];
-    const client: CategorizationModelClient = {
-      async suggestCategories(request) {
-        requests.push(request);
-        return {
-          answers: request.payload.merchants.map((merchant) => ({
-            merchant: merchant.id,
-            category: request.payload.categories.find((c) => c.name === "Food")!.id,
-          })),
-        };
-      },
-    };
-    return { client, requests };
+    return recordingModel((request) => ({
+      answers: request.payload.merchants.map((merchant) => ({
+        merchant: merchant.id,
+        category: request.payload.categories.find((c) => c.name === "Food")!.id,
+      })),
+    }));
   }
 
   it("offers a dismissed merchant to the model again", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
-    await actions.dismissSuggestionAction(id);
     const model = fakeModel();
     server.client = model.client;
+    await actions.dismissSuggestionAction(id);
 
     const state = await actions.askAgainAction();
 

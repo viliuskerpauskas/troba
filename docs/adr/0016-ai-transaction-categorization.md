@@ -31,8 +31,8 @@ decision-makers: owner
 Chosen option: "Send the merchant text of card and merchant rows; withhold own-name and direct transfers; the answer is a suggestion", because the merchant text is the minimum a model needs, a person's name is the one thing the owner counts as personal in it, and a suggestion cannot change a total behind the user's back.
 
 1. **Which rows are sent.** A transaction that no rule matched, that is not **Transfers**, that is not a manual entry and has no category yet. A **direct transfer** is never sent: a row with a counterparty IBAN, or one the import profile marks as a transfer. There the counterparty is usually a person and the description is free text ("rent from Anna"), so those rows stay uncategorized for the rules and the manual path.
-2. **What is sent.** The counterparty and description of those rows and the names of the user's categories. Rows are grouped by distinct counterparty, so each merchant is asked once. Before sending, these are masked:
-   - the user's own name and every part of it, taken from the account profile, wherever it appears in the text;
+2. **What is sent.** The counterparty and description of those rows and the names of the user's categories. Rows are grouped by distinct counterparty (ignoring case and surrounding spaces, the description when there is no counterparty), so each merchant is asked once. Before sending, these are masked:
+   - the user's own full name and each part of it of 3 or more letters, taken from the account profile and matched ignoring case and diacritics, wherever it appears in the text (a shorter part is too common inside other words to mask);
    - IBAN-shaped values and long digit runs (7 or more digits with no separator), as in ADR-0015.
 
    Never sent: amounts, dates, account data, the raw row, the file, other users' data, or anything from a direct transfer. The request asks the provider not to store it where its API offers that.
