@@ -176,13 +176,13 @@ For prod, `BETTER_AUTH_URL=https://<domain>`. Never copy staging's secrets to pr
 1. pulls `ghcr.io/<owner>/troba-web:<sha>` (skipped when the image is already on the VPS);
 2. starts Postgres and waits for it to be healthy;
 3. runs migrations with the new image (`docker compose run --rm migrate`);
-4. starts the new web container;
+4. starts the new web and worker containers (the worker runs background jobs from the same image and has no health check of its own);
 5. waits up to 2 minutes, with [wait-healthy.sh](../../deploy/wait-healthy.sh), for `/api/health` inside the container to answer `"status":"ok"` with `"version":"<sha>"`, printing what it sees every 10 seconds;
-6. on success, writes `<sha>` to `/srv/troba/<env>/deployed-sha`; on failure, prints the web log, starts the sha from `deployed-sha` again, waits for it to be healthy, and exits 1.
+6. on success, writes `<sha>` to `/srv/troba/<env>/deployed-sha`; on failure, prints the web and worker logs, starts web and the worker on the sha from `deployed-sha` again, waits for it to be healthy, and exits 1.
 
 Once the new web container has started, being interrupted also rolls back: Ctrl+C does it in the terminal (a second Ctrl+C stops the rollback), and a lost SSH session or a cancelled CI job does it with the output going to `/srv/troba/<env>/deploy.log`.
 
-If steps 1–3 fail, web was never touched and the script exits non-zero without a rollback. A rollback only swaps the web image, so migrations must keep working with the previous release ([ADR-0008](../adr/0008-vps-docker-compose-caddy.md)). The very first deploy has nothing to roll back to.
+If steps 1–3 fail, web was never touched and the script exits non-zero without a rollback. A rollback only swaps the web and worker image, so migrations must keep working with the previous release ([ADR-0008](../adr/0008-vps-docker-compose-caddy.md)). The very first deploy has nothing to roll back to.
 
 Only one deploy per environment runs at a time (`/srv/troba/<env>/.deploy.lock`). If a deploy was killed and left the lock behind, check nothing is running (`ps aux | grep deploy.sh`), then `rmdir /srv/troba/<env>/.deploy.lock`.
 
@@ -241,6 +241,7 @@ The compose command for an environment is long and needs the running sha. This f
 c() { TROBA_SHA=$(cat "/srv/troba/$1/deployed-sha") docker compose -p "troba-$1" -f /srv/troba/deploy/app/compose.yaml --env-file "/srv/troba/$1/.env" "${@:2}"; }
 c staging ps
 c staging logs -f web
+c staging logs -f worker
 c staging exec postgres psql -U troba troba
 ```
 

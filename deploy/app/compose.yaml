@@ -1,5 +1,5 @@
-# One troba environment on the VPS: web, its one-shot migrate and Postgres. Staging and prod are
-# two Compose projects from this file, each with its own env file, database and volumes:
+# One troba environment on the VPS: web, the worker, the one-shot migrate and Postgres. Staging and
+# prod are two Compose projects from this file, each with its own env file, database and volumes:
 #   docker compose -p troba-<env> -f /srv/troba/deploy/app/compose.yaml --env-file /srv/troba/<env>/.env ...
 # deploy.sh runs it; see docs/ops/vps-setup.md. TROBA_SHA (the image tag) comes from deploy.sh.
 services:
@@ -23,6 +23,21 @@ services:
       # Caddy reaches this container as <env>-web on the shared edge network. No ports are published.
       edge:
         aliases: ["${TROBA_ENV:?set in the env file}-web"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Background jobs (apps/worker, ADR-0003), from the same image. pg-boss keeps its queue in the
+  # app database, in a schema of its own that it creates on start.
+  worker:
+    image: ${TROBA_IMAGE}:${TROBA_SHA}
+    restart: unless-stopped
+    command: ["node", "worker.js"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-troba}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-troba}
+    # On SIGTERM the worker lets running jobs finish for up to 25 s; past this Docker kills it, and
+    # pg-boss retries the job once it expires.
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

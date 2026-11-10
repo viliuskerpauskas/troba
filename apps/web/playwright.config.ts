@@ -33,16 +33,27 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    // Tests the built app, not the dev server: run `pnpm build` first.
-    // e2e/fake-openai.ts stands in for OpenAI, which the import test's AI mapping would call.
-    command: "node --import ./e2e/fake-openai.ts scripts/start-standalone.ts",
-    // The home page, not /api/health: with the database down, the smoke test should fail on
-    // the health assertion, not time out waiting for the server.
-    url: baseURL,
-    // A made-up key: it switches AI-suggested mappings on, and only the fake ever sees it.
-    env: { PORT: String(port), HOSTNAME: "127.0.0.1", OPENAI_API_KEY: "sk-e2e-not-a-real-key" },
-    reuseExistingServer: false,
-    timeout: 60_000,
-  },
+  webServer: [
+    {
+      // Tests the built app, not the dev server: run `pnpm build` first.
+      // e2e/fake-openai.ts stands in for OpenAI, which the import test's AI mapping would call.
+      command: "node --import ./e2e/fake-openai.ts scripts/start-standalone.ts",
+      // The home page, not /api/health: with the database down, the smoke test should fail on
+      // the health assertion, not time out waiting for the server.
+      url: baseURL,
+      // A made-up key: it switches AI-suggested mappings on, and only the fake ever sees it.
+      env: { PORT: String(port), HOSTNAME: "127.0.0.1", OPENAI_API_KEY: "sk-e2e-not-a-real-key" },
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // The background worker, as built by `pnpm build` (apps/worker/dist/worker.js). Jobs the
+      // app queues during a test run here.
+      command: "node ../worker/dist/worker.js",
+      wait: { stdout: /worker started/ },
+      // Lets running jobs finish instead of killing the worker mid-job.
+      gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
+      timeout: 60_000,
+    },
+  ],
 });

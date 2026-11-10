@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build from the repo root: docker build -f apps/web/Dockerfile --build-arg GIT_SHA=$(git rev-parse HEAD) .
 # Web:     docker run <image>
+# Worker:  docker run <image> node worker.js
 # Migrate: docker run <image> node migrate.js
 # Admin:   docker run -it <image> node scripts/create-admin.js <email>
 
@@ -10,6 +11,7 @@ WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
@@ -18,7 +20,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 FROM deps AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
-# Typecheck first: next build checks types against the packages' tsc -b declarations.
+# Typecheck first: next build checks types against the packages' tsc -b declarations. pnpm build
+# also bundles the worker into apps/worker/dist/worker.js.
 RUN pnpm typecheck && pnpm build && node apps/web/src/build-cli.ts /out/cli
 
 FROM node:24.22.0-alpine AS runtime
@@ -32,6 +35,8 @@ COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
 # migrate.js, migrations/ and scripts/create-admin.js
 COPY --from=build /out/cli ./
+# The background worker (apps/worker), one bundled file; Compose runs it as its own service.
+COPY --from=build /repo/apps/worker/dist/worker.js ./
 # Next writes its cache here at runtime; users' files go in /data/uploads (mount a volume there).
 RUN mkdir -p apps/web/.next/cache /data/uploads \
     && chown node:node apps/web/.next/cache /data/uploads
