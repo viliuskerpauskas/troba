@@ -16,6 +16,8 @@ export const jobs = {
   // Reads a PDF statement through the model (T152, ADR-0018). The handler checks the PDF import is
   // this user's.
   "read-pdf-import": z.object({ userId: z.uuid(), pdfImportId: z.uuid() }).strict(),
+  // Deletes PDF imports never confirmed, once expired (T155). Scheduled, for no user.
+  "clean-up-pdf-imports": z.object({}).strict(),
 } as const;
 
 export type JobName = keyof typeof jobs;
@@ -32,9 +34,15 @@ const queueOptions: { [N in JobName]?: QueueOptions } = {
   "read-pdf-import": { expireInSeconds: 5 * 60, retryLimit: 1, retryDelay: 30 },
 };
 
+// Jobs the worker queues itself on a cron schedule (UTC), with empty data.
+export const jobSchedules: { [N in JobName]?: string } = {
+  // Hourly, so an unconfirmed PDF import is gone within an hour of expiring.
+  "clean-up-pdf-imports": "17 * * * *",
+};
+
 export type StartJobQueueOptions = {
-  // Maintenance (expiring, retrying and archiving jobs) runs in the worker only, so the web app
-  // just queues. Off by default.
+  // Maintenance (expiring, retrying and archiving jobs) and the scheduled jobs run in the worker
+  // only, so the web app just queues. Off by default.
   maintenance?: boolean;
 };
 
@@ -56,6 +64,13 @@ export async function startJobQueue(
   queue.on("error", (error) => console.error("job queue:", error.message));
   await queue.start();
   for (const name of jobNames) await queue.createQueue(name, queueOptions[name]);
+  if (maintenance) {
+    // An upsert, so every start of the worker leaves one schedule per job.
+    for (const name of jobNames) {
+      const cron = jobSchedules[name];
+      if (cron) await queue.schedule(name, cron, {});
+    }
+  }
   return queue;
 }
 

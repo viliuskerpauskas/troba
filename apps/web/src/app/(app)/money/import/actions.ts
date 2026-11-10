@@ -147,6 +147,9 @@ export type PreviewView =
       // ones say why.
       failed: ImportRowFailure[];
       debitCredit: { value: string; debit: boolean; rows: number }[] | null;
+      // The account has imported rows of the other kind (PDF versus CSV or spreadsheet) in the
+      // file's dates, which won't be detected as duplicates: the preview warns.
+      mixedFormats: boolean;
     }
   // The file names an account the user doesn't have: offered to create it.
   | { ok: false; reason: "unknown-account"; iban: string; currency: string }
@@ -442,7 +445,8 @@ async function previewState(
 
 async function previewView(userId: string, result: PreviewImportResult): Promise<PreviewView> {
   if (result.ok) {
-    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit } = result;
+    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit, mixedFormats } =
+      result;
     return {
       ok: true,
       account: { id: account.id, name: account.name },
@@ -452,6 +456,7 @@ async function previewView(userId: string, result: PreviewImportResult): Promise
       rowsFailed: failed.length,
       failed: failed.slice(0, shownFailures),
       debitCredit,
+      mixedFormats,
     };
   }
   switch (result.reason) {

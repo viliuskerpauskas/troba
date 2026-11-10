@@ -1,4 +1,10 @@
-import { readPdfImport, type JobData, type JobName, type StatementModelClient } from "@troba/core";
+import {
+  deleteExpiredPdfImports,
+  readPdfImport,
+  type JobData,
+  type JobName,
+  type StatementModelClient,
+} from "@troba/core";
 import { pingDb, type Db } from "@troba/db";
 
 export type JobContext = {
@@ -21,5 +27,8 @@ export const handlers: JobHandlers = {
   // reading is recorded on the PDF import, so the job still completes.
   "read-pdf-import": async ({ userId, pdfImportId }, { db, statementClient }) => {
     await readPdfImport(db, userId, pdfImportId, { client: statementClient });
+  },
+  "clean-up-pdf-imports": async (_data, { db }) => {
+    await deleteExpiredPdfImports(db);
   },
 };

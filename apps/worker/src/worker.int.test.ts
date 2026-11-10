@@ -1,5 +1,7 @@
 import {
   getPdfImport,
+  jobSchedules,
+  pdfImportExpiryMs,
   queueJob,
   startJobQueue,
   startPdfImport,
@@ -74,6 +76,42 @@ describe("worker", () => {
       return found?.state === "read" || found?.state === "failed" ? found.state : undefined;
     });
     expect(state).toBe("read");
+    await worker.stop();
+    worker = undefined;
+  });
+
+  it("schedules the cleanup of expired PDF imports", async () => {
+    worker = await startWorker(database.url);
+    const schedules = await queue.getSchedules("clean-up-pdf-imports");
+    expect(schedules.map(({ cron }) => cron)).toEqual([jobSchedules["clean-up-pdf-imports"]]);
+    await worker.stop();
+    worker = undefined;
+  });
+
+  it("deletes expired PDF imports when the cleanup job runs", async () => {
+    worker = await startWorker(database.url);
+    const [user] = await db
+      .insert(schema.users)
+      .values({ name: "Example User", email: "cleanup@example.test" })
+      .returning({ id: schema.users.id });
+    const started = await startPdfImport(
+      db,
+      user!.id,
+      { filename: "statement.pdf", bytes: new TextEncoder().encode("%PDF-1.7\n") },
+      { queue },
+    );
+    if (!started.ok) throw new Error(started.reason);
+    await db.$client.query("update money_pdf_imports set created_at = $1 where id = $2", [
+      new Date(Date.now() - pdfImportExpiryMs - 60_000),
+      started.pdfImportId,
+    ]);
+
+    await queueJob(queue, "clean-up-pdf-imports", {});
+
+    const gone = await until(async () =>
+      (await getPdfImport(db, user!.id, started.pdfImportId)) === null ? true : undefined,
+    );
+    expect(gone).toBe(true);
     await worker.stop();
     worker = undefined;
   });

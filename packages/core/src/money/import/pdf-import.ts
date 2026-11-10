@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { schema, type Db } from "@troba/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
 import { queueJob, type JobQueue } from "../../jobs/queue";
 import { parseCents } from "../cents";
@@ -13,6 +13,7 @@ import {
   type CommitImportResult,
   type CreateImportAccountResult,
   type ImportRow,
+  pdfDedupKeyPrefix,
   type ImportRowFailure,
   type PreviewImportResult,
   type RowSource,
@@ -289,6 +290,23 @@ export async function discardPdfImport(db: Db, userId: string, pdfImportId: stri
     .where(and(eq(moneyPdfImports.id, pdfImportId), eq(moneyPdfImports.userId, userId)));
 }
 
+// How long a PDF import is kept unconfirmed: a read answer waits this long for the user to preview
+// and confirm it, and a failed one to be seen.
+export const pdfImportExpiryMs = 24 * 60 * 60 * 1000;
+
+// The cleanup job: deletes every PDF import started more than the expiry ago, whatever its state,
+// so an answer never confirmed or abandoned isn't kept, nor one left queued or reading by a worker
+// that crashed. A confirmed import's PDF import was deleted with the commit, and its import and
+// transactions are other tables, so nothing saved is touched.
+//
+// The one query here not filtered by a user: it runs for no user, and only deletes by age. The
+// table holds at most a day of each user's unconfirmed imports, so it needs no index of its own.
+export async function deleteExpiredPdfImports(db: Db): Promise<void> {
+  await db
+    .delete(moneyPdfImports)
+    .where(lt(moneyPdfImports.createdAt, new Date(Date.now() - pdfImportExpiryMs)));
+}
+
 function toPdfImport(row: {
   id: string;
   filename: string;
@@ -433,7 +451,7 @@ function rowSource(answer: StatementAnswer): RowSource {
       counterpartyIban: transaction.counterpartyIban && parseIban(transaction.counterpartyIban),
       description: transaction.description?.trim() || null,
       bankTxType: null,
-      dedupKey: `pdf:${hash}:${occurrence}`,
+      dedupKey: `${pdfDedupKeyPrefix}${hash}:${occurrence}`,
       raw: transaction,
     });
   }
