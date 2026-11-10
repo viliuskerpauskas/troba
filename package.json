@@ -8,8 +8,8 @@
     "node": ">=24.18.0 <25"
   },
   "scripts": {
-    "dev": "pnpm db:up && pnpm db:migrate && pnpm --filter @troba/web dev",
-    "build": "pnpm --filter @troba/web build",
+    "dev": "pnpm db:up && pnpm db:migrate && pnpm --parallel --filter @troba/web --filter @troba/worker dev",
+    "build": "pnpm --filter @troba/web --filter @troba/worker build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm --filter @troba/web exec next typegen && tsc -b",

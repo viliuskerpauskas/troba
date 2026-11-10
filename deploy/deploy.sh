@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploys one image sha to one environment on the VPS: pull, migrate, up, wait for /api/health to
-# report that sha, and roll web back to the previous sha if it doesn't.
+# report that sha, and roll web and the worker back to the previous sha if it doesn't.
 # Usage: deploy.sh <staging|prod> <40-character git sha>
 # Layout (docs/ops/vps-setup.md): this repo's deploy/ folder at $TROBA_ROOT/deploy, the
 # environment's env file at $TROBA_ROOT/<env>/.env. The last good sha is kept in
@@ -51,13 +51,13 @@ rollback() {
   # A second Ctrl+C stops the rollback itself.
   trap - INT TERM HUP
   trap '' PIPE
-  compose "$sha" logs --tail 50 web >&2
+  compose "$sha" logs --tail 50 web worker >&2
   if [[ -z $previous ]]; then
     echo "no previous sha to roll back to; $env is left on $sha" >&2
     exit 1
   fi
   echo "rolling $env back to $previous" >&2
-  compose "$previous" up -d web
+  compose "$previous" up -d web worker
   if "$here/wait-healthy.sh" "$env" "$previous"; then
     echo "rolled $env back to $previous" >&2
   else
@@ -73,7 +73,7 @@ trap 'echo "interrupted" >&2; rollback' INT
 trap 'exec >>"$dir/deploy.log" 2>&1; echo "$(date -Is) deploy of $sha lost its session"; rollback' TERM HUP PIPE
 
 # Compose removes the old container before starting the new one, so a failed `up` rolls back too.
-compose "$sha" up -d --remove-orphans web || { echo "starting $sha failed on $env" >&2; rollback; }
+compose "$sha" up -d --remove-orphans web worker || { echo "starting $sha failed on $env" >&2; rollback; }
 if "$here/wait-healthy.sh" "$env" "$sha"; then
   trap - INT TERM HUP PIPE
   echo "$sha" > "$state"
