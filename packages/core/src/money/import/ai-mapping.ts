@@ -41,9 +41,9 @@ export type MappingSample = {
   headers: string[];
   // At most sampleRowCount rows spread over the file, every cell scrubbed (see scrubCell).
   rows: string[][];
-  // Columns whose values are all codes (debit/credit markers, currencies; see isCode): their
-  // distinct values in file order. These are not personal, and a sample of cells would probably
-  // miss the rarer one.
+  // Columns whose values are all codes of one kind (debit/credit markers, or currencies; see
+  // codeKindOf): their distinct values in file order. These are not personal, and a sample of
+  // cells would probably miss the rarer one.
   codedValues: { header: string; values: string[] }[];
 };
 
@@ -53,12 +53,14 @@ const maxCodedValues = 8;
 // ... each repeating on average at least this often, so a handful of values in a small file
 // isn't taken for codes ...
 const minRowsPerCodedValue = 2;
-// ... and every value is a code, not a word. A column's cardinality can't tell a debit marker from
-// a person's name (a statement with three payees looks like one with three markers), so what is
-// sent raw is decided by what the value can be, never by how often it repeats: one or two capital
-// letters (D, C, DR, CR), a currency code, or a debit/credit marker word. Anything else, including
-// one-word merchants and transaction types, is masked like every other cell. The cost is that the
-// model sees a transaction-type column as shapes; it still maps it by its header.
+// ... and every value is a code of one kind, not a word. A column's cardinality can't tell a debit
+// marker from a person's name (a statement with three payees looks like one with three markers), so
+// what is sent raw is decided by what the value can be, never by how often it repeats: markers (one
+// or two capital letters such as D, C, DR, CR, or a debit/credit marker word), or currency codes.
+// Anything else, including one-word merchants and transaction types, is masked like every other
+// cell. The cost is that the model sees a transaction-type column as shapes; it still maps it by
+// its header. Currency codes count only in a column of nothing else: ALL, TOP and PEN are words
+// too, and outside such a column they are masked.
 const markerWords = new Set(["debit", "credit", "dbit", "crdt"]);
 
 const maxShapeLength = 60;
@@ -72,14 +74,18 @@ const longDigitRun = /\d{9,}/;
 const digitsOnly = /^\+?\d{7,}$/;
 const dateShaped =
   /^(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?$/;
+const dateInside = /(?:^|\D)(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})(?!\d)/;
+const ibanInside = /[A-Z]{2}\d{2}[A-Z0-9]{11,30}/;
 const amountShaped = /^[+-]?(?:\d{1,3}(?:[ .,'’]\d{3})+|\d+)(?:[.,]\d{1,4})?$|^[+-]?[.,]\d{1,4}$/;
 
-// One data cell as the model may see it. The mapping isn't known yet, so this works on content:
+// One data cell as the model may see it, outside a coded column. The mapping isn't known yet, so
+// this works on content:
 //   - IBAN-shaped values and long digit runs (card, account, reference, phone numbers) are masked;
-//   - dates, amounts and currency codes are kept, since they are how the model tells a date
-//     format from a decimal separator, and they are not personal;
-//   - any other text becomes a shape with its length and character classes (A upper, a lower,
-//     # digit) and no words.
+//   - dates and amounts are kept, since they are how the model tells a date format from a decimal
+//     separator, and they are not personal;
+//   - any other text, a currency-code-shaped word included, becomes a shape with its length and
+//     character classes (A upper, a lower, # digit) and no words. A currency column's codes reach
+//     the model as its coded values.
 export function scrubCell(cell: string): string {
   const text = cell.trim();
   if (text === "") return "";
@@ -89,7 +95,6 @@ export function scrubCell(cell: string): string {
     if (isLongNumber(text)) return "[NUMBER]";
     if (amountShaped.test(text)) return text;
   }
-  if (currencies.has(text)) return text;
   return shapeOf(text);
 }
 
@@ -98,14 +103,21 @@ function isLongNumber(text: string): boolean {
   return longDigitRun.test(compact) || digitsOnly.test(compact);
 }
 
-// A header as the model may see it. Headers are words by nature and are sent as written, but a
-// wrong guess at which line is the header can make a data row the header: its IBANs and numbers
-// are masked, so a proposal that names such a header fails the check against the file.
-function scrubHeader(header: string): string {
+// Headers are words by nature and are sent as written. A wrong guess at which line is the header
+// (a file with no header line, or a skip that lands on a transaction) makes a data row the header,
+// and its names and descriptions would go out with it. Words alone can't tell a payee from a column
+// name, but a data row carries a date, an amount or an account number and a column name doesn't, so
+// a header row with any of those, alone or inside text, sends nothing at all. No proposal could
+// read such a file anyway: its columns would be named by a transaction.
+function looksLikeData(header: string): boolean {
   const text = header.trim();
-  if (ibanShaped.test(text.replace(/\s/g, ""))) return "[IBAN]";
-  if (numeric.test(text) && isLongNumber(text)) return "[NUMBER]";
-  return header;
+  if (text === "") return false;
+  return (
+    numeric.test(text) ||
+    dateInside.test(text) ||
+    ibanInside.test(text.replace(/\s/g, "")) ||
+    isLongNumber(text)
+  );
 }
 
 function shapeOf(text: string): string {
@@ -137,28 +149,33 @@ function buildSample(table: StatementTable): MappingSample {
   });
 
   return {
-    headers: table.headers.map(scrubHeader),
+    headers: table.headers,
     rows,
     codedValues: [...coded].map(([column, values]) => ({
-      header: scrubHeader(table.headers[column]!),
+      header: table.headers[column]!,
       values,
     })),
   };
 }
 
-function isCode(value: string): boolean {
-  return (
-    /^\p{Lu}{1,2}$/u.test(value) || currencies.has(value) || markerWords.has(value.toLowerCase())
-  );
+type CodeKind = "marker" | "currency";
+
+function codeKindOf(value: string): CodeKind | null {
+  if (/^\p{Lu}{1,2}$/u.test(value) || markerWords.has(value.toLowerCase())) return "marker";
+  if (currencies.has(value)) return "currency";
+  return null;
 }
 
 // The column's distinct values when it is a coded one, else null.
 function codedValuesOf(table: StatementTable, column: number): string[] | null {
   const values = new Set<string>();
+  let kind: CodeKind | null = null;
   for (const cells of table.rows) {
     const value = (cells[column] ?? "").trim();
     if (value === "") continue;
-    if (!isCode(value)) return null;
+    const valueKind = codeKindOf(value);
+    if (valueKind === null || (kind !== null && valueKind !== kind)) return null;
+    kind = valueKind;
     values.add(value);
     if (values.size > maxCodedValues) return null;
   }
@@ -194,7 +211,7 @@ export const mappingAnswerJsonSchema: Record<string, unknown> = Object.fromEntri
 export const mappingInstructions = [
   "You map the columns of a bank statement file (a CSV, or the first sheet of a spreadsheet) to the fields of an import profile.",
   "You get the header row, up to five sample rows and the coded values of some columns.",
-  "Sample cells are masked: dates, amounts and currency codes are shown as they are; IBANs and long numbers are [IBAN] and [NUMBER]; other text is a shape in which A is an upper case letter, a a lower case letter and # a digit. Never ask for the real text.",
+  "Sample cells are masked: dates and amounts are shown as they are; IBANs and long numbers are [IBAN] and [NUMBER]; other text is a shape in which A is an upper case letter, a a lower case letter and # a digit. Columns of debit/credit markers or currency codes are shown as they are, and their values are listed among the coded values. Never ask for the real text.",
   "Answer with the header, copied exactly, of the column that holds each field, or null when the file has none.",
   "bookingDate and amount are required. transactionDate is the date the purchase was made when the file has both. counterparty is the other party's name and counterpartyIban its account. ownIban is the statement account's own IBAN.",
   "dateFormat is how the date cells are written. decimalSeparator is the character before the cents in the amount cells.",
@@ -235,6 +252,7 @@ export async function proposeMapping(
 
   const table = readTable(bytes, read);
   if (!table.ok || table.headers.length === 0 || table.rows.length === 0) return null;
+  if (table.headers.some(looksLikeData)) return null;
 
   let answer: unknown;
   try {

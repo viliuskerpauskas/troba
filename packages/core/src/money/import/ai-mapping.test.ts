@@ -228,6 +228,45 @@ describe("proposeMapping", () => {
       expect(sample.codedValues).toContainEqual({ header: "Ccy", values: ["EUR"] });
     });
 
+    it("sends a column of several currencies as coded values", async () => {
+      const currencies = ["EUR", "USD", "GBP"];
+      const rows = repeated(["Netflix"]).map(({ cells }, i) => ({
+        cells: cells.map((cell, column) => (column === 7 ? currencies[i % 3]! : cell)),
+      }));
+      const client = fakeClient(goodAnswer);
+
+      await proposeMapping(csv({ rows }), { client });
+
+      expect(client.requests[0]!.sample.codedValues).toContainEqual({
+        header: "Ccy",
+        values: currencies,
+      });
+    });
+
+    it.each([
+      // A column of nothing but currency codes is a currency column as far as content can tell.
+      ["currency-code words among other text", ["TOP", "Weekly shop", "PEN"]],
+      ["currency-code words and markers", ["TOP", "CR", "ALL"]],
+    ])(
+      "masks a description column of %s, in the sample and the coded values",
+      async (_name, values) => {
+        const rows = repeated(["Netflix"]).map(({ cells }, i) => ({
+          cells: cells.map((cell, column) => (column === 4 ? values[i % values.length]! : cell)),
+        }));
+        const client = fakeClient(goodAnswer);
+
+        await proposeMapping(csv({ rows }), { client });
+
+        const { sample } = client.requests[0]!;
+        expect(sample.codedValues.map((column) => column.header)).not.toContain("Details");
+        expect(sample.rows.map((row) => row[4])).not.toContain("TOP");
+        const payload = JSON.stringify(sample);
+        for (const word of ["ALL", "TOP", "PEN", "Weekly"]) {
+          expect(payload, word).not.toContain(word);
+        }
+      },
+    );
+
     it.each([
       ["DEBIT/CREDIT", ["DEBIT", "CREDIT"]],
       ["Debit/Credit", ["Debit", "Credit"]],
@@ -250,36 +289,32 @@ describe("proposeMapping", () => {
   });
 
   describe("header cells", () => {
-    const sensitive = ["DE89 3704 0044 0532 0130 00", "123456789", "98765432"];
-    const wrongGuess = ["Date", "Amount", "D/C", "Payee", "Details", ...sensitive];
+    // A data row taken for the header: a file with no header line, or read with the wrong skip.
+    const words = ["TEA HOUSE", "Green tea Elm Road"];
 
-    it("masks an IBAN or a digit run, which a wrong header-row guess would send", async () => {
+    it.each([
+      ["a date", "14.01.2024"],
+      ["an amount", "250"],
+      ["a signed amount", "-7.30"],
+      ["an IBAN", "DE89 3704 0044 0532 0130 00"],
+      ["a date inside text", "Paid 14.01.2024 at till"],
+      ["an IBAN inside text", "From DE89 3704 0044 0532 0130 00"],
+      ["a long digit run", "123456789"],
+      ["an account number", "98765432"],
+    ])("sends nothing when the header row holds %s, as a data row does", async (_name, cell) => {
       const client = fakeClient(goodAnswer);
+      const wrongGuess = ["Date", "Amount", "D/C", ...words, cell, "Account", "Ccy"];
 
-      await proposeMapping(csv({ header: wrongGuess }), { client });
-
-      const { sample } = client.requests[0]!;
-      expect(sample.headers).toEqual([
-        "Date",
-        "Amount",
-        "D/C",
-        "Payee",
-        "Details",
-        "[IBAN]",
-        "[NUMBER]",
-        "[NUMBER]",
-      ]);
-      const payload = JSON.stringify(sample);
-      expect(payload).not.toMatch(/\d{7,}/);
-      expect(payload).not.toContain("DE89");
+      expect(await proposeMapping(csv({ header: wrongGuess }), { client })).toBeNull();
+      expect(client.requests).toHaveLength(0);
     });
 
-    it("discards an answer that names a masked header, as the file has no such column", async () => {
-      const answer = { ...goodAnswer, columns: { ...goodAnswer.columns, amount: "[NUMBER]" } };
+    it("sends nothing for a file with no header line, whose first data row is taken for it", async () => {
+      const client = fakeClient(goodAnswer);
+      const bytes = new TextEncoder().encode(dataRows.map((row) => row.cells.join(";")).join("\n"));
 
-      expect(
-        await proposeMapping(csv({ header: wrongGuess }), { client: fakeClient(answer) }),
-      ).toBeNull();
+      expect(await proposeMapping(bytes, { client })).toBeNull();
+      expect(client.requests).toHaveLength(0);
     });
 
     it("keeps ordinary headers as they are", async () => {
@@ -434,7 +469,6 @@ describe("scrubCell", () => {
     ["a four-digit amount", "1234.56"],
     ["a six-digit amount", "123456"],
     ["a large formatted amount", "1,234,567.89"],
-    ["a currency code", "EUR"],
     ["an empty cell", ""],
   ])("keeps %s", (_name, cell) => {
     expect(scrubCell(cell)).toBe(cell);
@@ -450,6 +484,12 @@ describe("scrubCell", () => {
   it("does not take a three-letter word for a currency", () => {
     expect(scrubCell("ATM")).toBe("AAA");
     expect(scrubCell("FEE")).toBe("AAA");
+  });
+
+  it("masks a currency-code-shaped word, which only a coded column sends as it is", () => {
+    expect(scrubCell("TOP")).toBe("AAA");
+    expect(scrubCell("ALL")).toBe("AAA");
+    expect(scrubCell("EUR")).toBe("AAA");
   });
 
   it("bounds the length of a shape", () => {
