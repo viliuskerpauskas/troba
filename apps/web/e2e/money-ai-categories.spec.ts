@@ -191,6 +191,137 @@ test("dismisses a suggestion, asks again, accepts all after a confirmation, and 
   await expect(list.locator(":focus")).toHaveCount(0);
 });
 
+// What the import result and the list say when no suggestion could be made: the daily limit is
+// spent, the model is unavailable, or the user turned the feature off. In none of them does a
+// row get a suggestion.
+
+const listSuggestionsStatus = (page: Page) =>
+  page.locator("form", { has: page.getByRole("button", { name: "Suggest categories" }) });
+
+test("says the daily limit is reached, after an import and on the list, and suggests nothing", async ({
+  page,
+}) => {
+  const user = {
+    email: "e2e-ai-categories-capped@example.test",
+    name: "Casey Example",
+    ip: "198.51.100.33",
+  };
+  await signIn(page, user);
+  // The day's allowance is spent before anything is imported, whatever the server's limit is.
+  await db().$client.query(
+    "insert into money_ai_categorize_uses (user_id, merchants) select id, 100000 from users where email = $1",
+    [user.email],
+  );
+
+  await importStatement(page, statement);
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported 8 transactions into Example Bank current.",
+  );
+  const note =
+    "The daily limit on AI suggestions is reached, so the rest stay uncategorized for now.";
+  await expect(page.locator("p:not(.sr-only)", { hasText: note })).toBeVisible();
+  await expect(page.locator('p[aria-live="polite"]')).toHaveText(note);
+
+  await page.goto("/money/transactions");
+  await page.getByRole("button", { name: "Suggest categories" }).click();
+  await expect(listSuggestionsStatus(page).getByRole("status")).toHaveText(
+    "The daily limit on AI suggestions is reached, so these transactions stay uncategorized for now. Try again later.",
+  );
+  await expect(page.getByText("suggested:")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Suggestions waiting" })).toHaveCount(0);
+});
+
+test("says suggestions aren't available when the model fails, after an import and on the list", async ({
+  page,
+}) => {
+  await signIn(page, {
+    email: "e2e-ai-categories-unavailable@example.test",
+    name: "Riley Example",
+    ip: "198.51.100.34",
+  });
+  // e2e/fake-openai.ts fails every categorization request that carries this merchant.
+  const outage = {
+    ...statement,
+    buffer: Buffer.from(
+      statement.buffer.toString("utf8").replace('"EXAMPLE STREAMING"', '"EXAMPLE OUTAGE"'),
+    ),
+  };
+
+  await importStatement(page, outage);
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported 8 transactions into Example Bank current.",
+  );
+  const note =
+    "AI category suggestions aren't available right now. The import is saved; try Suggest categories on the transactions list later.";
+  await expect(page.locator("p:not(.sr-only)", { hasText: note })).toBeVisible();
+  await expect(page.locator('p[aria-live="polite"]')).toHaveText(note);
+
+  await page.goto("/money/transactions");
+  await expect(
+    page.getByRole("list", { name: "Transactions, newest first" }).getByRole("listitem"),
+  ).toHaveCount(8);
+  await page.getByRole("button", { name: "Suggest categories" }).click();
+  await expect(listSuggestionsStatus(page).getByRole("status")).toHaveText(
+    "Suggestions aren't available right now. Nothing was changed, so try again later.",
+  );
+  await expect(page.getByText("suggested:")).toHaveCount(0);
+});
+
+test("says nothing about AI suggestions, and offers none, to a user who turned them off", async ({
+  page,
+}) => {
+  await signIn(page, {
+    email: "e2e-ai-categories-off@example.test",
+    name: "Morgan Example",
+    ip: "198.51.100.35",
+  });
+  await page.goto("/settings");
+  const settings = page.getByRole("region", { name: "AI suggestions" });
+  await settings.getByLabel("Suggest categories with AI").uncheck();
+  await settings.getByRole("button", { name: "Save" }).click();
+  await expect(settings.getByRole("status")).toHaveText("AI suggestions are off. Nothing is sent.");
+
+  await page.goto("/money");
+  await page.getByRole("link", { name: "Import a bank statement" }).click();
+  // The upload step, once it is there, doesn't say anything would be sent.
+  await expect(page.getByLabel("Statement file from your bank")).toBeVisible();
+  await expect(page.locator("#import-categorize-disclosure")).toHaveCount(0);
+  await importStatement(page, statement, { fromUploadStep: true });
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported 8 transactions into Example Bank current.",
+  );
+  // No note at all: not even that nothing was suggested. GROCERY MART is the merchant the fake
+  // model places, so a suggestion on it would mean its text was sent.
+  await expect(page.locator('p[aria-live="polite"]')).toHaveText("");
+  await expect(page.getByText(/\bAI\b/)).toHaveCount(0);
+
+  await page.goto("/money/transactions");
+  const list = page.getByRole("list", { name: "Transactions, newest first" });
+  await expect(list.getByRole("listitem")).toHaveCount(8);
+  await expect(list.getByRole("listitem").filter({ hasText: "GROCERY MART" })).toContainText(
+    "Uncategorized",
+  );
+  await expect(page.getByText("suggested:")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Suggest categories" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ask again" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Suggestions waiting" })).toHaveCount(0);
+});
+
+// Uploads the file with a new account and imports its 8 rows, from the money page or, with
+// fromUploadStep, from the import page already open.
+async function importStatement(
+  page: Page,
+  file: typeof statement,
+  { fromUploadStep = false } = {},
+) {
+  if (!fromUploadStep) await page.getByRole("link", { name: "Import a bank statement" }).click();
+  await page.getByLabel("Statement file from your bank").setInputFiles(file);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByLabel("Account name").fill("Example Bank current");
+  await page.getByRole("button", { name: "Create the account and preview" }).click();
+  await page.getByRole("button", { name: "Import 8 transactions" }).click();
+}
+
 // The month the fixture's rows are in, as the report shows it.
 async function openReport(page: Page) {
   await page.goto("/money/report?month=2026-09");

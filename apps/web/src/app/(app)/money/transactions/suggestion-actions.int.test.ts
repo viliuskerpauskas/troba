@@ -1,6 +1,4 @@
 import {
-  ensureMoneyDefaults,
-  listAccounts,
   listCategories,
   listTransactions,
   setAiCategorization,
@@ -8,6 +6,12 @@ import {
   type CategorizationRequest,
 } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  recordingModel,
+  type MoneyUser,
+} from "@troba/core/test-ai-categories";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,22 +42,12 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
 let actions: typeof import("./suggestion-actions");
-let userCount = 0;
-let rowCount = 0;
 
 type Answer = (request: CategorizationRequest) => unknown;
 
 // Records what it was asked and answers as told; an Error is thrown.
 function fakeModel(answer: Answer | Error) {
-  const requests: CategorizationRequest[] = [];
-  const client: CategorizationModelClient = {
-    async suggestCategories(request) {
-      requests.push(request);
-      if (answer instanceof Error) throw answer;
-      return answer(request);
-    },
-  };
-  return { client, requests };
+  return recordingModel(answer);
 }
 
 // Puts every merchant in the named category.
@@ -66,28 +60,12 @@ function everythingIn(categoryName: string): Answer {
   });
 }
 
-async function createUser(name: string) {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name, email: `suggest-action${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  await ensureMoneyDefaults(db, user!.id);
-  const [cash] = await listAccounts(db, user!.id);
-  return { userId: user!.id, cashId: cash!.id };
+function createUser(name: string) {
+  return createMoneyUser(db, name);
 }
 
-async function importedRow(user: { userId: string; cashId: string }, counterparty: string) {
-  await db.insert(schema.moneyTransactions).values({
-    userId: user.userId,
-    accountId: user.cashId,
-    bookedOn: "2026-10-05",
-    amountCents: -1250n,
-    currency: "EUR",
-    source: "csv_import",
-    dedupKey: `action-row-${++rowCount}`,
-    counterparty,
-    description: "CARD PAYMENT",
-  });
+async function importedRow(user: MoneyUser, counterparty: string) {
+  await insertImportedRows(db, user, [{ counterparty, description: "CARD PAYMENT" }]);
 }
 
 beforeAll(async () => {
@@ -305,5 +283,93 @@ describe("suggestCategoriesAction", () => {
     const served = await actions.suggestCategoriesAction();
     expect(served).toEqual({ status: "suggested", message: "1 transaction has a suggestion." });
     expect(model.requests).toHaveLength(1);
+  });
+});
+
+// ADR-0016: the merchant text sent and the model's answer are a user's data, so no part of the
+// exchange is logged, on any path. The real OpenAI client and transport run here, behind a fake
+// fetch, and every way the process prints is watched: the console and stdout and stderr, which a
+// logger writes to.
+describe("what the model exchange leaves in the logs", () => {
+  // Runs the call with every way of printing replaced, and returns what was written meanwhile.
+  async function watchingOutput<T>(
+    run: () => Promise<T>,
+  ): Promise<{ value: T; written: unknown[][] }> {
+    const spies = [
+      ...(["log", "info", "warn", "error", "debug", "trace"] as const).map((method) =>
+        vi.spyOn(console, method).mockImplementation(() => {}),
+      ),
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true),
+    ];
+    try {
+      const value = await run();
+      return { value, written: spies.flatMap((spy) => [...spy.mock.calls]) };
+    } finally {
+      // After the calls are read: restoring a spy clears them.
+      for (const spy of spies) spy.mockRestore();
+    }
+  }
+
+  // The request's own text, echoed back the way an error page or a proxy might.
+  const echo = (init: RequestInit | undefined) => String(init?.body);
+
+  function answering(text: string) {
+    return Response.json({
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text }] }],
+    });
+  }
+
+  it.each<[string, typeof fetch, "failed" | "none"]>([
+    [
+      "the call fails with a body that quotes the request",
+      async (_url, init) => Response.json({ error: { message: echo(init) } }, { status: 500 }),
+      "failed",
+    ],
+    [
+      "the network fails with an error that quotes the request",
+      async (_url, init) => {
+        throw new TypeError(`fetch failed: ${echo(init)}`);
+      },
+      "failed",
+    ],
+    [
+      "the answer is garbage in the merchant's words",
+      async () => answering(JSON.stringify({ answers: "GROCERY MART is Food" })),
+      "failed",
+    ],
+    [
+      "the answer names merchants and categories it wasn't given",
+      async () =>
+        answering(JSON.stringify({ answers: [{ merchant: "GROCERY MART", category: "Food" }] })),
+      "none",
+    ],
+    ["the answer is not JSON", async () => answering("GROCERY MART: Food"), "failed"],
+  ])("writes nothing when %s", async (_name, fetchImpl, status) => {
+    const { createOpenAiCategorizationClient } = await vi.importActual<
+      typeof import("@/server/openai-categorization")
+    >("@/server/openai-categorization");
+    server.client = createOpenAiCategorizationClient(
+      { apiKey: "sk-test-not-a-real-key", model: "test-model" },
+      vi.fn(fetchImpl),
+    );
+    await importedRow(user, "GROCERY MART");
+
+    const { value: state, written } = await watchingOutput(() => actions.suggestCategoriesAction());
+
+    expect(written).toEqual([]);
+    // The run went the way the case says, so the silence is about that path.
+    expect(state.status).toBe(status);
+  });
+
+  it("writes nothing when the model client itself throws with the merchant's text", async () => {
+    server.client = fakeModel(new Error("could not place GROCERY MART")).client;
+    await importedRow(user, "GROCERY MART");
+
+    const { value: state, written } = await watchingOutput(() => actions.suggestCategoriesAction());
+
+    expect(written).toEqual([]);
+    expect(state.status).toBe("failed");
   });
 });

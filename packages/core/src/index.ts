@@ -18,6 +18,7 @@ export * from "./money/categories";
 export * from "./money/cents";
 export * from "./money/defaults";
 export * from "./money/iban";
+export * from "./money/merchant-key";
 export * from "./money/import/ai-mapping";
 export * from "./money/import/ai-mapping-limit";
 export * from "./money/import/csv";

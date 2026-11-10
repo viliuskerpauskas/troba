@@ -77,46 +77,45 @@ describe("createOpenAiCategorizationClient", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  // Each failure has one fixed sentence, at most with the HTTP status: nothing of the response
+  // body, the network error, the request or the key can reach the error, whatever words they hold.
   it.each([
-    ["an HTTP error", respond({ error: { message: "Weekly shopping" } }, { status: 429 })],
-    ["a refusal", respond(message({ type: "refusal", refusal: "no" }))],
-    ["no text", respond({ status: "completed", output: [] })],
+    [
+      "an HTTP error",
+      respond({ error: { message: "Weekly shopping" } }, { status: 429 }),
+      "OpenAI answered HTTP 429.",
+    ],
+    ["a refusal", respond(message({ type: "refusal", refusal: "no" })), "OpenAI refused."],
+    ["no text", respond({ status: "completed", output: [] }), "OpenAI's answer had no text."],
     [
       "an incomplete answer",
       respond({ ...message({ type: "output_text", text: "{}" }), status: "incomplete" }),
+      "OpenAI's answer was incomplete.",
     ],
-    ["text that is not JSON", respond(message({ type: "output_text", text: "Maple Street" }))],
-    ["a body that is not JSON", vi.fn<typeof fetch>().mockResolvedValue(new Response("<html>"))],
-  ])("rejects on %s, with an error that quotes nothing", async (_name, fetchMock) => {
+    [
+      "text that is not JSON",
+      respond(message({ type: "output_text", text: "Maple Street" })),
+      "OpenAI's answer was not JSON.",
+    ],
+    [
+      "a body that is not JSON",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("<html>")),
+      "OpenAI's answer had no text.",
+    ],
+    [
+      "a network failure",
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError("fetch failed for GROCERY MART")),
+      "The request to OpenAI failed.",
+    ],
+  ])("rejects on %s with only its fixed message", async (_name, fetchMock, expected) => {
     const error = await createOpenAiCategorizationClient(config, fetchMock)
       .suggestCategories(request)
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).not.toMatch(/Weekly|Maple|html|sk-test|GROCERY/);
-  });
-
-  it("carries the HTTP status of a failed call, and nothing else of the body", async () => {
-    const fetchMock = respond({ error: { message: "Weekly shopping" } }, { status: 429 });
-
-    const error = await createOpenAiCategorizationClient(config, fetchMock)
-      .suggestCategories(request)
-      .catch((e: unknown) => e);
-
-    expect((error as Error).message).toContain("429");
-  });
-
-  it("rejects when the network fails, without the network error's message", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockRejectedValue(new TypeError("fetch failed for GROCERY MART"));
-
-    const error = await createOpenAiCategorizationClient(config, fetchMock)
-      .suggestCategories(request)
-      .catch((e: unknown) => e);
-
-    expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).not.toMatch(/GROCERY/);
+    expect((error as Error).message).toBe(expected);
+    // A cause would carry the original error, and its text, to whatever prints this one.
+    expect((error as Error).cause).toBeUndefined();
   });
 });
 

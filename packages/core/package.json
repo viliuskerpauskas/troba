@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./file-kinds": "./src/money/import/file-kinds.ts",
-    "./test-spreadsheet": "./src/money/import/spreadsheet-fixture.ts"
+    "./test-spreadsheet": "./src/money/import/spreadsheet-fixture.ts",
+    "./test-ai-categories": "./src/money/ai-categories-fixture.ts"
   },
   "dependencies": {
     "@troba/db": "workspace:*",
