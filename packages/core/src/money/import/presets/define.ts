@@ -13,7 +13,17 @@ const presetFields = z.strictObject({
   headers: z.array(z.string().min(1).max(200)).min(1).max(100),
   // Its name is what the user sees, on the profile they get a copy of.
   profile: importProfileSchema,
+  // The bank's own colors for the profile's badge: a background and a text color on it, which
+  // together must be readable (4.5:1). Hex only, since the page puts them in a style attribute.
+  brand: z
+    .strictObject({
+      background: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      foreground: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    })
+    .optional(),
 });
+
+export type PresetBrand = NonNullable<z.infer<typeof presetFields>["brand"]>;
 
 export const importPresetSchema = presetFields.superRefine((preset, ctx) => {
   if (new Set(preset.headers).size !== preset.headers.length)

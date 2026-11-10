@@ -43,10 +43,10 @@ test("suggests a category after an import, changes nothing until it is accepted,
   // The upload step says what would be sent, and the file input points at it.
   const disclosure = page.locator("#import-categorize-disclosure");
   await expect(disclosure).toContainText(
-    "After the import is saved, the counterparty and description of the new transactions that no rule matched are sent to OpenAI",
+    "After the import is saved, the counterparty and description of the new transactions that no rule matched are sent to an AI service",
   );
   await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
-    /sent to OpenAI/,
+    /sent to an AI service/,
   );
   await page.getByLabel("CSV file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();

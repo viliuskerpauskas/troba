@@ -42,10 +42,19 @@ export const failureReasons: Record<ImportRowFailure["reason"], string> = {
   "currency-mismatch": "the row's currency isn't the account's",
 };
 
-// How the AI suggestion for an unknown format went, shown above the mapping form: "ai" when the
-// form is filled from its proposal, "unavailable" when the model was asked and gave nothing usable,
-// "capped" when the user had used up the day's mappings and it was not asked.
-export const suggestions = ["ai", "unavailable", "capped"] as const;
+// Why the mapping form opened the way it did for a file no profile fits, shown above it: "ai" when
+// the form is filled from the model's proposal, "unavailable" when the model was asked and gave
+// nothing usable, "capped" when the user had used up the day's mappings and it was not asked,
+// "off" when the server has no model, "no-rows" when the file had no rows to send, and
+// "profile-limit" when a preset knows the file but the user has no room for its copy.
+export const suggestions = [
+  "ai",
+  "unavailable",
+  "capped",
+  "off",
+  "no-rows",
+  "profile-limit",
+] as const;
 export type Suggestion = (typeof suggestions)[number];
 
 export const suggestionNotes: Record<Suggestion, { lead?: string; text: string }> = {
@@ -59,6 +68,34 @@ export const suggestionNotes: Record<Suggestion, { lead?: string; text: string }
   capped: {
     text: "You've used today's AI mapping suggestions, so the form is blank. Fill it in below, or try again tomorrow.",
   },
+  off: {
+    text: "AI mapping suggestions are off on this server, so the form is blank. Fill it in below.",
+  },
+  "no-rows": {
+    text: "troba found no rows under the column names to show AI, so the form is blank. Check the lines above the header, then fill it in below.",
+  },
+  "profile-limit": {
+    lead: "This file matches a built-in bank format,",
+    text: "but you already have as many import profiles as troba keeps, so it can't be saved as a new one.",
+  },
+};
+
+// How the preview's profile was found from the file's columns: one of the user's own profiles, or
+// a built-in preset that has just been copied into them. Absent when the user saved or edited the
+// profile on the way here, since then they chose it.
+export const formatSources = ["saved", "preset"] as const;
+export type FormatSource = (typeof formatSources)[number];
+
+// The badge beside the profile's name, and the sentence screen readers hear when the preview arrives.
+export const formatSourceBadges: Record<FormatSource, string> = {
+  saved: "Your profile",
+  preset: "Built-in bank format",
+};
+
+export const formatSourceNotes: Record<FormatSource, string> = {
+  saved: "Recognized by its columns as one of your import profiles.",
+  preset:
+    "Recognized by its columns as a built-in bank format. It's now saved in your import profiles, so you can edit it.",
 };
 
 // The one-line note under the import result about the AI category suggestions (ADR-0016), or null

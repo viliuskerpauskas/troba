@@ -30,8 +30,9 @@ export function AiCategorizationForm({ enabled }: { enabled: boolean }) {
           </label>
           <p id="ai-categorization-help" className="text-sm text-muted-foreground">
             When on, the counterparty and description of your uncategorized imported transactions
-            are sent to OpenAI, with your own name and account numbers masked, so it can suggest a
-            category. Turn it off and nothing of yours is sent. Suggestions you already have stay.
+            are sent to an AI service, with your own name and account numbers masked, so it can
+            suggest a category. Turn it off and nothing of yours is sent. Suggestions you already
+            have stay.
           </p>
         </div>
       </div>

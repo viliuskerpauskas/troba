@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readCsv, readCsvHeaders } from "../csv";
 import { headerFingerprint, parseRows } from "../profile";
-import { definePreset, importPresets } from ".";
+import { definePreset, importPresets, presetBrand } from ".";
 
 const example = {
   id: "example-bank",
@@ -42,6 +42,37 @@ describe("definePreset", () => {
   it("rejects a header listed twice and an id that isn't kebab-case", () => {
     expect(() => definePreset({ ...example, headers: [...example.headers, "Date"] })).toThrow();
     expect(() => definePreset({ ...example, id: "Example Bank" })).toThrow();
+  });
+
+  it("takes badge colors as six-digit hex, and nothing else", () => {
+    const brand = { background: "#112233", foreground: "#FFFFFF" };
+    expect(definePreset({ ...example, brand }).brand).toEqual(brand);
+    expect(() =>
+      definePreset({ ...example, brand: { ...brand, background: "red; x: url(y)" } }),
+    ).toThrow();
+  });
+});
+
+describe("presetBrand", () => {
+  const branded = importPresets.find((preset) => preset.brand)!;
+
+  it("gives a profile copied from a branded preset that preset's colors, whatever its name", () => {
+    const renamed = { ...branded.profile, name: "Renamed" };
+    expect(presetBrand(renamed)).toEqual(branded.brand);
+  });
+
+  it("matches the columns however their keys are ordered, as they come back from the database", () => {
+    const reordered = Object.fromEntries(
+      Object.entries(branded.profile.columns).reverse(),
+    ) as typeof branded.profile.columns;
+    expect(presetBrand({ columns: reordered })).toEqual(branded.brand);
+  });
+
+  it("gives no colors to a profile whose mapping differs from every preset", () => {
+    expect(presetBrand(example.profile)).toBeNull();
+    const fewer = { ...branded.profile.columns };
+    delete fewer.description;
+    expect(presetBrand({ columns: fewer })).toBeNull();
   });
 });
 

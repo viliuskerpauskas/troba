@@ -1,9 +1,4 @@
-import {
-  aiCategorizationEnabledFor,
-  dateFormats,
-  listImportProfiles,
-  maxImportFileBytes,
-} from "@troba/core";
+import { aiCategorizationEnabledFor, dateFormats, maxImportFileBytes } from "@troba/core";
 import type { Metadata } from "next";
 import { Page } from "@/components/page";
 import { db } from "@/server/db";
@@ -15,16 +10,12 @@ export const metadata: Metadata = { title: "Import · troba" };
 
 export default async function ImportPage() {
   const { userId } = await requireMoneyUser();
-  const [profiles, optedIn] = await Promise.all([
-    listImportProfiles(db(), userId),
-    aiCategorizationEnabledFor(db(), userId),
-  ]);
+  const optedIn = await aiCategorizationEnabledFor(db(), userId);
 
   return (
     <Page>
       <h1>Import a bank statement</h1>
       <ImportWizard
-        profiles={profiles.map(({ id, name }) => ({ id, name }))}
         dateFormats={dateFormats}
         maxBytes={maxImportFileBytes}
         aiEnabled={aiMappingEnabled()}
