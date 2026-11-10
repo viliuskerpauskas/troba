@@ -36,7 +36,8 @@ function suggestedMessage(rows: number): string {
 }
 
 // The button on the transactions list: asks about the signed-in user's eligible rows, a merchant
-// at a time (core caps and batches the run). Never throws: a failure leaves the rows as they were.
+// at a time (core caps and batches the run). A failed model call is a "failed" state and leaves
+// the rows as they were; a database error is not the model's and throws, like any other action's.
 export async function suggestCategoriesAction(): Promise<SuggestState> {
   const { userId } = await requireUser();
   // The user's own opt-out comes first: nothing is built, read or sent for them. Core checks it

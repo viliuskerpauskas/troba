@@ -45,6 +45,10 @@ const forbidden: RegExp[] = [
   /EXAMPLE LANDLORD|Savings round-up|EXAMPLE CLIENT|EXAMPLE EMPLOYER/i,
 ];
 
+// A fictional merchant that stands for an outage: a categorization request that carries it fails
+// like an unavailable service, so e2e/money-ai-categories.spec.ts can show what the user is told.
+const outageMerchant = "EXAMPLE OUTAGE";
+
 // Answers a categorization request the way a model would for the one merchant it knows: GROCERY
 // MART is Food, anything else "none".
 function categorize(input: string): Response {
@@ -54,6 +58,9 @@ function categorize(input: string): Response {
   };
   const sent = JSON.stringify(payload.merchants);
   if (forbidden.some((pattern) => pattern.test(sent))) return new Response("{}", { status: 400 });
+  if (payload.merchants.some((merchant) => merchant.counterparty === outageMerchant)) {
+    return new Response("{}", { status: 503 });
+  }
   const food = payload.categories.find((category) => category.name === "Food");
   const answers = payload.merchants.map((merchant) => ({
     merchant: merchant.id,

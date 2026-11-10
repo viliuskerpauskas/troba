@@ -1,8 +1,14 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAccounts } from "./accounts";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  readTransaction,
+  testAiCategorizeDailyLimit,
+  type MoneyUser,
+} from "./ai-categories-fixture";
 import {
   suggestCategories,
   type CategorizationModelClient,
@@ -15,8 +21,7 @@ import {
   dismissSuggestion,
   resetSuggestionAsks,
 } from "./ai-categories-review";
-import { deleteCategory, listCategories } from "./categories";
-import { ensureMoneyDefaults } from "./defaults";
+import { deleteCategory } from "./categories";
 import { monthlyReport } from "./report";
 import { updateTransaction } from "./transactions";
 
@@ -25,22 +30,9 @@ import { updateTransaction } from "./transactions";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
-let userCount = 0;
-let rowCount = 0;
 
-type TestUser = Awaited<ReturnType<typeof createUser>>;
-
-async function createUser() {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name: "Jordan Quinn", email: `review${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  const userId = user!.id;
-  await ensureMoneyDefaults(db, userId);
-  const [cash] = await listAccounts(db, userId);
-  const categories = await listCategories(db, userId);
-  const category = (name: string) => categories.find((c) => c.name === name)!.id;
-  return { userId, cashId: cash!.id, category };
+function createUser() {
+  return createMoneyUser(db);
 }
 
 type Row = {
@@ -53,25 +45,17 @@ type Row = {
   amountCents?: bigint;
 };
 
-async function insertRows(user: TestUser, rows: Row[]): Promise<string[]> {
-  const inserted = await db
-    .insert(schema.moneyTransactions)
-    .values(
-      rows.map(({ asked, ...row }) => ({
-        userId: user.userId,
-        accountId: user.cashId,
-        bookedOn: "2026-10-05",
-        amountCents: -1250n,
-        currency: "EUR",
-        source: "csv_import" as const,
-        dedupKey: `review-row-${++rowCount}`,
-        categorySource: row.categoryId ? ("rule" as const) : null,
-        suggestionAskedAt: asked || row.suggestedCategoryId ? new Date() : null,
-        ...row,
-      })),
-    )
-    .returning({ id: schema.moneyTransactions.id });
-  return inserted.map((row) => row.id);
+// Rows as the engine leaves them: `asked` marks one asked about, as a suggestion does.
+function insertRows(user: MoneyUser, rows: Row[]): Promise<string[]> {
+  return insertImportedRows(
+    db,
+    user,
+    rows.map(({ asked, ...row }) => ({
+      categorySource: row.categoryId ? ("rule" as const) : null,
+      suggestionAskedAt: asked || row.suggestedCategoryId ? new Date() : null,
+      ...row,
+    })),
+  );
 }
 
 // The month's EUR spending by category name (Uncategorized for none), in cents.
@@ -85,12 +69,8 @@ function spentBy(report: Awaited<ReturnType<typeof monthlyReport>>): Record<stri
   );
 }
 
-async function readRow(userId: string, id: string) {
-  const [row] = await db
-    .select()
-    .from(schema.moneyTransactions)
-    .where(and(eq(schema.moneyTransactions.id, id), eq(schema.moneyTransactions.userId, userId)));
-  return row!;
+function readRow(userId: string, id: string) {
+  return readTransaction(db, userId, id);
 }
 
 describe("reviewing suggested categories", () => {
@@ -270,7 +250,7 @@ describe("reviewing suggested categories", () => {
           return { answers: [] };
         },
       };
-      await suggestCategories(db, user.userId, { client });
+      await suggestCategories(db, user.userId, { dailyLimit: testAiCategorizeDailyLimit, client });
       expect(requests).toHaveLength(0);
     });
 
@@ -327,7 +307,10 @@ describe("reviewing suggested categories", () => {
           };
         },
       };
-      const result = await suggestCategories(db, user.userId, { client });
+      const result = await suggestCategories(db, user.userId, {
+        dailyLimit: testAiCategorizeDailyLimit,
+        client,
+      });
 
       expect(result).toEqual({ merchantsAsked: 2, rowsSuggested: 2, failed: false, capped: false });
       expect(
@@ -458,6 +441,97 @@ describe("reviewing suggested categories", () => {
         suggestedCategoryId: null,
       });
       expect(await readRow(user.userId, kept!)).toMatchObject({ categoryId: food });
+    });
+
+    // A category deleted while a page is applied makes the update fail the foreign key check
+    // (23503). The race can't be timed from a test, so the failure is injected: a trigger fails
+    // the first `failures` updates of money_transactions with the given SQLSTATE, and a sequence,
+    // which a rolled-back statement doesn't undo, counts every update attempted.
+    async function withFailingUpdates<T>(
+      failures: number,
+      sqlstate: string,
+      run: () => Promise<T>,
+    ): Promise<{ outcome: PromiseSettledResult<T>; attempts: number }> {
+      await db.execute(sql.raw(`create sequence accept_all_attempts`));
+      await db.execute(
+        sql.raw(`
+          create function fail_accept_all() returns trigger language plpgsql as $$
+          begin
+            if nextval('accept_all_attempts') <= ${failures} then
+              raise exception 'injected failure' using errcode = '${sqlstate}';
+            end if;
+            return null;
+          end $$`),
+      );
+      await db.execute(
+        sql.raw(`
+          create trigger fail_accept_all before update on money_transactions
+          for each statement execute function fail_accept_all()`),
+      );
+      try {
+        const [outcome] = await Promise.allSettled([run()]);
+        const result = await db.execute<{ attempts: string }>(
+          sql.raw(`select last_value as attempts from accept_all_attempts`),
+        );
+        return { outcome: outcome!, attempts: Number(result.rows[0]!.attempts) };
+      } finally {
+        await db.execute(sql.raw(`drop trigger fail_accept_all on money_transactions`));
+        await db.execute(sql.raw(`drop function fail_accept_all()`));
+        await db.execute(sql.raw(`drop sequence accept_all_attempts`));
+      }
+    }
+
+    it("tries a page again after a foreign key failure, and applies it", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const [market, books] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+        { counterparty: "BOOK NOOK", suggestedCategoryId: food },
+      ]);
+
+      const { outcome, attempts } = await withFailingUpdates(1, "23503", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome).toEqual({ status: "fulfilled", value: { rows: 2, merchants: 2 } });
+      expect(attempts).toBe(2);
+      expect(await readRow(user.userId, market!)).toMatchObject({ categoryId: food });
+      expect(await readRow(user.userId, books!)).toMatchObject({ categoryId: food });
+    });
+
+    it("gives up on a page after three foreign key failures, with the database's error", async () => {
+      const user = await createUser();
+      const food = user.category("Food");
+      const [market] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: food },
+      ]);
+
+      const { outcome, attempts } = await withFailingUpdates(10, "23503", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome).toMatchObject({ status: "rejected", reason: { cause: { code: "23503" } } });
+      expect(attempts).toBe(3);
+      expect(await readRow(user.userId, market!)).toMatchObject({
+        categoryId: null,
+        suggestedCategoryId: food,
+      });
+    });
+
+    it("does not try a page again after any other failure", async () => {
+      const user = await createUser();
+      const [market] = await insertRows(user, [
+        { counterparty: "GROCERY MART", suggestedCategoryId: user.category("Food") },
+      ]);
+
+      // A check constraint failing: not a race that a second attempt gets past.
+      const { outcome, attempts } = await withFailingUpdates(1, "23514", () =>
+        acceptAllSuggestions(db, user.userId),
+      );
+
+      expect(outcome.status).toBe("rejected");
+      expect(attempts).toBe(1);
+      expect(await readRow(user.userId, market!)).toMatchObject({ categoryId: null });
     });
 
     it("never touches another user's rows", async () => {

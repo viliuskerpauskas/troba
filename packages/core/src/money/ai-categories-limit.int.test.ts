@@ -1,25 +1,18 @@
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
-import { sql } from "drizzle-orm";
+import { ageAiUses, insertUser } from "./ai-categories-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { claimAiCategorizeMerchants } from "./ai-categories-limit";
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
-let userCount = 0;
 
-async function newUser(): Promise<string> {
-  const [user] = await db
-    .insert(schema.users)
-    .values({ name: "Example User", email: `catlimit${++userCount}@example.test` })
-    .returning({ id: schema.users.id });
-  return user!.id;
+function newUser(): Promise<string> {
+  return insertUser(db);
 }
 
-async function ageUses(userId: string, hours: number) {
-  await db.execute(
-    sql`update money_ai_categorize_uses set created_at = created_at - make_interval(hours => ${hours}) where user_id = ${userId}`,
-  );
+function ageUses(userId: string, hours: number) {
+  return ageAiUses(db, schema.moneyAiCategorizeUses, userId, hours);
 }
 
 describe("daily cap on AI-categorized merchants", () => {

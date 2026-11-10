@@ -70,6 +70,42 @@ describe("maskMerchantText", () => {
     );
   });
 
+  // ADR-0016, point 2: an IBAN is masked compact or in groups separated by single spaces, the way
+  // statements print one, and a long number only as 7 or more digits with no separator. A hyphen
+  // is neither, so a hyphenated IBAN passes: each hyphenated group is too short to be a long
+  // digit run, and the IBAN patterns take spaces only.
+  it("passes a hyphenated IBAN, which neither IBAN pattern nor the digit run takes", () => {
+    expect(maskMerchantText("to DE89-3704-0044-0532-0130-00 thanks", "X")).toBe(
+      "to DE89-3704-0044-0532-0130-00 thanks",
+    );
+  });
+
+  it("masks a hyphenated IBAN's part that is a long digit run on its own", () => {
+    expect(maskMerchantText("to DE89-370400440532013000", "X")).toBe("to DE89-[NUMBER]");
+  });
+
+  // The same rule for a card number: written in one run it is a long digit run, written in
+  // groups of four (spaces or hyphens) no group is, and no IBAN pattern fits a value that
+  // starts with digits.
+  it("masks a card number written in one run", () => {
+    expect(maskMerchantText("CARD 4000056655665556 GROCERY MART", "X")).toBe(
+      "CARD [NUMBER] GROCERY MART",
+    );
+  });
+
+  it("passes a card number written in groups of four", () => {
+    expect(maskMerchantText("CARD 4000 0566 5566 5556 GROCERY MART", "X")).toBe(
+      "CARD 4000 0566 5566 5556 GROCERY MART",
+    );
+    expect(maskMerchantText("CARD 4000-0566-5566-5556 GROCERY MART", "X")).toBe(
+      "CARD 4000-0566-5566-5556 GROCERY MART",
+    );
+  });
+
+  it("passes the masked card number a terminal prints", () => {
+    expect(maskMerchantText("CARD ****5556 GROCERY MART", "X")).toBe("CARD ****5556 GROCERY MART");
+  });
+
   it("masks digit runs of 7 or more and keeps shorter ones", () => {
     expect(maskMerchantText("CARD 1234567 GROCERY MART 24", "X")).toBe(
       "CARD [NUMBER] GROCERY MART 24",

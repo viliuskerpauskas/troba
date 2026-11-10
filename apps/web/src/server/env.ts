@@ -65,20 +65,26 @@ export function openAiConfig(): OpenAiConfig | null {
   return { apiKey, model: process.env.OPENAI_MODEL?.trim() || defaultOpenAiModel };
 }
 
-export function aiMappingEnabled(): boolean {
+// The one key switches on every AI feature; each has a name of its own so a caller says which one
+// it offers.
+function openAiKeySet(): boolean {
   return openAiConfig() !== null;
 }
 
-// The same key switches on AI-suggested transaction categories (ADR-0016): off, the transactions
-// list shows no button and says nothing about the feature.
-export function aiCategorizationEnabled(): boolean {
-  return openAiConfig() !== null;
-}
+export const aiMappingEnabled = openAiKeySet;
+
+// AI-suggested transaction categories (ADR-0016): off, the transactions list shows no button and
+// says nothing about the feature.
+export const aiCategorizationEnabled = openAiKeySet;
 
 // PDF statements are read by the model (ADR-0018), so PDF import exists only with a key: without
 // one, the import page doesn't offer PDF and a PDF upload is refused.
-export function pdfImportEnabled(): boolean {
-  return openAiConfig() !== null;
+export const pdfImportEnabled = openAiKeySet;
+
+// A daily limit from the environment: a whole number from 1 up, else the default.
+function dailyLimitFrom(name: string, defaultLimit: number): number {
+  const limit = Number(process.env[name]?.trim());
+  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultLimit;
 }
 
 // How many AI-suggested mappings one user gets in a day (ADR-0015), so one account can't run up the
@@ -87,19 +93,17 @@ export function pdfImportEnabled(): boolean {
 export const defaultAiMappingDailyLimit = 20;
 
 export function aiMappingDailyLimit(): number {
-  const limit = Number(process.env.AI_MAPPING_DAILY_LIMIT?.trim());
-  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiMappingDailyLimit;
+  return dailyLimitFrom("AI_MAPPING_DAILY_LIMIT", defaultAiMappingDailyLimit);
 }
 
 // How many merchants one user gets categorized by AI in a day (ADR-0016), counted in merchants, so
 // one account can't run up the owner's bill. AI_CATEGORIZE_DAILY_LIMIT overrides it; anything but a
-// whole number from 1 up is ignored.
-// Matches core's default for a caller that passes no limit; env.ts stays free of core imports.
+// whole number from 1 up is ignored. The default lives only here: core takes the limit from its
+// caller, as it does the AI mapping's.
 export const defaultAiCategorizeDailyLimit = 200;
 
 export function aiCategorizeDailyLimit(): number {
-  const limit = Number(process.env.AI_CATEGORIZE_DAILY_LIMIT?.trim());
-  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiCategorizeDailyLimit;
+  return dailyLimitFrom("AI_CATEGORIZE_DAILY_LIMIT", defaultAiCategorizeDailyLimit);
 }
 
 // How many PDF statements one user can have read by AI in a day (ADR-0018), so one account can't
@@ -108,6 +112,5 @@ export function aiCategorizeDailyLimit(): number {
 export const defaultAiPdfImportDailyLimit = 10;
 
 export function aiPdfImportDailyLimit(): number {
-  const limit = Number(process.env.AI_PDF_IMPORT_DAILY_LIMIT?.trim());
-  return Number.isSafeInteger(limit) && limit >= 1 ? limit : defaultAiPdfImportDailyLimit;
+  return dailyLimitFrom("AI_PDF_IMPORT_DAILY_LIMIT", defaultAiPdfImportDailyLimit);
 }
