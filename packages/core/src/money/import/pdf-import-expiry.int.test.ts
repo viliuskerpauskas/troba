@@ -28,8 +28,11 @@ const ownIban = "DE89370400440532013000";
 const hour = 60 * 60 * 1000;
 
 const statement = {
+  isStatement: true,
   accountIbans: [ownIban],
   currency: "EUR",
+  openingBalance: null,
+  closingBalance: null,
   transactions: [
     {
       bookingDate: "2026-03-02",

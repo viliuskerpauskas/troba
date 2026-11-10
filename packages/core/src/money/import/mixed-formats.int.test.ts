@@ -49,8 +49,11 @@ function csv(rows: Row[], iban = ownIban) {
 
 function answer(rows: Row[], iban = ownIban) {
   return {
+    isStatement: true,
     accountIbans: [iban],
     currency: "EUR",
+    openingBalance: null,
+    closingBalance: null,
     transactions: rows.map(([bookingDate, amount]) => ({
       bookingDate,
       amount,
