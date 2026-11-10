@@ -235,10 +235,10 @@ describe("startImportAction, for a file in an unknown format", () => {
     expect(state.values).toMatchObject({ "column.amount": "" });
   });
 
-  it("shows the plain form, with no note and no call, when no model is configured", async () => {
+  it("shows the plain form, with the AI-off note and no call, when no model is configured", async () => {
     const state = mapping(await actions.startImportAction(upload(unknownFile)));
 
-    expect(state.suggestion).toBeUndefined();
+    expect(state.suggestion).toBe("off");
     expect(state.values).toMatchObject({ "column.amount": "" });
   });
 });
@@ -319,14 +319,14 @@ describe("startImportAction, with the daily cap on AI mappings", () => {
     expect(model.requests).toHaveLength(1);
   });
 
-  it("shows the plain form with no note when no call was attempted, even with a model configured", async () => {
+  it("shows the plain form with the no-rows note when no call was attempted, even with a model configured", async () => {
     const model = fakeModel(goodAnswer);
     server.client = model.client;
     const headerOnly = new TextEncoder().encode("Posted,Amount,Payee\n");
 
     const state = mapping(await actions.startImportAction(upload(headerOnly)));
 
-    expect(state.suggestion).toBeUndefined();
+    expect(state.suggestion).toBe("no-rows");
     expect(model.requests).toHaveLength(0);
     expect(await usesOf(session.userId)).toEqual([]);
   });
@@ -357,6 +357,54 @@ describe("startImportAction, with the daily cap on AI mappings", () => {
   });
 });
 
+describe("startImportAction, for a file in a known format", () => {
+  it("says a preset recognized the file, and its copy is found as the user's own next time", async () => {
+    const profile = { name: importPresets[0].profile.name, brand: importPresets[0].brand ?? null };
+    expect(await actions.startImportAction(upload(presetFile))).toMatchObject({
+      step: "preview",
+      found: "preset",
+      profile,
+    });
+
+    // The copy, read back from the database, still has the preset's badge colors.
+    expect(await actions.startImportAction(upload(presetFile))).toMatchObject({
+      step: "preview",
+      found: "saved",
+      profile,
+    });
+  });
+
+  it("gives a profile the user mapped no bank colors", async () => {
+    server.client = fakeModel(goodAnswer).client;
+    const suggested = mapping(await actions.startImportAction(upload(unknownFile)));
+
+    expect(await actions.saveProfileAction(submitted(suggested, unknownFile))).toMatchObject({
+      step: "preview",
+      profile: { brand: null },
+    });
+  });
+
+  it("says nothing about how the format was found once the user saved the profile", async () => {
+    server.client = fakeModel(goodAnswer).client;
+    const suggested = mapping(await actions.startImportAction(upload(unknownFile)));
+
+    const saved = await actions.saveProfileAction(submitted(suggested, unknownFile));
+
+    expect(saved.step).toBe("preview");
+    expect(saved).not.toHaveProperty("found");
+  });
+
+  it("keeps how the format was found through the later preview steps, and drops a value it doesn't know", async () => {
+    const first = await actions.startImportAction(upload(presetFile));
+    if (first.step !== "preview") throw new Error(`expected the preview, got ${first.step}`);
+    const again = (found: string) =>
+      actions.previewImportAction(upload(presetFile, { profileId: first.profile.id, found }));
+
+    expect(await again("preset")).toMatchObject({ step: "preview", found: "preset" });
+    expect(await again("something else")).not.toHaveProperty("found");
+  });
+});
+
 describe("startImportAction, for everything else", () => {
   it("asks the model nothing about a preset's file", async () => {
     const model = fakeModel(goodAnswer);
@@ -382,20 +430,22 @@ describe("startImportAction, for everything else", () => {
 
     const state = mapping(await actions.startImportAction(upload(presetFile)));
 
-    expect(state.suggestion).toBeUndefined();
+    expect(state.suggestion).toBe("profile-limit");
     expect(model.requests).toEqual([]);
   });
 
-  it("asks the model nothing when the user picked a profile", async () => {
+  it("ignores a profile id it is sent and finds the format from the file", async () => {
     const model = fakeModel(goodAnswer);
     server.client = model.client;
 
-    const state = await actions.startImportAction(
-      upload(unknownFile, { profileId: "00000000-0000-4000-8000-000000000000" }),
+    const state = mapping(
+      await actions.startImportAction(
+        upload(unknownFile, { profileId: "00000000-0000-4000-8000-000000000000" }),
+      ),
     );
 
-    expect(state.step).toBe("upload");
-    expect(model.requests).toEqual([]);
+    expect(state.suggestion).toBe("ai");
+    expect(model.requests).toHaveLength(1);
   });
 
   it.each([

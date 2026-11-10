@@ -8,6 +8,7 @@ import {
   isCsvUpload,
   listAccounts,
   maxImportFileBytes,
+  presetBrand,
   previewImport,
   proposeMappingWithinLimit,
   readCsv,
@@ -20,9 +21,9 @@ import {
   type ImportInput,
   type ImportRefusal,
   type ImportRowFailure,
+  type PresetBrand,
   type PreviewImportResult,
   type ReadCsvOptions,
-  type ResolvedImportFormat,
   type SavedImportProfile,
 } from "@troba/core";
 import { revalidatePath } from "next/cache";
@@ -33,12 +34,14 @@ import { requireMoneyUser } from "@/server/money";
 import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
 import {
+  formatSources,
   notCsvMessage,
   problemMessages,
   readErrors,
   startAgainMessage,
   suggestions,
   tooLargeMessage,
+  type FormatSource,
   type Suggestion,
 } from "./messages";
 import {
@@ -72,14 +75,17 @@ export type ImportState =
       values: ProfileFormValues;
       // The profile being edited; null for a new one.
       profileId: string | null;
-      // Set for a format troba didn't know, when a model call was attempted or refused by the daily
-      // cap (see Suggestion). Absent when the AI is off or nothing was sent.
+      // Set for a file no profile fits: how the form came to be filled or blank (see Suggestion).
+      // Absent when the user is editing a profile.
       suggestion?: Suggestion;
       error?: string;
     }
   | {
       step: "preview";
-      profile: { id: string; name: string };
+      // brand: the colors of the bank preset the profile was copied from, for its badge.
+      profile: { id: string; name: string; brand: PresetBrand | null };
+      // How the profile was found from the file's columns (see FormatSource).
+      found?: FormatSource;
       accountId: string | null;
       preview: PreviewView;
       error?: string;
@@ -121,6 +127,8 @@ const OptionalId = z.union([z.uuid(), z.literal("")]).transform((id) => id || nu
 const AccountName = z.string().trim().min(1).max(100);
 // The mapping form sends its note along, so that it stays while the user works on the form.
 const SuggestionField = z.enum(suggestions).optional().catch(undefined);
+// The preview sends how its profile was found, for the same reason.
+const FoundField = z.enum(formatSources).optional().catch(undefined);
 
 const tooLarge = tooLargeMessage(maxImportFileBytes);
 
@@ -141,21 +149,11 @@ export async function startImportAction(formData: FormData): Promise<ImportState
   const { userId } = await requireMoneyUser();
   const upload = await readUpload(formData);
   if ("error" in upload) return { step: "upload", error: upload.error };
-  const profileId = OptionalId.safeParse(formData.get("profileId") ?? "");
-  if (!profileId.success) return { step: "upload", error: startAgainMessage };
 
-  // A picked profile, else the format found from the file: the user's own profile or a preset.
-  let profile: SavedImportProfile | null = null;
-  let unknown: Extract<ResolvedImportFormat, { kind: "unknown" }> | null = null;
-  if (profileId.data) {
-    profile = await getImportProfile(db(), userId, profileId.data);
-    if (!profile) return { step: "upload", error: startAgainMessage };
-  } else {
-    const resolved = await resolveImportFormat(db(), userId, upload.bytes);
-    if (resolved.kind === "profile") profile = resolved.profile;
-    else unknown = resolved;
-  }
-  if (profile) return previewState(userId, profile, upload, null);
+  // The file's columns decide: the user's own profile, else a preset (now copied into theirs).
+  const resolved = await resolveImportFormat(db(), userId, upload.bytes);
+  if (resolved.kind === "profile")
+    return previewState(userId, resolved.profile, upload, null, resolved.source);
 
   // An unknown format: the mapping step, filled in by the AI when it can, else starting from what
   // the file itself shows. A preset's file is not unknown (only the profile limit kept its copy
@@ -168,11 +166,14 @@ export async function startImportAction(formData: FormData): Promise<ImportState
     decimalSeparator: ".",
     dateFormat: "YYYY-MM-DD",
   };
-  const plainState = () => mappingState(upload, plain, null, { encoding: "utf-8" });
-  if (unknown?.reason !== "no-match") return plainState();
+  const plainState = (suggestion: Suggestion) =>
+    mappingState(upload, plain, null, { encoding: "utf-8" }, suggestion);
+  if (resolved.reason === "profile-limit") return plainState("profile-limit");
 
+  const client = mappingModelClient();
+  if (!client) return plainState("off");
   const result = await proposeMappingWithinLimit(db(), userId, upload.bytes, {
-    client: mappingModelClient(),
+    client,
     dailyLimit: aiMappingDailyLimit(),
     read: { encoding: "utf-8" },
   });
@@ -184,9 +185,10 @@ export async function startImportAction(formData: FormData): Promise<ImportState
     }
     case "unavailable":
     case "capped":
-      return { ...plainState(), suggestion: result.status };
+      return plainState(result.status);
+    // With a client configured, nothing was sent because the file had no rows to sample.
     case "not-asked":
-      return plainState();
+      return plainState("no-rows");
     default:
       return assertNever(result);
   }
@@ -270,7 +272,7 @@ export async function previewImportAction(formData: FormData): Promise<ImportSta
   const { userId } = await requireMoneyUser();
   const input = await readPreviewInput(userId, formData);
   if ("error" in input) return { step: "upload", error: input.error };
-  return previewState(userId, input.profile, input.upload, input.accountId);
+  return previewState(userId, input.profile, input.upload, input.accountId, input.found);
 }
 
 // The preview offered a bank account for the file's own IBAN.
@@ -280,7 +282,7 @@ export async function createImportAccountAction(formData: FormData): Promise<Imp
   if ("error" in input) return { step: "upload", error: input.error };
   const name = AccountName.safeParse(formData.get("accountName"));
   if (!name.success) {
-    const state = await previewState(userId, input.profile, input.upload, null);
+    const state = await previewState(userId, input.profile, input.upload, null, input.found);
     return { ...state, error: "Enter a name for the account, up to 100 characters." };
   }
 
@@ -291,7 +293,7 @@ export async function createImportAccountAction(formData: FormData): Promise<Imp
   });
   if (created.ok) revalidatePath("/money/accounts");
   // Refused or not: the preview shows where the file stands now.
-  return previewState(userId, input.profile, input.upload, null);
+  return previewState(userId, input.profile, input.upload, null, input.found);
 }
 
 export async function commitImportAction(formData: FormData): Promise<ImportState> {
@@ -300,7 +302,8 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   if ("error" in input) return { step: "upload", error: input.error };
   const result = await commitImport(db(), userId, importInput(input));
   // The file was refused after the preview accepted it: show the preview again, which says why.
-  if (!result.ok) return previewState(userId, input.profile, input.upload, input.accountId);
+  if (!result.ok)
+    return previewState(userId, input.profile, input.upload, input.accountId, input.found);
 
   // The import is committed, and nothing from here can undo or fail it. The model is asked for at
   // most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
@@ -325,10 +328,15 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   };
 }
 
-type PreviewInput = { upload: Upload; profile: SavedImportProfile; accountId: string | null };
+type PreviewInput = {
+  upload: Upload;
+  profile: SavedImportProfile;
+  accountId: string | null;
+  found?: FormatSource;
+};
 
-// What preview, account creation and commit are sent: the file, its saved profile and the
-// account picked, if any.
+// What preview, account creation and commit are sent: the file, its saved profile, the account
+// picked, if any, and how the profile was found.
 async function readPreviewInput(
   userId: string,
   formData: FormData,
@@ -340,7 +348,8 @@ async function readPreviewInput(
   if (!profileId.success || !accountId.success) return { error: startAgainMessage };
   const profile = await getImportProfile(db(), userId, profileId.data);
   if (!profile) return { error: startAgainMessage };
-  return { upload, profile, accountId: accountId.data };
+  const found = FoundField.parse(formData.get("found") ?? undefined);
+  return { upload, profile, accountId: accountId.data, ...(found && { found }) };
 }
 
 function importInput({ upload, profile, accountId }: PreviewInput): ImportInput {
@@ -352,11 +361,13 @@ async function previewState(
   profile: SavedImportProfile,
   upload: Upload,
   accountId: string | null,
+  found?: FormatSource,
 ): Promise<Extract<ImportState, { step: "preview" }>> {
   const result = await previewImport(db(), userId, importInput({ upload, profile, accountId }));
   return {
     step: "preview",
-    profile: { id: profile.id, name: profile.name },
+    profile: { id: profile.id, name: profile.name, brand: presetBrand(profile) },
+    ...(found && { found }),
     accountId,
     preview: await previewView(userId, result),
   };

@@ -49,4 +49,6 @@ export default definePreset({
     },
     debitValues: ["D"],
   },
+  // SEB green with near-black text (about 10:1); white on that green would be under 2:1.
+  brand: { background: "#60CD18", foreground: "#0B1F00" },
 });

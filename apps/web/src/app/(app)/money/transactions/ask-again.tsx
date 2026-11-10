@@ -22,14 +22,14 @@ export function AskAgain({ enabled }: { enabled: boolean }) {
           variant="outline"
           disabled={pending}
           aria-describedby={descriptionId}
-          className="h-11 px-4 sm:h-8 sm:px-2.5"
+          className="h-11 px-4 sm:h-10"
         >
           {pending ? "Asking again…" : "Ask again"}
         </Button>
       </div>
       <p id={descriptionId} className="text-sm text-muted-foreground">
-        Sends the merchants you dismissed, or the model couldn&apos;t place, to OpenAI once more,
-        for example after you add a category. The same masking applies.
+        Sends the merchants you dismissed, or the model couldn&apos;t place, to the AI service once
+        more, for example after you add a category. The same masking applies.
       </p>
       <FormStatus>{state.message}</FormStatus>
     </form>

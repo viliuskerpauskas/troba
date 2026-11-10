@@ -21,11 +21,11 @@ export function SuggestCategories({ enabled }: { enabled: boolean }) {
         </Button>
       </div>
       <p id={disclosureId} className="text-sm text-muted-foreground">
-        Sends the counterparty and description of your uncategorized imported transactions to
-        OpenAI, with your own name and account numbers masked. Rows that show the other party&apos;s
-        IBAN (transfers) are not sent. A payment to a person that shows no IBAN is sent, and a name
-        inside a merchant string might get through. A suggestion only appears beside a transaction;
-        it never changes its category.
+        Sends the counterparty and description of your uncategorized imported transactions to an AI
+        service, with your own name and account numbers masked. Rows that show the other
+        party&apos;s IBAN (transfers) are not sent. A payment to a person that shows no IBAN is
+        sent, and a name inside a merchant string might get through. A suggestion only appears
+        beside a transaction; it never changes its category.
       </p>
       {/* Always rendered, so a screen reader announces the text when it arrives. */}
       <FormStatus>{state.message}</FormStatus>

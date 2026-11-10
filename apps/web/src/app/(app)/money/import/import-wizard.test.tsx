@@ -17,7 +17,6 @@ vi.mock("./actions", () => ({
 const upload = (aiEnabled: boolean, categorizeEnabled = false) =>
   renderToStaticMarkup(
     <ImportWizard
-      profiles={[]}
       dateFormats={dateFormats}
       maxBytes={1024}
       aiEnabled={aiEnabled}
@@ -26,10 +25,11 @@ const upload = (aiEnabled: boolean, categorizeEnabled = false) =>
   );
 
 describe("the import wizard's upload step", () => {
-  it("says what is sent to OpenAI when the server has a key", () => {
+  it("says what is sent to an AI service, never naming the provider, when the server has a key", () => {
     const html = upload(true);
 
-    expect(html).toContain("are sent to OpenAI to suggest how to map the columns");
+    expect(html).toMatch(/are sent to an AI\s+service to suggest how to map the columns/);
+    expect(html).not.toContain("OpenAI");
     expect(html).toContain('aria-describedby="import-ai-disclosure"');
   });
 
@@ -41,6 +41,14 @@ describe("the import wizard's upload step", () => {
     expect(html).not.toContain("aria-describedby");
   });
 
+  it("asks only for the file: no import profile to pick", () => {
+    const html = upload(true, true);
+
+    expect(html).toContain('type="file"');
+    expect(html).not.toContain("Import profile");
+    expect(html).not.toContain('name="profileId"');
+  });
+
   it("has an empty announcement region before any suggestion arrives", () => {
     expect(upload(false)).toMatch(/<p aria-live="polite" aria-atomic="true" class="sr-only"><\/p>/);
   });
@@ -50,7 +58,8 @@ describe("the import wizard's upload step", () => {
 
     expect(html).toContain('id="import-categorize-disclosure"');
     expect(html).toContain('aria-describedby="import-categorize-disclosure"');
-    expect(html).toContain("sent to OpenAI");
+    expect(html).toContain("sent to an AI service");
+    expect(html).not.toContain("OpenAI");
     expect(html).toContain("a name inside a merchant string might get through");
     expect(html).toContain("accept");
   });

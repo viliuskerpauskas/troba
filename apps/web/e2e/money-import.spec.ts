@@ -7,6 +7,7 @@ import {
   listImportProfiles,
   saveImportProfile,
 } from "@troba/core";
+import { formatSourceBadges, type FormatSource } from "../src/app/(app)/money/import/messages";
 import { auth } from "../src/server/auth";
 import { db } from "../src/server/db";
 import { expect, test } from "./test";
@@ -87,7 +88,7 @@ test("maps an unknown format once, imports it, and matches it on the next upload
   await expectSummary(page, { "Rows in the file": 8, New: 8, "Already imported, skipped": 0 });
   await expect(
     page.getByRole("list", { name: /Debit\/credit values/ }).getByRole("listitem"),
-  ).toHaveText(["D: 6 rows, read as money out", "C: 2 rows, read as money in"]);
+  ).toHaveText([/^D read as ↓money out 6 rows$/, /^C read as ↑money in 2 rows$/]);
   await expectNoSideways(page);
   await page.getByRole("button", { name: "Import 8 transactions" }).click();
   await expect(page.getByRole("status")).toHaveText(
@@ -104,7 +105,8 @@ test("maps an unknown format once, imports it, and matches it on the next upload
   await page.getByRole("link", { name: "Import a bank statement" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(statement);
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText("Read with the profile Example Bank.")).toBeVisible();
+  await expectProfile(page, "Example Bank");
+  await expectFound(page, "saved");
   await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
   await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
 
@@ -114,7 +116,7 @@ test("maps an unknown format once, imports it, and matches it on the next upload
   await expect(page.getByLabel("Description")).toHaveValue("Purpose");
   await page.getByLabel("Profile name").fill("Example Bank (D/C)");
   await page.getByRole("button", { name: "Save profile and preview" }).click();
-  await expect(page.getByText("Read with the profile Example Bank (D/C).")).toBeVisible();
+  await expectProfile(page, "Example Bank (D/C)");
   await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
 });
 
@@ -202,17 +204,12 @@ test("corrects how the file is read, picks the account, and lists rows it can't 
   await page.getByRole("button", { name: "Import another file" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText("Read with the profile Example Bank (copy).")).toBeVisible();
-
-  // Picked by hand rather than found by its columns.
-  await page.getByRole("button", { name: "Start over" }).click();
-  await page.getByLabel("CSV file from your bank").setInputFiles(sixtyRows);
-  await page.getByLabel("Import profile").selectOption("Example Bank (signed)");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText("Read with the profile Example Bank (signed).")).toBeVisible();
+  await expectProfile(page, "Example Bank (copy)");
+  // Picking the account keeps the note on how the profile was found.
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expectSummary(page, { New: 0, "Already imported, skipped": 60 });
+  await expectFound(page, "saved");
 
   // The income kept its sign and its thousands.
   await page.goto("/money/transactions");
@@ -237,8 +234,10 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   // No mapping: the file's own account is the only thing the user is asked for.
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
   await page.getByLabel("Account name").fill("Example Bank current");
+  await expectFound(page, "preset");
   await page.getByRole("button", { name: "Create the account and preview" }).click();
-  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectProfile(page, preset.profile.name);
+  await expectFound(page, "preset");
   await expectSummary(page, { "Rows in the file": 8, New: 8, "Already imported, skipped": 0 });
   await expectNoSideways(page);
   await page.getByRole("button", { name: "Import 8 transactions" }).click();
@@ -251,7 +250,8 @@ test("reads a known bank's file with no mapping step, and copies the preset to t
   await page.getByRole("link", { name: "Import a bank statement" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(file);
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectProfile(page, preset.profile.name);
+  await expectFound(page, "saved");
   await expectSummary(page, { New: 0, "Already imported, skipped": 8 });
   await expect(page.getByRole("status")).toHaveText("Nothing new to import.");
 });
@@ -270,7 +270,8 @@ test("reads a known bank's file with signed amounts that names no account, and t
 
   // No mapping step, and no IBAN in the file: the user picks one of their accounts.
   await expect(page.getByRole("heading", { name: "Map the columns" })).toBeHidden();
-  await expect(page.getByText(`Read with the profile ${preset.profile.name}.`)).toBeVisible();
+  await expectProfile(page, preset.profile.name);
+  await expectFound(page, "preset");
   await expect(page.getByText("This file doesn't say which account it's for.")).toBeVisible();
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
@@ -317,7 +318,7 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   await expect(announcement).toBeEmpty();
 
   // The server has a key, so the upload step says what would be sent.
-  const disclosure = page.getByText(/are sent to OpenAI to suggest how to map the columns/);
+  const disclosure = page.getByText(/are sent to an AI service to suggest how to map the columns/);
   await expect(disclosure).toBeVisible();
   await expect(page.getByLabel("CSV file from your bank")).toHaveAccessibleDescription(
     /Nothing is sent for formats troba knows/,
@@ -351,7 +352,7 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   await page.getByLabel("Counterparty", { exact: true }).selectOption("Note");
   await page.getByRole("button", { name: "Save profile and preview" }).click();
 
-  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+  await expectProfile(page, "Example Bank (AI)");
   await page.getByLabel("Account", { exact: true }).selectOption("Cash (EUR)");
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expectSummary(page, { "Rows in the file": 3, New: 3 });
@@ -362,7 +363,7 @@ test("opens the mapping form filled in by the AI, to check, edit and save", asyn
   await page.getByRole("button", { name: "Import another file" }).click();
   await page.getByLabel("CSV file from your bank").setInputFiles(modelKnown);
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByText("Read with the profile Example Bank (AI).")).toBeVisible();
+  await expectProfile(page, "Example Bank (AI)");
 });
 
 test("shows the plain mapping form, with a note, when the AI can't suggest one", async ({
@@ -416,4 +417,16 @@ async function expectSummary(page: Page, figures: Record<string, number>) {
 async function expectNoSideways(page: Page) {
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(360);
+}
+
+// The profile badge on the preview, after "Read with the profile".
+async function expectProfile(page: Page, name: string) {
+  const line = page.locator("form p").filter({ hasText: "Read with the profile" });
+  await expect(line.locator('[data-slot="badge"]').first()).toHaveText(name);
+}
+
+// The badge beside it saying how the profile was found from the file's columns.
+async function expectFound(page: Page, found: FormatSource) {
+  const line = page.locator("form p").filter({ hasText: "Read with the profile" });
+  await expect(line.locator('[data-slot="badge"]').nth(1)).toHaveText(formatSourceBadges[found]);
 }
