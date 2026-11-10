@@ -2,15 +2,14 @@
 // node_modules, and so Node runs packages/core (whose imports have no file extensions).
 // Usage: node apps/worker/scripts/build.ts <outdir>
 import path from "node:path";
-import { build } from "esbuild";
+import { build, type BuildOptions } from "esbuild";
 
 const app = path.join(import.meta.dirname, "..");
 
-export async function buildWorker(outdir: string): Promise<string> {
-  const outfile = path.join(outdir, "worker.js");
-  await build({
+export function workerBuildOptions(outdir: string) {
+  return {
     entryPoints: [path.join(app, "src/main.ts")],
-    outfile,
+    outfile: path.join(outdir, "worker.js"),
     bundle: true,
     platform: "node",
     format: "esm",
@@ -22,8 +21,7 @@ export async function buildWorker(outdir: string): Promise<string> {
       js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
     },
     logLevel: "warning",
-  });
-  return outfile;
+  } satisfies BuildOptions;
 }
 
 if (import.meta.main) {
@@ -32,5 +30,5 @@ if (import.meta.main) {
     console.error("usage: build.ts <outdir>");
     process.exit(1);
   }
-  await buildWorker(path.resolve(outdir));
+  await build(workerBuildOptions(path.resolve(outdir)));
 }
