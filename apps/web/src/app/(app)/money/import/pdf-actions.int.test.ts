@@ -324,3 +324,86 @@ describe("a confirmed PDF import", () => {
     expect(await owned("money_accounts", other!.id)).toEqual([]);
   });
 });
+
+describe("the limits on PDF imports (T154)", () => {
+  function pdfForm(bytes: Uint8Array<ArrayBuffer>) {
+    const data = new FormData();
+    data.set("file", new File([bytes], "statement.pdf", { type: "application/pdf" }));
+    return data;
+  }
+
+  // A fictional PDF whose page tree says it has `pages` pages.
+  const pdfOf = (pages: number) =>
+    new TextEncoder().encode(`%PDF-1.4\n<< /Type /Pages /Kids [] /Count ${pages} >>\n%%EOF\n`);
+
+  async function useUp(count: number, hoursAgo = 0) {
+    for (let i = 0; i < count; i++) {
+      await db.$client.query(
+        `insert into money_ai_pdf_import_uses (user_id, pdf_import_id, created_at)
+         values ($1, gen_random_uuid(), now() - make_interval(hours => $2))`,
+        [session.userId, hoursAgo],
+      );
+    }
+  }
+
+  it("refuses a PDF over 20 pages on upload and on confirm, saying to split it", async () => {
+    const jobs = await jobCount();
+
+    for (const action of [actions.startImportAction, actions.startPdfImportAction]) {
+      expect(await action(pdfForm(pdfOf(21)))).toEqual({
+        step: "upload",
+        error:
+          "That PDF has 21 pages, and troba reads up to 20 at a time. Split it into shorter PDFs and import each one.",
+      });
+    }
+    expect(await pdfImportRows(session.userId)).toEqual([]);
+    expect(await jobCount()).toBe(jobs);
+    step(await actions.startImportAction(pdfForm(pdfOf(20))), "pdf-confirm");
+  });
+
+  it("refuses the 11th PDF import in a day, saying when the next one is possible", async () => {
+    await useUp(10, 21);
+    const jobs = await jobCount();
+
+    for (const action of [actions.startImportAction, actions.startPdfImportAction]) {
+      expect(await action(form())).toEqual({
+        step: "upload",
+        error:
+          "You've used today's 10 PDF imports, so nothing was sent. You can import a PDF again in about 3 hours.",
+      });
+    }
+    expect(await pdfImportRows(session.userId)).toEqual([]);
+    expect(await jobCount()).toBe(jobs);
+  });
+
+  it("takes AI_PDF_IMPORT_DAILY_LIMIT, and 10 when it isn't a whole number from 1 up", async () => {
+    await useUp(2);
+
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", "2");
+    expect(await actions.startImportAction(form())).toMatchObject({
+      step: "upload",
+      error: expect.stringContaining("today's 2 PDF imports"),
+    });
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", "3");
+    step(await actions.startImportAction(form()), "pdf-confirm");
+    vi.stubEnv("AI_PDF_IMPORT_DAILY_LIMIT", "0");
+    step(await actions.startImportAction(form()), "pdf-confirm");
+    await useUp(8);
+    expect(await actions.startImportAction(form())).toMatchObject({
+      error: expect.stringContaining("today's 10 PDF imports"),
+    });
+  });
+
+  it("says so and when, when the cap was reached by the time the statement was read", async () => {
+    const reading = await confirmed();
+    await useUp(10, 23);
+    const client: StatementModelClient = { readStatement: async () => answer };
+    await readPdfImport(db, session.userId, reading.pdfImportId, { client });
+
+    const status = new FormData();
+    status.set("pdfImportId", reading.pdfImportId);
+    expect(step(await actions.pdfImportStatusAction(status), "pdf-failed").message).toBe(
+      "You'd already used today's 10 PDF imports, so the statement wasn't sent to AI. Nothing was saved. You can import a PDF again in about an hour.",
+    );
+  });
+});

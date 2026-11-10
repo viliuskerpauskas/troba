@@ -9,6 +9,7 @@ import { ensureMoneyDefaults } from "../defaults";
 import { createRule } from "../rules";
 import { commitImport, previewImport } from "./import";
 import {
+  checkPdfImport,
   commitPdfImport,
   createPdfImportAccount,
   discardPdfImport,
@@ -322,6 +323,213 @@ describe("PDF import", () => {
       } finally {
         for (const spy of spies) spy.mockRestore();
       }
+    });
+  });
+
+  describe("daily cap and page limit", () => {
+    async function uses(userId: string) {
+      return db
+        .select()
+        .from(schema.moneyAiPdfImportUses)
+        .where(eq(schema.moneyAiPdfImportUses.userId, userId));
+    }
+
+    async function pendingJobs(userId: string) {
+      const result = await db.execute<{ n: number }>(
+        sql`select count(*)::int as n from pgboss.job
+             where name = 'read-pdf-import' and data->>'userId' = ${userId}`,
+      );
+      return result.rows[0]!.n;
+    }
+
+    // A fictional PDF whose page tree says it has `pages` pages.
+    function pdfOf(pages: number) {
+      return new TextEncoder().encode(
+        `%PDF-1.4\n2 0 obj\n<< /Type /Pages /Kids [] /Count ${pages} >>\nendobj\n%%EOF\n`,
+      );
+    }
+
+    it("refuses the 11th PDF import in a day at the default, saying when, and queues nothing", async () => {
+      const userId = await createUser();
+      for (let i = 0; i < 10; i++) await readWith(userId, answer());
+      const [oldest] = (await uses(userId)).sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+
+      const refused = await startPdfImport(
+        db,
+        userId,
+        { filename: "statement.pdf", bytes: pdf },
+        { queue },
+      );
+
+      expect(refused).toEqual({
+        ok: false,
+        reason: "daily-limit",
+        limit: 10,
+        nextAt: new Date(oldest!.createdAt.getTime() + 24 * 60 * 60 * 1000),
+      });
+      expect(await pendingJobs(userId)).toBe(10);
+      expect(
+        await db.$count(schema.moneyPdfImports, eq(schema.moneyPdfImports.userId, userId)),
+      ).toBe(10);
+    });
+
+    it("takes the limit it is given", async () => {
+      const userId = await createUser();
+      await readWith(userId, answer());
+
+      expect(
+        await startPdfImport(
+          db,
+          userId,
+          { filename: "statement.pdf", bytes: pdf },
+          { queue, dailyLimit: 1 },
+        ),
+      ).toMatchObject({ ok: false, reason: "daily-limit", limit: 1 });
+      expect(
+        await startPdfImport(
+          db,
+          userId,
+          { filename: "statement.pdf", bytes: pdf },
+          { queue, dailyLimit: 2 },
+        ),
+      ).toMatchObject({ ok: true });
+    });
+
+    it("claims one use for a reading that reaches the model, and not when the job is retried", async () => {
+      const userId = await createUser();
+      const pdfImportId = await start(userId);
+      const throwing: StatementModelClient = {
+        readStatement: async () => {
+          throw new Error("the worker crashed mid-call");
+        },
+      };
+      // A crash during the call leaves it reading, with the bytes still there.
+      const crashed = readPdfImport(db, userId, pdfImportId, { client: throwing });
+      await crashed;
+      await db
+        .update(schema.moneyPdfImports)
+        .set({ state: "reading", bytes: pdf, failureReason: null })
+        .where(eq(schema.moneyPdfImports.id, pdfImportId));
+      expect(await uses(userId)).toHaveLength(1);
+
+      const { client, requests } = fakeClient(answer());
+      expect(await readPdfImport(db, userId, pdfImportId, { client, dailyLimit: 1 })).toBe("read");
+      expect(requests).toHaveLength(1);
+      expect(await uses(userId)).toHaveLength(1);
+    });
+
+    it("uses no unit for a reading that fails before the model is called", async () => {
+      const userId = await createUser();
+      const pdfImportId = await start(userId);
+
+      expect(await readPdfImport(db, userId, pdfImportId, { client: null })).toBe("failed");
+      expect(await uses(userId)).toHaveLength(0);
+    });
+
+    it("fails a reading once the cap is reached, without calling the model, and deletes the bytes", async () => {
+      const userId = await createUser();
+      const first = await start(userId);
+      const second = await start(userId);
+      const { client, requests } = fakeClient(answer());
+      expect(await readPdfImport(db, userId, first, { client, dailyLimit: 1 })).toBe("read");
+
+      expect(await readPdfImport(db, userId, second, { client, dailyLimit: 1 })).toBe("failed");
+      expect(requests).toHaveLength(1);
+      expect(await getPdfImport(db, userId, second)).toMatchObject({
+        state: "failed",
+        failureReason: "daily-limit",
+      });
+      expect((await storedRow(second))?.bytes).toBeNull();
+      expect(await uses(userId)).toHaveLength(1);
+    });
+
+    it("lets concurrent readings for one user call the model at most the limit's times", async () => {
+      const userId = await createUser();
+      const pdfImportIds = [];
+      for (let i = 0; i < 6; i++) pdfImportIds.push(await start(userId));
+      const { client, requests } = fakeClient(answer());
+
+      const states = await Promise.all(
+        pdfImportIds.map((id) => readPdfImport(db, userId, id, { client, dailyLimit: 2 })),
+      );
+
+      expect(requests).toHaveLength(2);
+      expect(states.filter((state) => state === "read")).toHaveLength(2);
+      expect(await uses(userId)).toHaveLength(2);
+    });
+
+    it("counts PDF imports waiting to be read, so nothing more is queued than will be read", async () => {
+      const userId = await createUser();
+      await start(userId);
+
+      expect(
+        await startPdfImport(
+          db,
+          userId,
+          { filename: "statement.pdf", bytes: pdf },
+          { queue, dailyLimit: 1 },
+        ),
+      ).toMatchObject({ ok: false, reason: "daily-limit" });
+    });
+
+    it("refuses a PDF over 20 pages before anything is queued or sent", async () => {
+      const userId = await createUser();
+
+      expect(
+        await startPdfImport(
+          db,
+          userId,
+          { filename: "statement.pdf", bytes: pdfOf(21) },
+          { queue },
+        ),
+      ).toEqual({ ok: false, reason: "too-many-pages", pages: 21, maxPages: 20 });
+      expect(await latestPdfImport(db, userId)).toBeNull();
+      expect(await pendingJobs(userId)).toBe(0);
+      expect(await uses(userId)).toHaveLength(0);
+
+      expect(
+        await startPdfImport(
+          db,
+          userId,
+          { filename: "statement.pdf", bytes: pdfOf(20) },
+          { queue },
+        ),
+      ).toMatchObject({ ok: true });
+    });
+
+    it("checks the page limit before the cap, so a long PDF says to split it", async () => {
+      const userId = await createUser();
+      await readWith(userId, answer());
+
+      expect(await checkPdfImport(db, userId, pdfOf(25), { dailyLimit: 1 })).toMatchObject({
+        ok: false,
+        reason: "too-many-pages",
+      });
+      expect(await checkPdfImport(db, userId, pdf, { dailyLimit: 1 })).toMatchObject({
+        ok: false,
+        reason: "daily-limit",
+      });
+      expect(await checkPdfImport(db, userId, pdf, { dailyLimit: 2 })).toEqual({
+        ok: true,
+        left: 1,
+      });
+    });
+
+    it("is independent of the AI mapping and categorization caps", async () => {
+      const userId = await createUser();
+      await db
+        .insert(schema.moneyAiMappingUses)
+        .values(Array.from({ length: 30 }, () => ({ userId })));
+      await db.insert(schema.moneyAiCategorizeUses).values({ userId, merchants: 500 });
+
+      const pdfImportId = await start(userId);
+      const { client } = fakeClient(answer());
+      expect(await readPdfImport(db, userId, pdfImportId, { client })).toBe("read");
+      expect(
+        await db.$count(schema.moneyAiMappingUses, eq(schema.moneyAiMappingUses.userId, userId)),
+      ).toBe(30);
     });
   });
 

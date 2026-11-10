@@ -17,6 +17,12 @@ import {
   type PreviewImportResult,
   type RowSource,
 } from "./import";
+import {
+  claimPdfImportUse,
+  defaultPdfImportDailyLimit,
+  pdfImportAllowance,
+} from "./pdf-import-limit";
+import { countPdfPages, maxPdfPages } from "./pdf-pages";
 import { checkStatementFile } from "./upload";
 
 // PDF statements (SPEC-money M3, ADR-0018): a PDF import holds the file until the worker has had it
@@ -150,9 +156,11 @@ export const defaultStatementTimeoutMs = 120_000;
 
 // Why a reading failed: unavailable, the model failed, timed out or there is no key; invalid-answer,
 // the answer isn't in the schema; not-a-statement, the model says the file isn't a bank statement;
-// balance-mismatch, the rows don't add up to the statement's balances.
+// balance-mismatch, the rows don't add up to the statement's balances; daily-limit, the user's daily
+// cap was reached before the model was asked (readings started together, past what startPdfImport
+// could tell).
 export type PdfImportFailureReason =
-  "unavailable" | "invalid-answer" | "not-a-statement" | "balance-mismatch";
+  "unavailable" | "invalid-answer" | "not-a-statement" | "balance-mismatch" | "daily-limit";
 
 // How the rows compare with the statement's printed balances. matched: they add up to the cent.
 // unchecked: the statement prints fewer than both, or a balance or an amount doesn't read, so the
@@ -182,25 +190,56 @@ const pdfImportColumns = {
   createdAt: moneyPdfImports.createdAt,
 };
 
-export type StartPdfImportResult =
-  { ok: true; pdfImportId: string } | { ok: false; reason: "file-too-large" | "not-a-pdf" };
+// Why a PDF can't be sent: too big, not a PDF, over the page limit (T154), or the user has had the
+// day's PDF imports and may import one again at `nextAt`.
+export type PdfImportRefusal =
+  | { ok: false; reason: "file-too-large" | "not-a-pdf" }
+  | { ok: false; reason: "too-many-pages"; pages: number; maxPages: number }
+  | { ok: false; reason: "daily-limit"; limit: number; nextAt: Date };
 
-// Called once the user has confirmed the PDF may be sent: holds the bytes in a queued PDF import
-// and queues the job that reads it, together, so neither exists without the other.
-export async function startPdfImport(
+export type PdfImportLimitOptions = {
+  // The user's PDF imports a day: AI_PDF_IMPORT_DAILY_LIMIT, or the default.
+  dailyLimit?: number;
+};
+
+// Whether this PDF may be sent for the user, checked on upload and again before it is queued;
+// `left` is how many PDF imports the user has left today, this one included. The page limit goes
+// first, so a long statement is told to split before it is told to wait. A PDF whose page count
+// can't be read (encrypted object streams, say) is let through, still bound by the size limit.
+export async function checkPdfImport(
   db: Db,
   userId: string,
-  file: { filename: string; bytes: Uint8Array },
-  { queue }: { queue: JobQueue },
-): Promise<StartPdfImportResult> {
-  const checked = checkStatementFile(
-    { type: "application/pdf", bytes: file.bytes },
-    { pdfAvailable: true },
-  );
+  bytes: Uint8Array,
+  { dailyLimit = defaultPdfImportDailyLimit }: PdfImportLimitOptions = {},
+): Promise<{ ok: true; left: number } | PdfImportRefusal> {
+  const checked = checkStatementFile({ type: "application/pdf", bytes }, { pdfAvailable: true });
   if (!checked.ok && checked.reason === "file-too-large") {
     return { ok: false, reason: "file-too-large" };
   }
   if (!checked.ok || checked.kind !== "pdf") return { ok: false, reason: "not-a-pdf" };
+
+  const pages = countPdfPages(bytes);
+  if (pages !== null && pages > maxPdfPages) {
+    return { ok: false, reason: "too-many-pages", pages, maxPages: maxPdfPages };
+  }
+  const allowance = await pdfImportAllowance(db, userId, dailyLimit);
+  if (allowance.ok) return allowance;
+  return { ok: false, reason: "daily-limit", limit: allowance.limit, nextAt: allowance.nextAt };
+}
+
+export type StartPdfImportResult = { ok: true; pdfImportId: string } | PdfImportRefusal;
+
+// Called once the user has confirmed the PDF may be sent: checks it again (checkPdfImport), then
+// holds the bytes in a queued PDF import and queues the job that reads it, together, so neither
+// exists without the other. A refusal inserts and queues nothing.
+export async function startPdfImport(
+  db: Db,
+  userId: string,
+  file: { filename: string; bytes: Uint8Array },
+  { queue, ...limits }: { queue: JobQueue } & PdfImportLimitOptions,
+): Promise<StartPdfImportResult> {
+  const checked = await checkPdfImport(db, userId, file.bytes, limits);
+  if (!checked.ok) return checked;
 
   return db.transaction(async (tx) => {
     const [created] = await tx
@@ -213,7 +252,7 @@ export async function startPdfImport(
   });
 }
 
-export type ReadPdfImportOptions = {
+export type ReadPdfImportOptions = PdfImportLimitOptions & {
   // Null when the server has no key: the reading fails as unavailable.
   client: StatementModelClient | null;
   timeoutMs?: number;
@@ -227,7 +266,11 @@ export async function readPdfImport(
   db: Db,
   userId: string,
   pdfImportId: string,
-  { client, timeoutMs = defaultStatementTimeoutMs }: ReadPdfImportOptions,
+  {
+    client,
+    timeoutMs = defaultStatementTimeoutMs,
+    dailyLimit = defaultPdfImportDailyLimit,
+  }: ReadPdfImportOptions,
 ): Promise<"read" | "failed" | null> {
   const [claimed] = await db
     .update(moneyPdfImports)
@@ -242,7 +285,9 @@ export async function readPdfImport(
     .returning({ bytes: moneyPdfImports.bytes });
   if (!claimed?.bytes) return null;
 
-  const outcome = await askModel(client, claimed.bytes, timeoutMs);
+  // A unit of the daily cap is claimed just before the model is asked, and a retried job reuses it.
+  const claimUse = () => claimPdfImportUse(db, userId, pdfImportId, dailyLimit);
+  const outcome = await askModel(client, claimed.bytes, timeoutMs, claimUse);
   const ended = outcome.ok
     ? { state: "read" as const, answer: outcome.answer, failureReason: null }
     : // A mismatched answer is kept, as briefly as a read one, for the difference the page shows.
@@ -259,11 +304,13 @@ async function askModel(
   client: StatementModelClient | null,
   pdf: Uint8Array,
   timeoutMs: number,
+  claimUse: () => Promise<boolean>,
 ): Promise<
   | { ok: true; answer: StatementAnswer }
   | { ok: false; reason: PdfImportFailureReason; answer?: StatementAnswer }
 > {
   if (!client) return { ok: false, reason: "unavailable" };
+  if (!(await claimUse())) return { ok: false, reason: "daily-limit" };
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<never>((_, reject) => {

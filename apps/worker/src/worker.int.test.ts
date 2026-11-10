@@ -84,4 +84,48 @@ describe("worker", () => {
     await worker.stop();
     worker = undefined;
   });
+
+  it("reads PDF imports under the daily limit it was started with", async () => {
+    let calls = 0;
+    const statementClient: StatementModelClient = {
+      readStatement: async () => {
+        calls++;
+        return {
+          isStatement: true,
+          accountIbans: [],
+          currency: "EUR",
+          openingBalance: null,
+          closingBalance: null,
+          transactions: [],
+        };
+      },
+    };
+    worker = await startWorker(database.url, { statementClient, pdfImportDailyLimit: 1 });
+    const [user] = await db
+      .insert(schema.users)
+      .values({ name: "Example User", email: "worker-limit@example.test" })
+      .returning({ id: schema.users.id });
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      // Queued with room for both; the worker's limit is the one that counts when they are read.
+      const started = await startPdfImport(
+        db,
+        user!.id,
+        { filename: "statement.pdf", bytes: new TextEncoder().encode("%PDF-1.7\n") },
+        { queue, dailyLimit: 2 },
+      );
+      if (!started.ok) throw new Error(started.reason);
+      ids.push(started.pdfImportId);
+    }
+
+    const ended = await until(async () => {
+      const found = await Promise.all(ids.map((id) => getPdfImport(db, user!.id, id)));
+      const done = found.every((one) => one?.state === "read" || one?.state === "failed");
+      return done ? found.map((one) => one?.failureReason ?? one?.state) : undefined;
+    });
+    expect(ended?.sort()).toEqual(["daily-limit", "read"]);
+    expect(calls).toBe(1);
+    await worker.stop();
+    worker = undefined;
+  });
 });
