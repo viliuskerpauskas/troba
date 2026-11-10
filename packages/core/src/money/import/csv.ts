@@ -131,12 +131,15 @@ function sharedWidthCount(records: string[][]): number {
 }
 
 // A preamble (a statement title) sits above the header: the header is the first line with the
-// file's usual column count (SPEC-money M3).
-export function guessSkipLines(records: string[][]): number {
+// file's usual column count (SPEC-money M3). orWider: the first at least that wide, for a
+// spreadsheet, whose rows end at their last filled cell, so a data row with an empty last column
+// is narrower than the header.
+export function guessSkipLines(records: string[][], { orWider = false } = {}): number {
   const width = usualWidth(records.filter(isNonEmpty))?.width;
+  if (width === undefined) return 0;
   return Math.max(
     0,
-    records.findIndex((record) => record.length === width),
+    records.findIndex((record) => (orWider ? record.length >= width : record.length === width)),
   );
 }
 
