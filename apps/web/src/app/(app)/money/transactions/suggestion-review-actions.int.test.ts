@@ -94,7 +94,14 @@ beforeEach(async () => {
   server.client = null;
 });
 
+// The accept and dismiss controls are shown only while the server has a key.
+function withKey() {
+  server.client = { suggestCategories: async () => ({ answers: [] }) };
+}
+
 describe("acceptSuggestionAction", () => {
+  beforeEach(withKey);
+
   it("categorizes the merchant's rows as the user's own choice and says how many", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
     await askedRow(user, "GROCERY MART");
@@ -138,9 +145,37 @@ describe("acceptSuggestionAction", () => {
       expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
     ]);
   });
+
+  it("changes nothing without a key on the server", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    server.client = null;
+
+    expect(await actions.acceptSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  it("changes nothing for a user who turned suggestions off", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.acceptSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ categoryId: null, suggestedCategoryName: "Food" }),
+    ]);
+  });
 });
 
 describe("dismissSuggestionAction", () => {
+  beforeEach(withKey);
+
   it("removes the merchant's suggestions and says how many", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
     await askedRow(user, "GROCERY MART", user.category("Food"));
@@ -161,6 +196,31 @@ describe("dismissSuggestionAction", () => {
     expect(await actions.dismissSuggestionAction(theirs)).toEqual({
       ok: false,
       message: "That transaction doesn't exist.",
+    });
+  });
+
+  it("changes nothing without a key on the server", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    server.client = null;
+
+    expect(await actions.dismissSuggestionAction(id)).toEqual({
+      ok: false,
+      message: "AI suggestions are turned off, so nothing was changed.",
+    });
+    expect(await listTransactions(db, user.userId)).toEqual([
+      expect.objectContaining({ suggestedCategoryName: "Food" }),
+    ]);
+  });
+
+  // The page keeps the suggestions an opted-out user already has dismissable: dismissing sends
+  // nothing anywhere.
+  it("still dismisses for a user who turned suggestions off", async () => {
+    const id = await askedRow(user, "GROCERY MART", user.category("Food"));
+    await setAiCategorization(db, user.userId, false);
+
+    expect(await actions.dismissSuggestionAction(id)).toEqual({
+      ok: true,
+      message: "Dismissed the suggestion on 1 transaction.",
     });
   });
 });
@@ -184,9 +244,9 @@ describe("askAgainAction", () => {
 
   it("offers a dismissed merchant to the model again", async () => {
     const id = await askedRow(user, "GROCERY MART", user.category("Food"));
-    await actions.dismissSuggestionAction(id);
     const model = fakeModel();
     server.client = model.client;
+    await actions.dismissSuggestionAction(id);
 
     const state = await actions.askAgainAction();
 
