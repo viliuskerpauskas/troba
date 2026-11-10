@@ -70,6 +70,14 @@ export const failureReasons: Record<ImportRowFailure["reason"], string> = {
   "currency-mismatch": "the row's currency isn't the account's",
 };
 
+// The same for a PDF statement, which has no profile: what the AI read can't be used.
+export const pdfFailureReasons: Record<ImportRowFailure["reason"], string> = {
+  ...failureReasons,
+  "invalid-date": "AI read a date that isn't a real date",
+  "invalid-amount": "AI read an amount that isn't a number of cents",
+  "invalid-currency": "AI read a currency that isn't a three-letter code",
+};
+
 // Why the mapping form opened the way it did for a file no profile fits, shown above it: "ai" when
 // the form is filled from the model's proposal, "unavailable" when the model was asked and gave
 // nothing usable, "capped" when the user had used up the day's mappings and it was not asked,

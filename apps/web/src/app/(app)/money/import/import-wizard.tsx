@@ -60,6 +60,7 @@ import {
   acceptedFileTypesWithPdf,
   afterImportNote,
   failureReasons,
+  pdfFailureReasons,
   formatSourceBadges,
   formatSourceNotes,
   suggestionNotes,
@@ -863,7 +864,7 @@ function PreviewBody({
           <ul aria-labelledby="failed-rows" className="list-disc pl-6 text-sm">
             {failed.map(({ row, reason }) => (
               <li key={row}>
-                Row {row}: {failureReasons[reason]}
+                Row {row}: {(intentPrefix === "pdf-" ? pdfFailureReasons : failureReasons)[reason]}
               </li>
             ))}
           </ul>

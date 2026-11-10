@@ -151,13 +151,15 @@ describe("the import wizard's PDF steps", () => {
         rowsParsed: 1,
         rowsNew: 1,
         rowsDuplicate: 0,
-        rowsFailed: 0,
-        failed: [],
+        rowsFailed: 1,
+        failed: [{ row: 2, reason: "invalid-date" }],
         debitCredit: null,
       },
     });
 
     expect(html).toContain("Read by AI from statement.pdf");
+    expect(html).toContain("Row 2: AI read a date that isn");
+    expect(html).not.toContain("profile");
     expect(html).toContain('value="pdf-commit"');
   });
 });
