@@ -10,7 +10,8 @@ describe("the suggest categories button", () => {
     const html = renderToStaticMarkup(<SuggestCategories enabled />);
 
     expect(html).toContain("Suggest categories");
-    expect(html).toContain("OpenAI");
+    expect(html).toContain("an AI service");
+    expect(html).not.toContain("OpenAI");
     expect(html).toContain("own name and account numbers masked");
     expect(html).toContain("(transfers) are not sent");
     expect(html).toContain("a name inside a merchant string might get through");

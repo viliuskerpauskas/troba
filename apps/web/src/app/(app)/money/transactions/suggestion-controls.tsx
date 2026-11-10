@@ -28,7 +28,7 @@ export function SuggestionControls({
 }) {
   const [pending, startTransition] = useTransition();
   const focusId = rowElementId(transactionId);
-  const touch = "h-11 px-4 sm:h-8 sm:px-2.5";
+  const touch = "h-11 px-4 sm:h-10";
 
   function resolve(action: typeof acceptSuggestionAction) {
     startTransition(async () => {

@@ -9,8 +9,9 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
-import { DescriptionList } from "@/components/description-list";
+import { Badge } from "@/components/ui/badge";
 import { FormError, FormStatus } from "@/components/form-message";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -48,12 +50,12 @@ import { importFields, requiredFields } from "./fields";
 import {
   afterImportNote,
   failureReasons,
+  formatSourceBadges,
+  formatSourceNotes,
   suggestionNotes,
   tooLargeMessage,
   type Suggestion,
 } from "./messages";
-
-type ProfileOption = { id: string; name: string };
 
 // Each submit button names the step it runs.
 const actions = {
@@ -75,13 +77,11 @@ async function run(state: ImportState, formData: FormData): Promise<ImportState>
 }
 
 export function ImportWizard({
-  profiles,
   dateFormats,
   maxBytes,
   aiEnabled,
   categorizeEnabled,
 }: {
-  profiles: ProfileOption[];
   dateFormats: readonly DateFormat[];
   maxBytes: number;
   // The server has a key for AI-suggested mappings, so the upload step says what is sent.
@@ -116,17 +116,19 @@ export function ImportWizard({
     startTransition(() => dispatch(data));
   }
 
-  // The AI suggestion's note, spoken once when the mapping step arrives. It goes in a live region
-  // that is already on the page: one inserted together with its text is often not announced. Not
-  // role="status", which the step's own messages (FormStatus) use.
+  // The note on how the step after the upload was reached, spoken once when it arrives: the AI
+  // suggestion's on the mapping step, how the profile was found on the preview. It goes in a live
+  // region that is already on the page: one inserted together with its text is often not
+  // announced. Not role="status", which the step's own messages (FormStatus) use.
   const suggestion = state.step === "mapping" ? state.suggestion : undefined;
+  const found = state.step === "preview" ? state.found : undefined;
   // The same, for the note under the import result.
   const importNote = state.step === "done" ? afterImportNote(state.suggestions) : null;
 
   return (
     <>
       <p aria-live="polite" aria-atomic="true" className="sr-only">
-        {suggestion ? noteText(suggestion) : importNote}
+        {suggestion ? noteText(suggestion) : found ? formatSourceNotes[found] : importNote}
       </p>
       <div ref={stepStart} tabIndex={-1} className="outline-none">
         {renderStep()}
@@ -147,48 +149,38 @@ export function ImportWizard({
           <form onSubmit={submit}>
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="import-file">CSV file from your bank</FieldLabel>
-                <Input
+                {/* The drop area says what to do; the label stays for screen readers. */}
+                <FieldLabel htmlFor="import-file" className="sr-only">
+                  CSV file from your bank
+                </FieldLabel>
+                <FileDrop
                   id="import-file"
-                  type="file"
-                  name="file"
-                  accept=".csv,text/csv"
-                  required
-                  aria-describedby={describedBy || undefined}
-                  onChange={(event) => {
-                    setFile(event.currentTarget.files?.[0] ?? null);
+                  file={file}
+                  describedBy={describedBy || undefined}
+                  onFile={(chosen) => {
+                    setFile(chosen);
                     setTooLarge(false);
                   }}
                 />
                 {aiEnabled && (
                   <FieldDescription id="import-ai-disclosure">
                     If troba doesn&apos;t know the file&apos;s format, its column names and a few
-                    rows, with names, merchants and account numbers masked, are sent to OpenAI to
-                    suggest how to map the columns. Nothing is sent for formats troba knows.
+                    rows, with names, merchants and account numbers masked, are sent to an AI
+                    service to suggest how to map the columns. Nothing is sent for formats troba
+                    knows.
                   </FieldDescription>
                 )}
                 {categorizeEnabled && (
                   <FieldDescription id="import-categorize-disclosure">
                     After the import is saved, the counterparty and description of the new
-                    transactions that no rule matched are sent to OpenAI, with your own name and
-                    account numbers masked, so it can suggest a category for each. Rows that show
-                    the other party&apos;s IBAN (transfers) and manual entries are not sent. A
+                    transactions that no rule matched are sent to an AI service, with your own name
+                    and account numbers masked, so it can suggest a category for each. Rows that
+                    show the other party&apos;s IBAN (transfers) and manual entries are not sent. A
                     payment to a person that shows no IBAN is sent, and a name inside a merchant
                     string might get through. A suggestion never changes a category until you accept
                     it. You can turn this off in your settings.
                   </FieldDescription>
                 )}
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="import-profile">Import profile</FieldLabel>
-                <NativeSelect id="import-profile" name="profileId" defaultValue="">
-                  <NativeSelectOption value="">Find by the file&apos;s columns</NativeSelectOption>
-                  {profiles.map((profile) => (
-                    <NativeSelectOption key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
               </Field>
               {tooLarge && <FormError>{tooLargeMessage(maxBytes)}</FormError>}
               {state.error && <FormError>{state.error}</FormError>}
@@ -267,7 +259,8 @@ function MappingForm({
       {state.suggestion && <input type="hidden" name="suggestion" value={state.suggestion} />}
       <FieldGroup>
         <h2>{state.profileId ? "Edit the import profile" : "Map the columns"}</h2>
-        {!state.profileId && (
+        {/* A file at the profile limit is a known format: its note says so instead. */}
+        {!state.profileId && state.suggestion !== "profile-limit" && (
           <p className="text-muted-foreground">
             troba hasn&apos;t seen this format yet. Say which column holds what, once: it&apos;s
             saved as a profile, and later files with the same columns use it.
@@ -422,13 +415,17 @@ function noteText(suggestion: Suggestion): string {
 
 // Shown in the reading order, right after the step's heading. Screen readers get it from the
 // wizard's live region (see ImportWizard), so it isn't one itself and is not read twice.
+function Note({ children }: { children: ReactNode }) {
+  return <p className="rounded-lg border bg-muted px-3 py-2 text-sm">{children}</p>;
+}
+
 function SuggestionNote({ suggestion }: { suggestion: Suggestion }) {
   const { lead, text } = suggestionNotes[suggestion];
   return (
-    <p className="rounded-lg border bg-muted px-3 py-2 text-sm">
+    <Note>
       {lead && <strong>{lead} </strong>}
       {text}
-    </p>
+    </Note>
   );
 }
 
@@ -512,45 +509,85 @@ const delimiterNames: Record<MappingTable["delimiter"], string> = {
 };
 
 function PreviewForm({ state, pending, onSubmit }: StepProps<"preview">) {
-  const { preview } = state;
+  const { preview, profile, found } = state;
+  const startOver = (
+    <Button type="submit" variant="outline" name="intent" value="restart" formNoValidate>
+      Start over
+    </Button>
+  );
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <input type="hidden" name="profileId" value={state.profile.id} />
+      <input type="hidden" name="profileId" value={profile.id} />
+      {found && <input type="hidden" name="found" value={found} />}
       <h2>Preview</h2>
-      <p className="flex flex-wrap items-center gap-2">
-        Read with the profile {state.profile.name}.{" "}
-        <Button
-          type="submit"
-          variant="outline"
-          size="sm"
-          name="intent"
-          value="edit"
-          disabled={pending}
-          formNoValidate
-        >
-          Edit profile
-        </Button>
-      </p>
-      <PreviewBody preview={preview} accountId={state.accountId} pending={pending} />
-      {state.error && <FormError>{state.error}</FormError>}
-      <p>
-        <Button type="submit" variant="outline" name="intent" value="restart" formNoValidate>
-          Start over
-        </Button>
-      </p>
+      <div className="flex flex-col gap-1">
+        <p className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Read with the profile</span>
+          <Badge
+            className="text-sm"
+            variant={profile.brand ? null : "secondary"}
+            style={
+              profile.brand
+                ? { backgroundColor: profile.brand.background, color: profile.brand.foreground }
+                : undefined
+            }
+          >
+            {profile.name}
+          </Badge>
+          {found && <Badge variant="outline">{formatSourceBadges[found]}</Badge>}
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            name="intent"
+            value="edit"
+            disabled={pending}
+            formNoValidate
+          >
+            Edit profile
+          </Button>
+        </p>
+        {found === "preset" && (
+          <p className="text-sm text-muted-foreground">
+            It&apos;s now saved in your import profiles, so you can edit it.
+          </p>
+        )}
+      </div>
+      <PreviewBody
+        preview={preview}
+        accountId={state.accountId}
+        pending={pending}
+        error={state.error && <FormError>{state.error}</FormError>}
+        startOver={startOver}
+      />
     </form>
   );
 }
 
+// The step's own content, ending in one row of buttons: its next action, then Start over.
 function PreviewBody({
   preview,
   accountId,
   pending,
+  error,
+  startOver,
 }: {
   preview: PreviewView;
   accountId: string | null;
   pending: boolean;
+  error: ReactNode;
+  startOver: ReactNode;
 }) {
+  const actions = (primary?: ReactNode) => (
+    <>
+      {error}
+      <div className="flex flex-wrap items-center gap-2">
+        {primary}
+        {startOver}
+      </div>
+    </>
+  );
+
   if (!preview.ok) {
     switch (preview.reason) {
       case "unknown-account":
@@ -570,15 +607,11 @@ function PreviewBody({
                 required
               />
             </Field>
-            <Button
-              type="submit"
-              name="intent"
-              value="create-account"
-              disabled={pending}
-              className="self-start"
-            >
-              Create the account and preview
-            </Button>
+            {actions(
+              <Button type="submit" name="intent" value="create-account" disabled={pending}>
+                Create the account and preview
+              </Button>,
+            )}
           </>
         );
       case "account-required":
@@ -605,19 +638,20 @@ function PreviewBody({
                 ))}
               </NativeSelect>
             </Field>
-            <Button
-              type="submit"
-              name="intent"
-              value="preview"
-              disabled={pending}
-              className="self-start"
-            >
-              Preview
-            </Button>
+            {actions(
+              <Button type="submit" name="intent" value="preview" disabled={pending}>
+                Preview
+              </Button>,
+            )}
           </>
         );
       case "refused":
-        return <FormError>{preview.message}</FormError>;
+        return (
+          <>
+            <FormError>{preview.message}</FormError>
+            {actions()}
+          </>
+        );
     }
   }
 
@@ -625,28 +659,42 @@ function PreviewBody({
   return (
     <>
       <input type="hidden" name="accountId" value={accountId ?? ""} />
-      <p>Account: {preview.account.name}</p>
-      <DescriptionList aria-label="Import summary">
-        <dt>Rows in the file</dt>
-        <dd>{preview.rowsParsed}</dd>
-        <dt>New</dt>
-        <dd>{preview.rowsNew}</dd>
-        <dt>Already imported, skipped</dt>
-        <dd>{preview.rowsDuplicate}</dd>
-        <dt>Can&apos;t be read</dt>
-        <dd>{rowsFailed}</dd>
-      </DescriptionList>
+      <p className="text-sm">
+        <span className="text-muted-foreground">Account:</span> {preview.account.name}
+      </p>
+      <dl aria-label="Import summary" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat term="Rows in the file" value={preview.rowsParsed} />
+        <Stat term="New" value={preview.rowsNew} tone={preview.rowsNew > 0 ? "strong" : "quiet"} />
+        <Stat term="Already imported, skipped" value={preview.rowsDuplicate} tone="quiet" />
+        <Stat term="Can't be read" value={rowsFailed} tone={rowsFailed > 0 ? "bad" : "quiet"} />
+      </dl>
       {preview.debitCredit && (
-        <>
-          <p id="debit-credit">Debit/credit values in the file. Check they read the right way:</p>
-          <ul aria-labelledby="debit-credit" className="list-disc pl-6 text-sm">
+        <section aria-labelledby="debit-credit" className="rounded-xl border p-3 sm:p-4">
+          <h3 id="debit-credit" className="text-sm font-medium">
+            Debit/credit values in the file
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Check each value reads the right way. If one doesn&apos;t, edit the profile&apos;s debit
+            values.
+          </p>
+          <ul aria-labelledby="debit-credit" className="mt-2 divide-y text-sm">
             {preview.debitCredit.map(({ value, debit, rows }) => (
-              <li key={value}>
-                {value}: {count(rows, "row")}, read as {debit ? "money out" : "money in"}
+              <li key={value} className="flex items-center gap-2 py-2">
+                <code className="min-w-8 rounded-md bg-muted px-2 py-0.5 text-center font-mono">
+                  {value}
+                </code>{" "}
+                <span className="text-muted-foreground">read as</span>{" "}
+                <Badge variant="outline">
+                  <span aria-hidden="true">{debit ? "↓" : "↑"}</span>
+                  {debit ? "money out" : "money in"}
+                </Badge>{" "}
+                <span className="ml-auto text-muted-foreground tabular-nums">
+                  {count(rows, "row")}
+                </span>
               </li>
             ))}
           </ul>
-        </>
+        </section>
       )}
       {rowsFailed > 0 && (
         <>
@@ -662,20 +710,128 @@ function PreviewBody({
         </>
       )}
       {preview.rowsNew > 0 ? (
-        <Button
-          type="submit"
-          name="intent"
-          value="commit"
-          disabled={pending}
-          className="self-start"
-        >
-          Import {count(preview.rowsNew, "transaction")}
-        </Button>
+        actions(
+          <Button type="submit" name="intent" value="commit" disabled={pending}>
+            Import {count(preview.rowsNew, "transaction")}
+          </Button>,
+        )
       ) : (
-        <FormStatus>Nothing new to import.</FormStatus>
+        <>
+          <FormStatus>Nothing new to import.</FormStatus>
+          {actions()}
+        </>
       )}
     </>
   );
+}
+
+// One figure of the summary: a dt and its dd, wrapped in a div, which a dl allows.
+function Stat({
+  term,
+  value,
+  tone,
+}: {
+  term: string;
+  value: number;
+  tone?: "strong" | "quiet" | "bad";
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1 rounded-xl border p-3",
+        tone === "strong" && "border-primary/40 bg-muted",
+        tone === "bad" && "border-destructive/50",
+      )}
+    >
+      <dt className="text-xs text-muted-foreground">{term}</dt>
+      <dd
+        className={cn(
+          "text-2xl font-semibold tabular-nums",
+          tone === "quiet" && "text-muted-foreground",
+          tone === "bad" && "text-destructive",
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+// The file field as a drop area. The input itself covers the area, transparent, so a click opens
+// the file picker and a dropped file lands in it natively, with the keyboard focus ring on the
+// area around it. Dragging over only changes how the area looks.
+function FileDrop({
+  id,
+  file,
+  describedBy,
+  onFile,
+}: {
+  id: string;
+  file: File | null;
+  describedBy: string | undefined;
+  onFile: (file: File | null) => void;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      onDragEnter={() => setOver(true)}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={() => setOver(false)}
+      className={cn(
+        "relative flex min-h-40 flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors has-focus-visible:border-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+        over ? "border-primary bg-muted" : "border-input hover:bg-muted/50",
+      )}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="mb-1 size-8 text-muted-foreground"
+      >
+        <path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5" />
+        <path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
+      </svg>
+      {file ? (
+        <>
+          <p className="font-medium [overflow-wrap:anywhere]">{file.name}</p>
+          <p className="text-sm text-muted-foreground">
+            {fileSize(file.size)}. Drop another file or click to replace it.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-medium">{over ? "Drop it here" : "Drag a CSV file here"}</p>
+          <p className="text-sm text-muted-foreground">or click to choose one</p>
+        </>
+      )}
+      <input
+        id={id}
+        type="file"
+        name="file"
+        accept=".csv,text/csv"
+        required
+        aria-describedby={describedBy}
+        onChange={(event) => onFile(event.currentTarget.files?.[0] ?? null)}
+        className="absolute inset-0 size-full cursor-pointer"
+        // Inline, not opacity-0: the global focus-ring transition (globals.css) also fades opacity
+        // and, being unlayered, beats a transition-none class, so the native "Choose File" text
+        // would show on load and fade out.
+        style={{ opacity: 0, transition: "none" }}
+      />
+    </div>
+  );
+}
+
+function fileSize(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function count(n: number, noun: string) {
