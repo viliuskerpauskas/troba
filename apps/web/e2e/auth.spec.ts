@@ -21,6 +21,25 @@ test("an unauthenticated visit to /money redirects to /sign-in", async ({ page }
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
 
+test("a field that fails the browser's validation says why under it", async ({ page }) => {
+  await page.goto("/sign-in");
+  const email = page.getByLabel("Email");
+  await email.fill("not-an-email");
+  await page.getByLabel("Password").fill("any password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  // The message is the browser's own, so assert where it is, not its wording.
+  const message = await email.evaluate((input: HTMLInputElement) => input.validationMessage);
+  await expect(email).toHaveAttribute("aria-invalid", "true");
+  await expect(email).toHaveAccessibleDescription(message);
+  await expect(email).toBeFocused();
+  await expect(page).toHaveURL("/sign-in");
+
+  await email.fill(adminEmail);
+  await expect(email).not.toHaveAttribute("aria-invalid");
+  await expect(page.locator("[data-slot=control-error]")).toHaveCount(0);
+});
+
 test("the home page signs a signed-out visitor in", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
