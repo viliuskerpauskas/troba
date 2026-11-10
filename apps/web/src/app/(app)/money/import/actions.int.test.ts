@@ -477,3 +477,56 @@ describe("startImportAction, for everything else", () => {
     expect(model.requests).toEqual([]);
   });
 });
+
+describe("startImportAction, for a statement file that isn't a CSV", () => {
+  const zip = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
+  const ole = Uint8Array.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00]);
+  const pdf = new TextEncoder().encode("%PDF-1.7\n%âãÏÓ\n1 0 obj\n");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+  const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  it.each([
+    ["an XLSX", zip, { name: "statement.xlsx", type: xlsxType }],
+    ["an XLS", ole, { name: "statement.xls", type: "application/vnd.ms-excel" }],
+    ["a PDF", pdf, { name: "statement.pdf", type: "application/pdf" }],
+  ])("refuses %s as not supported yet, reading and saving nothing", async (_, bytes, file) => {
+    const model = fakeModel(goodAnswer);
+    server.client = model.client;
+
+    const state = await actions.startImportAction(upload(bytes, {}, file));
+
+    expect(state).toEqual({
+      step: "upload",
+      error: expect.stringContaining("isn't supported yet"),
+    });
+    expect(model.requests).toEqual([]);
+    expect(await listImportProfiles(db, session.userId)).toEqual([]);
+  });
+
+  it("refuses an image named .xlsx as not a statement file", async () => {
+    const state = await actions.startImportAction(
+      upload(png, {}, { name: "statement.xlsx", type: xlsxType }),
+    );
+
+    expect(state).toEqual({
+      step: "upload",
+      error: expect.stringContaining("isn't a statement file"),
+    });
+  });
+
+  it("refuses a spreadsheet at the confirm step too", async () => {
+    const state = await actions.commitImportAction(
+      upload(
+        zip,
+        { profileId: "00000000-0000-4000-8000-000000000000", accountId: "" },
+        { name: "statement.xlsx", type: xlsxType },
+      ),
+    );
+
+    expect(state).toEqual({
+      step: "upload",
+      error: expect.stringContaining("isn't supported yet"),
+    });
+    expect(await db.select().from(schema.moneyTransactions)).toEqual([]);
+  });
+});
