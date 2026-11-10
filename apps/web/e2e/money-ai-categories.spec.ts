@@ -283,7 +283,8 @@ test("says nothing about AI suggestions, and offers none, to a user who turned t
 
   await page.goto("/money");
   await page.getByRole("link", { name: "Import a bank statement" }).click();
-  // The upload step doesn't say anything would be sent.
+  // The upload step, once it is there, doesn't say anything would be sent.
+  await expect(page.getByLabel("Statement file from your bank")).toBeVisible();
   await expect(page.locator("#import-categorize-disclosure")).toHaveCount(0);
   await importStatement(page, statement, { fromUploadStep: true });
   await expect(page.getByRole("status")).toHaveText(
