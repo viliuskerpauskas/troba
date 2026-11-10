@@ -62,11 +62,15 @@ export function tooManyPagesMessage(pages: number, maxPages: number): string {
 // possible, or, for a reading that met the cap after it was queued, the same said afterwards.
 // `nextAt` null means a place is free again now.
 export function pdfDailyLimitMessage(limit: number, nextAt: Date | null, now = new Date()): string {
-  return `You've used today's ${limit} PDF imports, so nothing was sent. ${whenAgain(nextAt, now)}`;
+  return `You've used today's ${pdfImports(limit)}, so nothing was sent. ${whenAgain(nextAt, now)}`;
 }
 
 export function pdfReadingCappedMessage(limit: number, nextAt: Date | null, now = new Date()) {
-  return `You'd already used today's ${limit} PDF imports, so the statement wasn't sent to AI. Nothing was saved. ${whenAgain(nextAt, now)}`;
+  return `You'd already used today's ${pdfImports(limit)}, so the statement wasn't sent to AI. Nothing was saved. ${whenAgain(nextAt, now)}`;
+}
+
+function pdfImports(count: number): string {
+  return count === 1 ? "1 PDF import" : `${count} PDF imports`;
 }
 
 // Relative, so it needs no time zone: the server doesn't know the user's.
