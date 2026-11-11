@@ -53,10 +53,18 @@ export const importProfileFields = z.object({
     transactionId: headerName.optional(),
     transactionType: headerName.optional(),
     ownIban: headerName.optional(),
+    // A fee the bank charges apart from the amount (the amount doesn't include it). A non-zero fee
+    // becomes a fee transaction of its own, next to its payment (ADR-0020).
+    fee: headerName.optional(),
+    // The row's state, read with completedValues.
+    state: headerName.optional(),
   }),
   // With an unsigned amount and a debit/credit column: the indicator values that mean a debit,
   // compared ignoring case.
   debitValues: z.array(z.string().trim().min(1).max(40)).min(1).max(20).nullable(),
+  // With a state column: the values that mean a row is completed, compared ignoring case. Any other
+  // row (pending, reverted) is skipped (ADR-0020). Absent or null without the column.
+  completedValues: z.array(z.string().trim().min(1).max(40)).min(1).max(20).nullish(),
 });
 
 export const importProfileSchema = importProfileFields
@@ -65,6 +73,13 @@ export const importProfileSchema = importProfileFields
     {
       message: "A debit/credit column needs debit values, and debit values need the column.",
       path: ["debitValues"],
+    },
+  )
+  .refine(
+    (profile) => (profile.columns.state === undefined) === (profile.completedValues == null),
+    {
+      message: "A state column needs completed values, and completed values need the column.",
+      path: ["completedValues"],
     },
   )
   .refine(
@@ -104,6 +119,8 @@ export type ParsedRow = {
   counterpartyIban: string | null;
   description: string | null;
   bankTxType: string | null;
+  // A fee transaction, split from the payment on the same row (its own row number).
+  fee: boolean;
   dedupKey: string;
   // Header → cell, as the bank wrote it.
   raw: Record<string, string>;
@@ -116,6 +133,7 @@ export type RowFailureReason =
   | "invalid-currency"
   | "invalid-original-amount"
   | "invalid-own-iban"
+  | "invalid-fee"
   | "duplicate-transaction-id";
 
 export type RowFailure = { row: number; reason: RowFailureReason };
@@ -131,12 +149,17 @@ export type ParseRowsResult =
       // Any value that isn't a debit value reads as a credit, so the preview shows these for the
       // user to spot a mistyped debit value. Null without the column.
       debitCredit: DebitCreditCount[] | null;
+      // With a state column: the rows skipped for not being completed, by state (upper case, ""
+      // for a blank one). Null without the column.
+      skipped: StateCount[] | null;
     }
   // The whole file is refused: nothing in it may be saved.
   | { ok: false; reason: "missing-columns"; columns: string[] }
   | { ok: false; reason: "multiple-own-ibans" };
 
 export type DebitCreditCount = { value: string; debit: boolean; rows: number };
+
+export type StateCount = { value: string; rows: number };
 
 export type ParseRowsOptions = {
   // The currency of the account the rows go to: the default when the profile maps no currency
@@ -186,6 +209,8 @@ export function parseRows(
   const transactionIds = new Set<string>();
   const occurrences = new Map<string, number>();
   const indicators = new Map<string, DebitCreditCount>();
+  const skipped = new Map<string, StateCount>();
+  const completed = new Set(profile.completedValues?.map((value) => value.toUpperCase()));
 
   for (const [i, cells] of table.rows.entries()) {
     const row = i + 1;
@@ -202,6 +227,17 @@ export function parseRows(
       const j = indexOf(field);
       return j === undefined ? undefined : types?.[j];
     };
+    // A row that isn't completed may yet change or never happen: skipped before it is read, so a
+    // pending row's missing date isn't a failure. A later file has it once it completes.
+    if (profile.columns.state !== undefined) {
+      const state = cell("state").toUpperCase();
+      if (!completed.has(state)) {
+        const seen = skipped.get(state) ?? { value: state, rows: 0 };
+        seen.rows++;
+        skipped.set(state, seen);
+        continue;
+      }
+    }
     const indicator = cell("debitCredit").toUpperCase();
     if (indicator) {
       const seen = indicators.get(indicator) ?? {
@@ -241,7 +277,25 @@ export function parseRows(
 
     if (parsed.ownIban) ownIbans.add(parsed.ownIban);
     const raw = Object.fromEntries(rawNames.map((name, j) => [name, cells[j] ?? ""]));
-    rows.push({ row, ...parsed.fields, dedupKey, raw });
+    rows.push({ row, ...parsed.fields, fee: false, dedupKey, raw });
+    // Keyed from the payment's own key, which doesn't depend on the fee: a re-import matches both,
+    // and a file imported before fees were read gains only its fees.
+    if (parsed.feeCents !== 0n)
+      rows.push({
+        row,
+        ...parsed.fields,
+        amountCents: parsed.feeCents,
+        originalAmountCents: null,
+        originalCurrency: null,
+        // A fee on a move to an own account is still spent, not a transfer.
+        counterpartyIban: null,
+        // Told apart from its payment in the transaction list.
+        description: parsed.fields.description ? `Fee: ${parsed.fields.description}` : "Fee",
+        bankTxType: "Fee",
+        fee: true,
+        dedupKey: `${dedupKey}:fee`,
+        raw,
+      });
   }
 
   // One file is one account's statement.
@@ -252,10 +306,11 @@ export function parseRows(
     rows,
     failed,
     debitCredit: profile.columns.debitCredit === undefined ? null : [...indicators.values()],
+    skipped: profile.columns.state === undefined ? null : [...skipped.values()],
   };
 }
 
-type RowFields = Omit<ParsedRow, "row" | "dedupKey" | "raw">;
+type RowFields = Omit<ParsedRow, "row" | "fee" | "dedupKey" | "raw">;
 
 // One row's fields, or why it can't be read.
 function parseRow(
@@ -266,6 +321,8 @@ function parseRow(
 ):
   | {
       fields: RowFields;
+      // Zero, or the fee as money out.
+      feeCents: bigint;
       ownIban: string | null;
       transactionId: string;
       hashed: (string | bigint | null)[];
@@ -311,6 +368,11 @@ function parseRow(
     originalAmountCents = withSign(original, amountCents < 0n ? -1n : 1n);
   } else originalCurrency = null;
 
+  // A fee is money out however the bank signs it. Blank is no fee.
+  const fee = cell("fee") ? amountOf("fee") : 0n;
+  if (fee === null) return "invalid-fee";
+  const feeCents = withSign(fee, -1n);
+
   let ownIban: string | null = null;
   if (cell("ownIban")) {
     ownIban = parseIban(cell("ownIban"));
@@ -332,6 +394,7 @@ function parseRow(
       description,
       bankTxType: text("transactionType"),
     },
+    feeCents,
     ownIban,
     transactionId: cell("transactionId"),
     hashed: [bookedOn, amountCents, counterparty, description],

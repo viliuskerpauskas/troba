@@ -508,6 +508,20 @@ function MappingForm({
               as D.
             </FieldDescription>
           </Field>
+          <Field>
+            <FieldLabel htmlFor="profile-completed-values">Completed values</FieldLabel>
+            <Input
+              id="profile-completed-values"
+              name="completedValues"
+              defaultValue={value("completedValues")}
+              maxLength={200}
+              aria-describedby="profile-completed-values-hint"
+            />
+            <FieldDescription id="profile-completed-values-hint">
+              With a state column: the states that mean a row went through, comma-separated, such as
+              COMPLETED. Rows in any other state are skipped.
+            </FieldDescription>
+          </Field>
         </FieldSet>
         {state.error && <FormError>{state.error}</FormError>}
         <div className="flex flex-wrap gap-2">
@@ -836,6 +850,36 @@ function PreviewBody({
         <Stat term="Already imported, skipped" value={preview.rowsDuplicate} tone="quiet" />
         <Stat term="Can't be read" value={rowsFailed} tone={rowsFailed > 0 ? "bad" : "quiet"} />
       </dl>
+      {preview.fees > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {preview.fees === 1
+            ? "The transactions include 1 fee charged on top of its payment, imported as a transaction of its own."
+            : `The transactions include ${preview.fees} fees charged on top of their payments, each imported as a transaction of its own.`}
+        </p>
+      )}
+      {preview.skipped && preview.skipped.length > 0 && (
+        <section aria-labelledby="skipped-states" className="rounded-xl border p-3 sm:p-4">
+          <h3 id="skipped-states" className="text-sm font-medium">
+            Not completed, skipped
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            These rows are pending or didn&apos;t go through, so they aren&apos;t imported. Once
+            completed, they come in with a later file.
+          </p>
+          <ul aria-labelledby="skipped-states" className="mt-2 divide-y text-sm">
+            {preview.skipped.map(({ value, rows }) => (
+              <li key={value} className="flex items-center gap-2 py-2">
+                <code className="min-w-8 rounded-md bg-muted px-2 py-0.5 text-center font-mono">
+                  {value || "(blank)"}
+                </code>
+                <span className="ml-auto text-muted-foreground tabular-nums">
+                  {count(rows, "row")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {preview.mixedFormats && (
         <section aria-labelledby="mixed-formats" className="rounded-xl border p-3 sm:p-4">
           <h3 id="mixed-formats" className="text-sm font-medium">

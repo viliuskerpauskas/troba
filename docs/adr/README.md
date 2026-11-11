@@ -23,5 +23,6 @@ Decisions in [MADR 4](https://adr.github.io/madr/) format. Copy [0000-template.m
 | [0017](0017-enable-banking-for-bank-sync.md) | Bank sync through Enable Banking; file import stays the primary path | rejected |
 | [0018](0018-pdf-statements-read-by-a-model.md) | PDF statements are read by a model; the whole statement may go to the provider, with consent on every import | accepted |
 | [0019](0019-sheetjs-for-spreadsheet-statements.md) | SheetJS, pinned from its own CDN, reads spreadsheet statement files | accepted |
+| [0020](0020-fees-and-row-states-in-import-profiles.md) | A fee becomes its own transaction; rows that aren't completed are skipped | accepted |
 
 Background and rejected alternatives: [docs/ideas/stack-options.md](../ideas/stack-options.md).

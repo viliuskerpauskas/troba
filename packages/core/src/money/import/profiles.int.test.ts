@@ -220,6 +220,25 @@ describe("saveImportProfile", () => {
     });
   });
 
+  it("keeps a state column's completed values, and an edit that unmaps it clears them", async () => {
+    const userId = await createUser();
+    const withState: ImportProfile = {
+      ...signedProfile,
+      columns: { ...signedProfile.columns, state: "Type" },
+      completedValues: ["CARD"],
+    };
+    const created = await saveImportProfile(db, userId, { profile: withState, bytes: signedFile });
+    const profileId = created.ok ? created.profile.id : "";
+    const saved = await matchImportProfile(db, userId, signedFile);
+
+    await saveImportProfile(db, userId, { profileId, profile: signedProfile, bytes: signedFile });
+
+    expect(saved).toMatchObject({ columns: { state: "Type" }, completedValues: ["CARD"] });
+    const edited = await matchImportProfile(db, userId, signedFile);
+    expect(edited?.columns.state).toBeUndefined();
+    expect(edited?.completedValues).toBeUndefined();
+  });
+
   it("can't edit another user's profile", async () => {
     const owner = await createUser();
     const created = await saveImportProfile(db, owner, {
