@@ -111,23 +111,28 @@ function decode(
 
 // The delimiter that gives the most records one shared number of columns, more than one. A comma
 // inside amounts ("-4,20") or a preamble line can't outvote the real delimiter on every row.
+// Decimal commas never decide it: with exactly one on every line, the comma ties the real
+// delimiter on that count, so a tie goes to the delimiter that gives more columns, and a tie on
+// those too goes to a delimiter other than the comma, since a comma is also a decimal separator.
 function sniff(text: string): { delimiter: Delimiter } & SplitRecords {
-  let best: { delimiter: Delimiter; score: number } & SplitRecords = {
-    delimiter: delimiters[0]!,
-    records: [],
-    unterminated: false,
-    score: -1,
-  };
+  let best: ({ delimiter: Delimiter } & Fit & SplitRecords) | null = null;
   for (const delimiter of delimiters) {
     const split = splitRecords(text, delimiter);
-    const score = sharedWidthCount(split.records.filter(isNonEmpty));
-    if (score > best.score) best = { delimiter, ...split, score };
+    const fit = { delimiter, ...(usualWidth(split.records.filter(isNonEmpty)) ?? noFit) };
+    if (!best || fitsBetter(fit, best)) best = { ...fit, ...split };
   }
-  return best;
+  return best!;
 }
 
-function sharedWidthCount(records: string[][]): number {
-  return usualWidth(records)?.count ?? 0;
+type Fit = { delimiter: Delimiter; width: number; count: number };
+
+const noFit = { width: 0, count: 0 };
+
+function fitsBetter(a: Fit, b: Fit): boolean {
+  if (a.count !== b.count) return a.count > b.count;
+  if (a.width !== b.width) return a.width > b.width;
+  // No table at all keeps the first delimiter, the comma.
+  return a.count > 0 && b.delimiter === ",";
 }
 
 // A preamble (a statement title) sits above the header: the header is the first line with the
