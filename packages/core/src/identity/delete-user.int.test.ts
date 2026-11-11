@@ -100,6 +100,7 @@ async function createMoneyRows(userId: string) {
   });
   await db.insert(schema.moneyAiMappingUses).values({ userId });
   await db.insert(schema.moneyAiCategorizeUses).values({ userId, merchants: 3 });
+  await db.insert(schema.moneyAiCategorizeRuns).values({ userId, importId: moneyImport!.id });
   await db.insert(schema.moneyAiPdfImportUses).values({ userId, pdfImportId: crypto.randomUUID() });
   await db
     .insert(schema.moneyPdfImports)

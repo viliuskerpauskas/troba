@@ -205,22 +205,9 @@ export function afterImportNote(suggestions: AfterImportSuggestions): string | n
     case "off":
     case "nothing":
       return null;
-    case "suggested":
-      return suggestions.rows === 1
-        ? "AI suggested a category for 1 transaction. It stays uncategorized until you accept it on the transactions list."
-        : `AI suggested categories for ${suggestions.rows} transactions. They stay uncategorized until you accept them on the transactions list.`;
-    case "none":
-      return "AI had no category suggestions for these transactions.";
     case "unavailable":
       return "AI category suggestions aren't available right now. The import is saved; try Suggest categories on the transactions list later.";
-    case "capped": {
-      const some =
-        suggestions.rows > 0
-          ? `AI suggested categories for ${suggestions.rows} ${suggestions.rows === 1 ? "transaction" : "transactions"}. `
-          : "";
-      return `${some}The daily limit on AI suggestions is reached, so the rest stay uncategorized for now.`;
-    }
     case "pending":
-      return "AI is still working on category suggestions. They will appear on the transactions list when ready.";
+      return "AI is preparing category suggestions. They appear on the transactions list when ready, and each transaction stays uncategorized until you accept its suggestion.";
   }
 }

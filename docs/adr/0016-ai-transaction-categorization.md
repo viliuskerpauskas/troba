@@ -84,3 +84,5 @@ Chosen option: "Send the merchant text of card and merchant rows; withhold own-n
 ## More Information
 
 Amends the "no word of a free-text cell" rule in ADR-0015 for this feature only; the column-mapping sample is unchanged. Adds a section to [SPEC-money](../../SPEC-money.md) (M5) when the spec is written. Same transport as ADR-0015: plain HTTPS `fetch` with structured output; adopting an SDK, or another provider, needs its own ADR. Revisit if a person's name is found in a sent payload, if a second provider is added, or to let an accepted suggestion create an M5 rule.
+
+Point 4, as to where the model call is made, was superseded on 2026-11-11 by [ADR-0021](0021-ai-categorization-on-the-worker.md): the worker asks the model, the button follows its run, and an import no longer waits on the model but says suggestions are being prepared. Which rows are sent, and when, is unchanged.

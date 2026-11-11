@@ -14,7 +14,6 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       AI_MAPPING_DAILY_LIMIT: ${AI_MAPPING_DAILY_LIMIT:-}
-      AI_CATEGORIZE_DAILY_LIMIT: ${AI_CATEGORIZE_DAILY_LIMIT:-}
       # Checked before a PDF is queued; the worker claims each use. Give both the same value.
       AI_PDF_IMPORT_DAILY_LIMIT: ${AI_PDF_IMPORT_DAILY_LIMIT:-}
     volumes:
@@ -37,9 +36,12 @@ services:
     command: ["node", "worker.js"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-troba}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-troba}
-      # Reads PDF statements (ADR-0018). Optional: unset, the web app offers no PDF import.
+      # Reads PDF statements (ADR-0018) and suggests categories (ADR-0021). Optional: unset, the web
+      # app offers neither.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      # Claimed by the worker as it asks the model; the web app doesn't read it.
+      AI_CATEGORIZE_DAILY_LIMIT: ${AI_CATEGORIZE_DAILY_LIMIT:-}
       AI_PDF_IMPORT_DAILY_LIMIT: ${AI_PDF_IMPORT_DAILY_LIMIT:-}
     # On SIGTERM the worker lets running jobs finish for up to 25 s; past this Docker kills it, and
     # pg-boss retries the job once it expires.

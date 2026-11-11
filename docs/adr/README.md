@@ -19,10 +19,11 @@ Decisions in [MADR 4](https://adr.github.io/madr/) format. Copy [0000-template.m
 | [0013](0013-dev-branch-to-staging.md) | Work lands on dev, which deploys to staging; main is the release branch | accepted, prod path superseded by 0014 |
 | [0014](0014-merge-to-main-deploys-prod.md) | Merging into main deploys prod; release-please only versions | accepted |
 | [0015](0015-import-presets-and-ai-mapping.md) | Bank names in preset data files only; a scrubbed sample of an unknown format may go to a model provider | accepted, amended by 0016 and 0018 |
-| [0016](0016-ai-transaction-categorization.md) | AI suggests categories for transactions no rule matched; merchant text may go to a model provider, person names and direct transfers may not | accepted |
+| [0016](0016-ai-transaction-categorization.md) | AI suggests categories for transactions no rule matched; merchant text may go to a model provider, person names and direct transfers may not | accepted, where the call runs superseded by 0021 |
 | [0017](0017-enable-banking-for-bank-sync.md) | Bank sync through Enable Banking; file import stays the primary path | rejected |
 | [0018](0018-pdf-statements-read-by-a-model.md) | PDF statements are read by a model; the whole statement may go to the provider, with consent on every import | accepted |
 | [0019](0019-sheetjs-for-spreadsheet-statements.md) | SheetJS, pinned from its own CDN, reads spreadsheet statement files | accepted |
 | [0020](0020-fees-and-row-states-in-import-profiles.md) | A fee becomes its own transaction; rows that aren't completed are skipped | accepted |
+| [0021](0021-ai-categorization-on-the-worker.md) | AI-suggested categories are asked for by the worker; no request waits on the model | accepted |
 
 Background and rejected alternatives: [docs/ideas/stack-options.md](../ideas/stack-options.md).

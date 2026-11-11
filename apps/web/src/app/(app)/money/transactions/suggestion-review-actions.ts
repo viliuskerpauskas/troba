@@ -10,7 +10,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
-import { categorizationModelClient } from "@/server/openai-categorization";
+import { aiCategorizationEnabled } from "@/server/env";
 import { requireUser } from "@/server/session";
 import { suggestCategoriesAction, type SuggestState } from "./suggestion-actions";
 
@@ -21,11 +21,11 @@ import { suggestCategoriesAction, type SuggestState } from "./suggestion-actions
 // The server has a key and the user hasn't turned suggestions off: the asking and accepting
 // controls are offered only then.
 async function aiOfferedTo(userId: string): Promise<boolean> {
-  return categorizationModelClient() !== null && (await aiCategorizationEnabledFor(db(), userId));
+  return aiCategorizationEnabled() && (await aiCategorizationEnabledFor(db(), userId));
 }
 
-// "Ask again": reopens the dismissed and unplaced merchants, then asks about them like the
-// "Suggest categories" button does. Nothing is reopened when the server has no key or the user
+// "Ask again": reopens the dismissed and unplaced merchants, then queues a run for them like the
+// "Suggest categories" button does, and answers the same way. Nothing is reopened when the server has no key or the user
 // turned suggestions off.
 export async function askAgainAction(): Promise<SuggestState> {
   const { userId } = await requireUser();
@@ -97,7 +97,7 @@ export async function acceptAllSuggestionsAction(): Promise<ReviewState> {
 // suggestions off can still dismiss the ones they have: nothing is sent.
 export async function dismissSuggestionAction(transactionId: string): Promise<ReviewState> {
   const { userId } = await requireUser();
-  if (!categorizationModelClient()) return { ok: false, message: offMessage };
+  if (!aiCategorizationEnabled()) return { ok: false, message: offMessage };
   const id = TransactionId.safeParse(transactionId);
   if (!id.success) return { ok: false, message: notFoundMessage };
 

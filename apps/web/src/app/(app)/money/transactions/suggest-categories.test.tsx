@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { SuggestCategories, SuggestionChip } from "./suggest-categories";
 
 // The button calls a server action; rendering it, as here, never does.
-vi.mock("./suggestion-actions", () => ({ suggestCategoriesAction: vi.fn() }));
+vi.mock("./suggestion-actions", () => ({
+  suggestCategoriesAction: vi.fn(),
+  suggestionRunStatusAction: vi.fn(),
+}));
 
 describe("the suggest categories button", () => {
   it("offers the button with what is sent beside it when the server has a key", () => {
@@ -24,6 +27,15 @@ describe("the suggest categories button", () => {
     expect(renderToStaticMarkup(<SuggestCategories enabled />)).toMatch(
       /<p role="status" class="[^"]*"><\/p>/,
     );
+  });
+
+  it("is busy while a run the page found under way is going", () => {
+    const html = renderToStaticMarkup(
+      <SuggestCategories enabled runId="00000000-0000-4000-8000-000000000000" />,
+    );
+
+    expect(html).toContain("Suggesting…");
+    expect(html).toMatch(/<button[^>]*disabled/);
   });
 
   it("shows nothing at all, not even a mention, without a key", () => {
