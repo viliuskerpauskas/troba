@@ -317,6 +317,22 @@ describe("proposeMapping", () => {
       expect(client.requests).toHaveLength(0);
     });
 
+    it("sends nothing for a semicolon file with no header line and one decimal comma per line", async () => {
+      // Split on the comma, the first row would read as "TEA HOUSE;Green tea Elm Road;7" and
+      // "30;EUR": no date or amount in either, so its words would go out as headers.
+      const client = fakeClient(goodAnswer);
+      const lines = [
+        "TEA HOUSE;Green tea Elm Road;7,30;EUR",
+        "COFFEE HUT;Latte and croissant;3,20;EUR",
+        "BOOK SHOP;Novel purchase;40,00;EUR",
+      ];
+
+      expect(
+        await proposeMapping(new TextEncoder().encode(lines.join("\n")), { client }),
+      ).toBeNull();
+      expect(client.requests).toHaveLength(0);
+    });
+
     it("keeps ordinary headers as they are", async () => {
       const client = fakeClient(goodAnswer);
 

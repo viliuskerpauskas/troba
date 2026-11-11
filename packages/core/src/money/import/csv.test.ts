@@ -33,6 +33,35 @@ describe("readCsv", () => {
     });
   });
 
+  it.each([
+    [
+      "a decimal comma on every line, header included",
+      "Date;Payee;Amount, EUR\n14.01.2024;GROCERY MART;7,30\n15.01.2024;COFFEE HUT;12,50\n",
+      ["Date", "Payee", "Amount, EUR"],
+    ],
+    [
+      "a decimal comma on every line of a file with no header line",
+      "GROCERY MART;Weekly shop;7,30\nCOFFEE HUT;Latte;12,50\nBOOK SHOP;Novel;40,00\n",
+      ["GROCERY MART", "Weekly shop", "7,30"],
+    ],
+    [
+      "two columns and a decimal comma on every line",
+      "Payee;Amount, EUR\nGROCERY MART;7,30\nCOFFEE HUT;12,50\n",
+      ["Payee", "Amount, EUR"],
+    ],
+  ])("reads a semicolon-separated file with %s as semicolon-separated", (_name, text, headers) => {
+    expect(readCsv(utf8(text))).toMatchObject({ ok: true, delimiter: ";", headers });
+  });
+
+  it("still reads a comma-separated file as comma-separated when its fields are as many", () => {
+    const text = "Date,Amount,Payee\n2026-03-01,-4.20,GROCERY MART\n2026-03-02,10.00,BOOK SHOP\n";
+
+    expect(readCsv(utf8(text))).toMatchObject({
+      delimiter: ",",
+      headers: ["Date", "Amount", "Payee"],
+    });
+  });
+
   it("uses the given delimiter instead of detecting one", () => {
     const result = readCsv(utf8("a;b,c\n1;2,3\n"), { delimiter: "," });
 
