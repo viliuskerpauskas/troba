@@ -44,3 +44,13 @@ export function transactionsHref(query: ListQuery): string {
   const search = params.toString();
   return search ? `/money/transactions?${search}` : "/money/transactions";
 }
+
+// Which view of the list the URL asks for: the transactions, a page at a time, or the pending
+// suggestions grouped by merchant (SPEC-money M5 story 8).
+export type ListView = "transactions" | "merchants";
+
+export function parseView(params: Record<string, unknown>): ListView {
+  return params.view === "merchants" ? "merchants" : "transactions";
+}
+
+export const merchantsViewHref = "/money/transactions?view=merchants";
