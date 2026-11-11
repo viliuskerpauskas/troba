@@ -70,13 +70,10 @@ describe("maskMerchantText", () => {
     );
   });
 
-  // ADR-0016, point 2: an IBAN is masked compact or in groups separated by single spaces, the way
-  // statements print one, and a long number only as 7 or more digits with no separator. A hyphen
-  // is neither, so a hyphenated IBAN passes: each hyphenated group is too short to be a long
-  // digit run, and the IBAN patterns take spaces only.
-  it("passes a hyphenated IBAN, which neither IBAN pattern nor the digit run takes", () => {
-    expect(maskMerchantText("to DE89-3704-0044-0532-0130-00 thanks", "X")).toBe(
-      "to DE89-3704-0044-0532-0130-00 thanks",
+  it("masks an IBAN in groups separated by hyphens", () => {
+    expect(maskMerchantText("to DE89-3704-0044-0532-0130-00 thanks", "X")).toBe("to [IBAN] thanks");
+    expect(maskMerchantText("DE89-3704-0044-0532-0130-00 GROCERY MART", "X")).toBe(
+      "[IBAN] GROCERY MART",
     );
   });
 
@@ -84,22 +81,36 @@ describe("maskMerchantText", () => {
     expect(maskMerchantText("to DE89-370400440532013000", "X")).toBe("to DE89-[NUMBER]");
   });
 
-  // The same rule for a card number: written in one run it is a long digit run, written in
-  // groups of four (spaces or hyphens) no group is, and no IBAN pattern fits a value that
-  // starts with digits.
+  // Card numbers here are public test numbers.
   it("masks a card number written in one run", () => {
     expect(maskMerchantText("CARD 4000056655665556 GROCERY MART", "X")).toBe(
       "CARD [NUMBER] GROCERY MART",
     );
   });
 
-  it("passes a card number written in groups of four", () => {
+  it("masks a card number written in groups separated by spaces or hyphens", () => {
     expect(maskMerchantText("CARD 4000 0566 5566 5556 GROCERY MART", "X")).toBe(
-      "CARD 4000 0566 5566 5556 GROCERY MART",
+      "CARD [NUMBER] GROCERY MART",
     );
     expect(maskMerchantText("CARD 4000-0566-5566-5556 GROCERY MART", "X")).toBe(
-      "CARD 4000-0566-5566-5556 GROCERY MART",
+      "CARD [NUMBER] GROCERY MART",
     );
+    expect(maskMerchantText("AMEX 3782 822463 10005 shop", "X")).toBe("AMEX [NUMBER] shop");
+  });
+
+  it("keeps dates, amounts and short reference numbers written in groups", () => {
+    expect(maskMerchantText("GROCERY MART 2026-11-11 12:30", "X")).toBe(
+      "GROCERY MART 2026-11-11 12:30",
+    );
+    expect(maskMerchantText("PAID 11-11-2026 TO GROCERY MART", "X")).toBe(
+      "PAID 11-11-2026 TO GROCERY MART",
+    );
+    expect(maskMerchantText("Loan 1 234 567,89 EUR", "X")).toBe("Loan 1 234 567,89 EUR");
+    expect(maskMerchantText("Car 12 345 678 EUR", "X")).toBe("Car 12 345 678 EUR");
+    expect(maskMerchantText("ORDER 123-456-789 INV 2026-0042", "X")).toBe(
+      "ORDER 123-456-789 INV 2026-0042",
+    );
+    expect(maskMerchantText("REF 1234 5678 9012", "X")).toBe("REF 1234 5678 9012");
   });
 
   it("passes the masked card number a terminal prints", () => {

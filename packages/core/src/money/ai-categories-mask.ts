@@ -1,6 +1,6 @@
-// Masking of the free text that may go to a model for categorization (ADR-0016, point 2). The
-// merchant's counterparty and description are sent; the user's own name, IBAN-shaped values and
-// long digit runs are not. This is a different rule from the column mapping's scrubber (ADR-0015),
+// Masking of the free text that may go to a model for categorization (ADR-0016, point 2, as
+// ADR-0022 widens it). The merchant's counterparty and description are sent; the user's own name,
+// IBAN-shaped values, long digit runs and card numbers written in groups are not. This is a different rule from the column mapping's scrubber (ADR-0015),
 // which removes every word; here the words are the point, so only what is known to be personal is
 // taken out. A name inside a merchant string that isn't the user's can't be recognized (ADR-0016,
 // point 3).
@@ -19,11 +19,19 @@ const nameMark = "\uE002";
 
 // A compact IBAN: two letters, two digits, 11 to 30 letters or digits.
 const compactIban = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/gi;
-// The same in groups of up to four. A group after the second needs a digit, so the words that
-// follow an IBAN aren't taken for its last groups.
-const groupedIban = /\b[A-Z]{2}\d{2} [A-Z0-9]{4}(?: (?=[A-Z0-9]{0,3}\d)[A-Z0-9]{1,4}){2,7}\b/gi;
+// The same in groups of up to four, separated by single spaces or by single hyphens (one kind
+// per value). A group after the second needs a digit, so the words that follow an IBAN aren't
+// taken for its last groups.
+const groupedIban =
+  /\b[A-Z]{2}\d{2}([ -])[A-Z0-9]{4}(?:\1(?=[A-Z0-9]{0,3}\d)[A-Z0-9]{1,4}){2,7}\b/gi;
 const minGroupedIbanLength = 15;
 const maxGroupedIbanLength = 34;
+// A card number written in groups (4-4-4-4, 4-6-5, ...): three or more groups of 3 to 6 digits,
+// separated by single spaces or by single hyphens (one kind per value), 13 digits or more in all,
+// the shortest card number. A date (4-2-2), an amount with grouped thousands and a short
+// reference number all have a shorter group or fewer digits.
+const groupedDigits = /\b\d{3,6}([ -])\d{3,6}(?:\1\d{3,6})+\b/g;
+const minGroupedCardLength = 13;
 // Card, account, reference and phone numbers; amounts and short numbers have fewer digits.
 const longDigitRun = /\d{7,}/g;
 
@@ -116,7 +124,8 @@ function endOfCharAt(text: string, index: number): number {
 
 // The text as the model may see it: whitespace collapsed, the user's own name (and each part of it
 // of 3 or more letters, ignoring case and diacritics, wherever it appears) as [NAME], IBAN-shaped
-// values as [IBAN] and digit runs of 7 or more as [NUMBER].
+// values (compact, or grouped by spaces or hyphens) as [IBAN], and digit runs of 7 or more and
+// card numbers written in groups as [NUMBER].
 export function maskMerchantText(text: string, ownName: string): string {
   // The placeholder characters are dropped from the input first, so text can't pose as a mark.
   let masked = text
@@ -126,9 +135,12 @@ export function maskMerchantText(text: string, ownName: string): string {
   // The numbers first, on the original text: a name can't split an IBAN and leave its digits.
   masked = masked.replace(compactIban, ibanMark);
   masked = masked.replace(groupedIban, (match) => {
-    const length = match.replace(/ /g, "").length;
+    const length = match.replace(/[ -]/g, "").length;
     return length >= minGroupedIbanLength && length <= maxGroupedIbanLength ? ibanMark : match;
   });
+  masked = masked.replace(groupedDigits, (match) =>
+    match.replace(/[ -]/g, "").length >= minGroupedCardLength ? numberMark : match,
+  );
   masked = masked.replace(longDigitRun, numberMark);
   masked = maskName(masked, ownName);
   return masked
