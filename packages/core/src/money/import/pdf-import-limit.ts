@@ -1,5 +1,6 @@
 import { schema, type Db } from "@troba/db";
-import { and, asc, eq, gt, inArray, lt, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, notExists, sql } from "drizzle-orm";
+import { aiCapLock, aiUseWindowStart, claimWithinDailyCap } from "../ai-daily-cap";
 
 // The daily cap on PDF imports (T154, ADR-0018): reading a whole statement is the dearest model
 // call troba makes, so one account mustn't run up the owner's bill. A use is counted per user over
@@ -18,7 +19,6 @@ export function pdfImportDailyLimitFrom(env: Record<string, string | undefined>)
 }
 
 const day = 24 * 60 * 60 * 1000;
-const windowStart = sql`now() - interval '24 hours'`;
 
 // Call just before the model reads the PDF import. Returns false when the user has already had
 // `limit` readings in the last day: don't send it. Otherwise the use is recorded and counts from
@@ -26,47 +26,38 @@ const windowStart = sql`now() - interval '24 hours'`;
 // either way. A PDF import that already has its use (the job was retried) is let through again
 // without another.
 //
-// Serialized per user with the advisory lock the mapping cap takes, so concurrent readings can't
-// all slip under the limit. The lock is released when the transaction ends.
+// Serialized per user with the advisory lock the mapping cap takes (see ai-daily-cap.ts), so
+// concurrent readings can't all slip under the limit.
 export async function claimPdfImportUse(
   db: Db,
   userId: string,
   pdfImportId: string,
   limit: number,
 ): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 0))`);
-    const [claimed] = await tx
-      .select({ id: moneyAiPdfImportUses.id })
-      .from(moneyAiPdfImportUses)
-      .where(
-        and(
-          eq(moneyAiPdfImportUses.userId, userId),
-          eq(moneyAiPdfImportUses.pdfImportId, pdfImportId),
-        ),
-      );
-    if (claimed) return true;
-    await tx
-      .delete(moneyAiPdfImportUses)
-      .where(
-        and(
-          eq(moneyAiPdfImportUses.userId, userId),
-          lt(moneyAiPdfImportUses.createdAt, windowStart),
-        ),
-      );
-    const [counted] = await tx
-      .select({ uses: sql<number>`count(*)::int` })
-      .from(moneyAiPdfImportUses)
-      .where(
-        and(
-          eq(moneyAiPdfImportUses.userId, userId),
-          gt(moneyAiPdfImportUses.createdAt, windowStart),
-        ),
-      );
-    if (counted!.uses >= limit) return false;
-    await tx.insert(moneyAiPdfImportUses).values({ userId, pdfImportId });
-    return true;
-  });
+  return claimWithinDailyCap(
+    db,
+    {
+      log: moneyAiPdfImportUses,
+      userId,
+      lock: aiCapLock.mapping,
+      spent: sql<number>`count(*)::int`,
+    },
+    async (tx, used) => {
+      const [claimed] = await tx
+        .select({ id: moneyAiPdfImportUses.id })
+        .from(moneyAiPdfImportUses)
+        .where(
+          and(
+            eq(moneyAiPdfImportUses.userId, userId),
+            eq(moneyAiPdfImportUses.pdfImportId, pdfImportId),
+          ),
+        );
+      if (claimed) return true;
+      if (used >= limit) return false;
+      await tx.insert(moneyAiPdfImportUses).values({ userId, pdfImportId });
+      return true;
+    },
+  );
 }
 
 // Whether the user may start another PDF import: `left` is how many more fit today. At the limit,
@@ -84,7 +75,10 @@ export async function pdfImportAllowance(
     .select({ createdAt: moneyAiPdfImportUses.createdAt })
     .from(moneyAiPdfImportUses)
     .where(
-      and(eq(moneyAiPdfImportUses.userId, userId), gt(moneyAiPdfImportUses.createdAt, windowStart)),
+      and(
+        eq(moneyAiPdfImportUses.userId, userId),
+        gt(moneyAiPdfImportUses.createdAt, aiUseWindowStart),
+      ),
     )
     .orderBy(asc(moneyAiPdfImportUses.createdAt));
   const [pending] = await db
@@ -94,7 +88,7 @@ export async function pdfImportAllowance(
       and(
         eq(moneyPdfImports.userId, userId),
         inArray(moneyPdfImports.state, ["queued", "reading"]),
-        gt(moneyPdfImports.createdAt, windowStart),
+        gt(moneyPdfImports.createdAt, aiUseWindowStart),
         notExists(
           db
             .select({ id: moneyAiPdfImportUses.id })
