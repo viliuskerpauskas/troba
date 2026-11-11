@@ -1,15 +1,22 @@
 import {
+  getCategorySuggestionRun,
   getPdfImport,
   jobSchedules,
   pdfImportExpiryMs,
   queueJob,
   startJobQueue,
+  startCategorySuggestions,
   startPdfImport,
   type JobQueue,
   type StatementModelClient,
 } from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
 import { createTestDatabase } from "@troba/db/test-database";
+import {
+  createMoneyUser,
+  insertImportedRows,
+  recordingModel,
+} from "@troba/core/test-ai-categories";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startWorker, type Worker } from "./worker";
 
@@ -172,6 +179,39 @@ describe("worker", () => {
       (await getPdfImport(db, user!.id, started.pdfImportId)) === null ? true : undefined,
     );
     expect(gone).toBe(true);
+    await worker.stop();
+    worker = undefined;
+  });
+
+  it("runs a queued category suggestion run under the daily limit it was started with", async () => {
+    const user = await createMoneyUser(db);
+    await insertImportedRows(db, user, [
+      { counterparty: "GROCERY MART" },
+      { counterparty: "ODD SHOP", bookedOn: "2026-10-06" },
+    ]);
+    const model = recordingModel((request) => ({
+      answers: request.payload.merchants.map(({ id }) => ({
+        merchant: id,
+        category: user.category("Food"),
+      })),
+    }));
+    worker = await startWorker(database.url, {
+      categorizationClient: model.client,
+      categorizeDailyLimit: 1,
+    });
+
+    const started = await startCategorySuggestions(db, user.userId, { queue });
+    if (!started.ok) throw new Error("expected a run");
+
+    const run = await until(async () => {
+      const found = await getCategorySuggestionRun(db, user.userId, started.runId);
+      return found?.finished ? found : undefined;
+    });
+    expect(run).toEqual({
+      finished: true,
+      result: { merchantsAsked: 1, rowsSuggested: 1, failed: false, capped: true },
+    });
+    expect(model.requests).toHaveLength(1);
     await worker.stop();
     worker = undefined;
   });

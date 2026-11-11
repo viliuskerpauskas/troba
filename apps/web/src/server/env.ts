@@ -96,16 +96,6 @@ export function aiMappingDailyLimit(): number {
   return dailyLimitFrom("AI_MAPPING_DAILY_LIMIT", defaultAiMappingDailyLimit);
 }
 
-// How many merchants one user gets categorized by AI in a day (ADR-0016), counted in merchants, so
-// one account can't run up the owner's bill. AI_CATEGORIZE_DAILY_LIMIT overrides it; anything but a
-// whole number from 1 up is ignored. The default lives only here: core takes the limit from its
-// caller, as it does the AI mapping's.
-export const defaultAiCategorizeDailyLimit = 200;
-
-export function aiCategorizeDailyLimit(): number {
-  return dailyLimitFrom("AI_CATEGORIZE_DAILY_LIMIT", defaultAiCategorizeDailyLimit);
-}
-
 // How many PDF statements one user can have read by AI in a day (ADR-0018), so one account can't
 // run up the owner's bill. AI_PDF_IMPORT_DAILY_LIMIT overrides it; anything but a whole number from
 // 1 up is ignored. The worker, which claims each use, reads it the same way through core.

@@ -1,23 +1,32 @@
 "use client";
 
-import { useActionState, useId } from "react";
+import { useId } from "react";
 import { FormStatus } from "@/components/form-message";
 import { Button } from "@/components/ui/button";
-import { suggestCategoriesAction, type SuggestState } from "./suggestion-actions";
+import { suggestCategoriesAction } from "./suggestion-actions";
+import { useSuggestionRun } from "./use-suggestion-run";
 
 // The transactions list's AI strip (SPEC-money M5, ADR-0016): a button that asks the model for a
 // category for the uncategorized imported rows, and the sentence that says what is sent. With no
-// key on the server the page passes enabled={false} and nothing about the feature is rendered.
-export function SuggestCategories({ enabled }: { enabled: boolean }) {
-  const [state, action, pending] = useActionState<SuggestState>(suggestCategoriesAction, {});
+// key on the server the page passes enabled={false} and nothing about the feature is rendered. The
+// worker asks the model (ADR-0021): the button stays busy, and the page follows the run, until it is
+// done; `runId` is a run of the user's the page found under way.
+export function SuggestCategories({
+  enabled,
+  runId = null,
+}: {
+  enabled: boolean;
+  runId?: string | null;
+}) {
+  const { state, startRun, busy } = useSuggestionRun(suggestCategoriesAction, runId);
   const disclosureId = useId();
   if (!enabled) return null;
 
   return (
-    <form action={action} className="flex flex-col gap-2">
+    <form action={startRun} className="flex flex-col gap-2">
       <div>
-        <Button type="submit" variant="outline" disabled={pending} aria-describedby={disclosureId}>
-          {pending ? "Suggesting…" : "Suggest categories"}
+        <Button type="submit" variant="outline" disabled={busy} aria-describedby={disclosureId}>
+          {busy ? "Suggesting…" : "Suggest categories"}
         </Button>
       </div>
       <p id={disclosureId} className="text-sm text-muted-foreground">

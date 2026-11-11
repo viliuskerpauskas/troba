@@ -1,9 +1,11 @@
 import {
+  defaultAiCategorizeDailyLimit,
   defaultPdfImportDailyLimit,
   jobNames,
   jobs,
   startJobQueue,
   type JobData,
+  type CategorizationModelClient,
   type JobName,
   type StatementModelClient,
 } from "@troba/core";
@@ -18,6 +20,10 @@ export type StartWorkerOptions = {
   statementClient?: StatementModelClient | null;
   // Each user's PDF imports a day; core's default unless given.
   pdfImportDailyLimit?: number;
+  // The model client category suggestions are asked with; null (the default) without a key.
+  categorizationClient?: CategorizationModelClient | null;
+  // Each user's categorized merchants a day; core's default unless given.
+  categorizeDailyLimit?: number;
 };
 
 // How long stop() lets running jobs finish. Compose's stop_grace_period for the worker is longer.
@@ -30,6 +36,8 @@ export async function startWorker(
     handlers: jobHandlers = handlers,
     statementClient = null,
     pdfImportDailyLimit = defaultPdfImportDailyLimit,
+    categorizationClient = null,
+    categorizeDailyLimit = defaultAiCategorizeDailyLimit,
   }: StartWorkerOptions = {},
 ): Promise<Worker> {
   const db = createDb(connectionString);
@@ -42,7 +50,13 @@ export async function startWorker(
       // The data came through the database, so check it again before a handler trusts it.
       // TypeScript can't tie jobs[name]'s output to N, so the parsed data is cast back to it.
       const data = jobs[name].parse(job.data) as JobData<N>;
-      await handler(data, { db, statementClient, pdfImportDailyLimit });
+      await handler(data, {
+        db,
+        statementClient,
+        pdfImportDailyLimit,
+        categorizationClient,
+        categorizeDailyLimit,
+      });
     });
   }
   for (const name of jobNames) await work(name);

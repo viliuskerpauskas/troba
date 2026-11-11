@@ -118,7 +118,7 @@ export type SuggestCategoriesOptions = {
   importId?: string;
   maxMerchants?: number;
   // Merchants one user may have categorized in a rolling 24 hours (T138): AI_CATEGORIZE_DAILY_LIMIT,
-  // read by the web app, which holds its default as it does the AI mapping's.
+  // read by the worker (aiCategorizeDailyLimitFrom).
   dailyLimit: number;
   // For each request.
   timeoutMs?: number;

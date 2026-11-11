@@ -1,4 +1,5 @@
 import {
+  activeCategorySuggestionRun,
   aiCategorizationEnabledFor,
   countPendingSuggestions,
   listAccounts,
@@ -46,24 +47,28 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
   const merchantsView = aiEnabled && parseView(params) === "merchants";
   const { page, ...filter } = query;
   const filtered = Object.keys(filter).length > 0;
-  const [accounts, categories, rows, userOptedIn, pendingSuggestions, groups] = await Promise.all([
-    // Archived accounts keep their transactions, so they stay in the filter.
-    listAccounts(db(), userId, { includeArchived: true }),
-    listCategories(db(), userId),
-    // One more than a page, to know whether there is a next one. Not read for the merchants view.
-    merchantsView
-      ? []
-      : listTransactions(db(), userId, {
-          ...filter,
-          limit: transactionListLimit + 1,
-          offset: (page - 1) * transactionListLimit,
-        }),
-    aiCategorizationEnabledFor(db(), userId),
-    // One aggregate over the user's rows, for the strip; never the rows themselves. Without a key
-    // the strip is never shown, so nothing is counted.
-    aiEnabled ? countPendingSuggestions(db(), userId) : null,
-    merchantsView ? listSuggestionsByMerchant(db(), userId) : null,
-  ]);
+  const [accounts, categories, rows, userOptedIn, pendingSuggestions, groups, activeRun] =
+    await Promise.all([
+      // Archived accounts keep their transactions, so they stay in the filter.
+      listAccounts(db(), userId, { includeArchived: true }),
+      listCategories(db(), userId),
+      // One more than a page, to know whether there is a next one. Not read for the merchants view.
+      merchantsView
+        ? []
+        : listTransactions(db(), userId, {
+            ...filter,
+            limit: transactionListLimit + 1,
+            offset: (page - 1) * transactionListLimit,
+          }),
+      aiCategorizationEnabledFor(db(), userId),
+      // One aggregate over the user's rows, for the strip; never the rows themselves. Without a key
+      // the strip is never shown, so nothing is counted.
+      aiEnabled ? countPendingSuggestions(db(), userId) : null,
+      merchantsView ? listSuggestionsByMerchant(db(), userId) : null,
+      // A run of the user's still with the worker (the button's, or an import's), which the strip
+      // follows so its suggestions appear when it is done.
+      aiEnabled ? activeCategorySuggestionRun(db(), userId) : null,
+    ]);
   const transactions = rows.slice(0, transactionListLimit);
   // A user who opted out gets no button and no control that asks or accepts, but suggestions they
   // already have stay visible (and, once they can be dismissed, stay dismissable).
@@ -229,7 +234,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
       {aiOffered && pendingSuggestions && (
         <AcceptAll rows={pendingSuggestions.rows} merchants={pendingSuggestions.merchants} />
       )}
-      <SuggestCategories enabled={aiOffered} />
+      <SuggestCategories enabled={aiOffered} runId={activeRun} />
       <AskAgain enabled={aiOffered} />
       <SuggestionNotice />
       {aiEnabled && (merchantsView || (pendingSuggestions?.rows ?? 0) > 0) && (

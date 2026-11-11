@@ -45,14 +45,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
 import {
-  aiCategorizeDailyLimit,
+  aiCategorizationEnabled,
   aiMappingDailyLimit,
   aiPdfImportDailyLimit,
   pdfImportEnabled,
 } from "@/server/env";
 import { jobQueue } from "@/server/jobs";
 import { requireMoneyUser } from "@/server/money";
-import { categorizationModelClient } from "@/server/openai-categorization";
 import { mappingModelClient } from "@/server/openai-mapping";
 import { formatAmount } from "../format";
 import {
@@ -146,8 +145,8 @@ export type ImportState =
       rowsNew: number;
       rowsDuplicate: number;
       rowsFailed: number;
-      // How the AI category suggestions for the new rows went (see afterImportNote). They are asked
-      // for after the import is saved, so they never decide whether it happened.
+      // Whether AI category suggestions for the new rows were queued (see afterImportNote). They
+      // are queued after the import is saved, so they never decide whether it happened.
       suggestions: AfterImportSuggestions;
     };
 
@@ -400,9 +399,9 @@ export async function commitImportAction(formData: FormData): Promise<ImportStat
   return doneState(userId, result);
 }
 
-// The import is committed, and nothing from here can undo or fail it. The model is asked for at
-// most a bounded wait (see suggestAfterImport): a slower run finishes on its own and its
-// suggestions turn up on the transactions list. A file with no new rows has nothing to ask about.
+// The import is committed, and nothing from here can undo or fail it. The model isn't waited on:
+// a run for the new rows is queued for the worker (see suggestAfterImport), and its suggestions
+// turn up on the transactions list. A file with no new rows has nothing to ask about.
 async function doneState(
   userId: string,
   result: Extract<CommitImportResult, { ok: true }>,
@@ -410,9 +409,8 @@ async function doneState(
   const suggestions: AfterImportSuggestions =
     result.rowsNew > 0
       ? await suggestAfterImport(db(), userId, {
-          client: categorizationModelClient(),
+          queue: aiCategorizationEnabled() ? jobQueue : null,
           importId: result.importId,
-          dailyLimit: aiCategorizeDailyLimit(),
         })
       : { status: "nothing" };
 

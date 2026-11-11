@@ -24,7 +24,6 @@ vi.mock("@/server/money", () => ({
 vi.mock("@/server/db", () => ({ db: () => server.db }));
 vi.mock("@/server/jobs", () => ({ jobQueue: async () => server.queue }));
 vi.mock("@/server/openai-mapping", () => ({ mappingModelClient: () => null }));
-vi.mock("@/server/openai-categorization", () => ({ categorizationModelClient: () => null }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
