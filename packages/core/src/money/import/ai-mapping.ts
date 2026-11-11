@@ -185,7 +185,11 @@ function codedValuesOf(table: StatementTable, column: number): string[] | null {
 
 // ---- The answer ----
 
-const columnFields = Object.keys(importProfileFields.shape.columns.shape) as ImportField[];
+// Not a fee or a state column (ADR-0020): whether an amount includes its fee, and which states
+// mean completed, can't be told from a masked sample. The user maps them in the form.
+const columnFields = (Object.keys(importProfileFields.shape.columns.shape) as ImportField[]).filter(
+  (field) => field !== "fee" && field !== "state",
+);
 
 // The profile's fields the model decides. The file's own read settings (lines above the header,
 // delimiter, encoding) come from reading it, and the name is the user's to give. A field the file

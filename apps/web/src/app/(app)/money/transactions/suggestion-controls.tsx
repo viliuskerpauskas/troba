@@ -17,6 +17,7 @@ export function SuggestionControls({
   categoryName,
   merchant,
   canAccept,
+  groupRows,
 }: {
   transactionId: string;
   suggestedCategoryId: string;
@@ -25,10 +26,16 @@ export function SuggestionControls({
   merchant: string;
   // False for a user who turned AI suggestions off: they can still dismiss what is left.
   canAccept: boolean;
+  // In the list grouped by merchant: how many rows the decision covers, for the labels.
+  groupRows?: number;
 }) {
   const [pending, startTransition] = useTransition();
   const focusId = rowElementId(transactionId);
   const touch = "h-11 px-4 sm:h-10";
+  const covered =
+    groupRows === undefined
+      ? null
+      : `all ${groupRows === 1 ? "1 transaction" : `${groupRows} transactions`} of ${merchant}`;
 
   function resolve(action: typeof acceptSuggestionAction) {
     startTransition(async () => {
@@ -43,7 +50,11 @@ export function SuggestionControls({
           type="button"
           disabled={pending}
           className={touch}
-          aria-label={`Accept ${categoryName} for ${merchant}, and for its other uncategorized transactions`}
+          aria-label={
+            covered
+              ? `Accept ${categoryName} for ${covered}`
+              : `Accept ${categoryName} for ${merchant}, and for its other uncategorized transactions`
+          }
           onClick={() => resolve(acceptSuggestionAction)}
         >
           Accept
@@ -54,7 +65,7 @@ export function SuggestionControls({
         variant="outline"
         disabled={pending}
         className={touch}
-        aria-label={`Dismiss the suggestion ${categoryName} for ${merchant}`}
+        aria-label={`Dismiss the suggestion ${categoryName} for ${covered ?? merchant}`}
         onClick={() => resolve(dismissSuggestionAction)}
       >
         Dismiss

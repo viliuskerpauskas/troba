@@ -117,6 +117,8 @@ export const moneyImportProfiles = pgTable(
     columns: jsonb("columns").$type<Record<string, string>>().notNull(),
     // With an unsigned amount column: the indicator values that mean a debit.
     debitValues: text("debit_values").array(),
+    // With a state column: the state values that mean a row is completed (ADR-0020).
+    completedValues: text("completed_values").array(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -197,7 +199,7 @@ export const moneyAiCategorizeUses = pgTable(
   ],
 );
 
-// One run of AI-suggested categories, done by the worker (T144, ADR-0020): from the "Suggest
+// One run of AI-suggested categories, done by the worker (T144, ADR-0021): from the "Suggest
 // categories" button (import_id null) or after an import (that import, at most one run each). The
 // web app queues it and reads back how it went; the counts are SuggestCategoriesResult's, set with
 // finished_at when the run ends. No merchant text is kept here. A finished run is deleted a day

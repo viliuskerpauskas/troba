@@ -278,7 +278,12 @@ test("reads a known bank's file with signed amounts that names no account, and t
   await page.getByRole("button", { name: "Preview", exact: true }).click();
 
   await expect(page.getByText("Account: Cash")).toBeVisible();
-  await expectSummary(page, { "Rows in the file": 10, New: 10, "Can't be read": 0 });
+  // 11 rows: a pending and a reverted one are skipped, and the ATM withdrawal's fee is a
+  // transaction of its own (ADR-0020).
+  await expectSummary(page, { "Rows in the file": 11, New: 10, "Can't be read": 0 });
+  await expect(page.getByText("1 fee charged on top of its payment")).toBeVisible();
+  const skipped = page.getByRole("list", { name: "Not completed, skipped" }).getByRole("listitem");
+  await expect(skipped).toHaveText([/REVERTED\s*1 row/, /PENDING\s*1 row/]);
   await expectNoSideways(page);
   await page.getByRole("button", { name: "Import 10 transactions" }).click();
   await expect(page.getByRole("status")).toHaveText("Imported 10 transactions into Cash.");
@@ -288,8 +293,9 @@ test("reads a known bank's file with signed amounts that names no account, and t
   const list = page.getByRole("list", { name: "Transactions, newest first" }).getByRole("listitem");
   await expect(list).toHaveCount(10);
   const item = (text: string) => list.filter({ hasText: text });
-  await expect(item("-€9.99")).toContainText("2026-09-30");
-  await expect(item("-€9.99")).toContainText("EXAMPLE STREAMING");
+  await expect(item("-€9.99")).toHaveCount(0);
+  await expect(item("-€1.50")).toContainText("EXAMPLE ATM");
+  await expect(item("-€1.50")).toContainText("2026-09-08");
   await expect(item("EXAMPLE CLIENT LTD")).toContainText("2026-09-30");
   await expect(item("EXAMPLE CLIENT LTD")).toContainText("+€1,250.00");
 });

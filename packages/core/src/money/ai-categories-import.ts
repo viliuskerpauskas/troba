@@ -2,7 +2,7 @@ import type { Db } from "@troba/db";
 import type { JobQueue } from "../jobs/queue";
 import { startCategorySuggestions } from "./ai-categories-run";
 
-// The suggestions that follow an import (SPEC-money M5, ADR-0020). Called after commitImport has
+// The suggestions that follow an import (SPEC-money M5, ADR-0021). Called after commitImport has
 // committed, never inside its transaction: whatever happens here, the import is as it was saved.
 // The import never waits on the model: the run is queued for the worker, and its suggestions show
 // up on the transactions list when it is done.

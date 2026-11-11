@@ -74,6 +74,37 @@ const debitCreditProfile: ImportProfile = {
   debitValues: ["D"],
 };
 
+// A fee charged apart from a signed amount, and a state per row; no own IBAN, so the user picks
+// the account.
+const feeProfile: ImportProfile = {
+  name: "Example Bank (fees)",
+  skipLines: 0,
+  delimiter: ",",
+  encoding: "utf-8",
+  decimalSeparator: ".",
+  dateFormat: "YYYY-MM-DD",
+  columns: {
+    bookingDate: "Date",
+    amount: "Amount",
+    fee: "Fee",
+    state: "State",
+    counterparty: "Description",
+  },
+  debitValues: null,
+  completedValues: ["COMPLETED"],
+};
+
+const feeFile = Buffer.from(
+  [
+    "Date,Description,Amount,Fee,State",
+    "2026-09-08,EXAMPLE ATM,-60.00,1.50,COMPLETED",
+    "2026-09-09,GROCERY MART,-12.00,0.00,COMPLETED",
+    "2026-09-10,EXAMPLE STREAMING,-9.99,0.00,PENDING",
+    "2026-09-11,CORNER CAFE,-4.20,0.00,REVERTED",
+    "",
+  ].join("\n"),
+);
+
 async function createUser() {
   const [user] = await db
     .insert(schema.users)
@@ -149,6 +180,8 @@ describe("import", () => {
       rowsDuplicate: 0,
       failed: [],
       debitCredit: null,
+      fees: 0,
+      skipped: null,
       mixedFormats: false,
     });
   });
@@ -766,6 +799,108 @@ describe("import", () => {
 
       expect(result).toEqual({ ok: false, reason: "no-account-in-file" });
       expect(await listAccounts(db, userId)).toHaveLength(1);
+    });
+  });
+
+  it("imports a fee as a transaction of its own and skips rows that aren't completed", async () => {
+    const userId = await createUser();
+    const account = await createBankAccount(userId, ownIban);
+    const input = {
+      profile: feeProfile,
+      filename: "statement.csv",
+      bytes: feeFile,
+      accountId: account.id,
+    };
+
+    const preview = await previewImport(db, userId, input);
+    const first = await commitImport(db, userId, input);
+
+    const expected = {
+      ok: true,
+      rowsParsed: 4,
+      rowsNew: 3,
+      rowsDuplicate: 0,
+      failed: [],
+      fees: 1,
+      skipped: [
+        { value: "PENDING", rows: 1 },
+        { value: "REVERTED", rows: 1 },
+      ],
+    };
+    expect(preview).toMatchObject(expected);
+    expect(first).toMatchObject(expected);
+    const saved = await db
+      .select({
+        counterparty: schema.moneyTransactions.counterparty,
+        amountCents: schema.moneyTransactions.amountCents,
+        description: schema.moneyTransactions.description,
+        bankTxType: schema.moneyTransactions.bankTxType,
+      })
+      .from(schema.moneyTransactions)
+      .where(eq(schema.moneyTransactions.userId, userId))
+      .orderBy(schema.moneyTransactions.amountCents);
+    expect(saved).toEqual([
+      { counterparty: "EXAMPLE ATM", amountCents: -6000n, description: null, bankTxType: null },
+      { counterparty: "GROCERY MART", amountCents: -1200n, description: null, bankTxType: null },
+      { counterparty: "EXAMPLE ATM", amountCents: -150n, description: "Fee", bankTxType: "Fee" },
+    ]);
+  });
+
+  it("re-imports a file with fees without a duplicate", async () => {
+    const userId = await createUser();
+    const account = await createBankAccount(userId, ownIban);
+    const input = {
+      profile: feeProfile,
+      filename: "statement.csv",
+      bytes: feeFile,
+      accountId: account.id,
+    };
+
+    await commitImport(db, userId, input);
+    const again = await commitImport(db, userId, input);
+
+    expect(again).toMatchObject({ ok: true, rowsNew: 0, rowsDuplicate: 3, fees: 1 });
+    expect(await listTransactions(db, userId)).toHaveLength(3);
+  });
+
+  it("adds only the fees to a file imported before its fees were read", async () => {
+    const userId = await createUser();
+    const account = await createBankAccount(userId, ownIban);
+    const input = {
+      profile: feeProfile,
+      filename: "statement.csv",
+      bytes: feeFile,
+      accountId: account.id,
+    };
+    const columns = Object.fromEntries(
+      Object.entries(feeProfile.columns).filter(([field]) => field !== "fee"),
+    ) as ImportProfile["columns"];
+
+    await commitImport(db, userId, { ...input, profile: { ...feeProfile, columns } });
+    const after = await commitImport(db, userId, input);
+
+    expect(after).toMatchObject({ ok: true, rowsNew: 1, rowsDuplicate: 2 });
+  });
+
+  it("imports a pending row once a later file has it completed", async () => {
+    const userId = await createUser();
+    const account = await createBankAccount(userId, ownIban);
+    const input = {
+      profile: feeProfile,
+      filename: "statement.csv",
+      bytes: feeFile,
+      accountId: account.id,
+    };
+    const completed = Buffer.from(feeFile.toString("utf8").replace("PENDING", "COMPLETED"));
+
+    await commitImport(db, userId, input);
+    const later = await commitImport(db, userId, { ...input, bytes: completed });
+
+    expect(later).toMatchObject({
+      ok: true,
+      rowsNew: 1,
+      rowsDuplicate: 3,
+      skipped: [{ value: "REVERTED", rows: 1 }],
     });
   });
 });

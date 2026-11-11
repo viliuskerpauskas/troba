@@ -36,7 +36,7 @@ services:
     command: ["node", "worker.js"]
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-troba}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-troba}
-      # Reads PDF statements (ADR-0018) and suggests categories (ADR-0020). Optional: unset, the web
+      # Reads PDF statements (ADR-0018) and suggests categories (ADR-0021). Optional: unset, the web
       # app offers neither.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}

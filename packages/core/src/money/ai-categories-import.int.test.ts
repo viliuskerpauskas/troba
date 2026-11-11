@@ -14,7 +14,7 @@ import { setAiCategorization } from "./ai-categorization-setting";
 import { suggestAfterImport } from "./ai-categories-import";
 import { getCategorySuggestionRun, runCategorySuggestions } from "./ai-categories-run";
 
-// What an import leaves for the model (SPEC-money M5, ADR-0020): once the import is saved, a run
+// What an import leaves for the model (SPEC-money M5, ADR-0021): once the import is saved, a run
 // for its rows is queued for the worker and the import answers at once. Whatever happens to the
 // queue, the import is as it was saved.
 

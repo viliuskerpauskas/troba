@@ -20,7 +20,7 @@ import {
   startCategorySuggestions,
 } from "./ai-categories-run";
 
-// AI-suggested categories run by the worker (SPEC-money M5, ADR-0020): the web app starts a run,
+// AI-suggested categories run by the worker (SPEC-money M5, ADR-0021): the web app starts a run,
 // which queues a job; the job asks the model and records how it went; the web app reads that back.
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;

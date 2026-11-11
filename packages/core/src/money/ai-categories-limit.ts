@@ -4,7 +4,7 @@ import { aiCapLock, claimWithinDailyCap } from "./ai-daily-cap";
 
 // The daily cap on AI-suggested categories (ADR-0016, T138), the same shape as the cap on AI
 // mappings (see ai-daily-cap.ts): it counts merchants, not requests. The limit is the caller's: the
-// worker reads AI_CATEGORIZE_DAILY_LIMIT with aiCategorizeDailyLimitFrom (ADR-0020).
+// worker reads AI_CATEGORIZE_DAILY_LIMIT with aiCategorizeDailyLimitFrom (ADR-0021).
 
 const { moneyAiCategorizeUses } = schema;
 

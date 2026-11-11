@@ -1,5 +1,5 @@
 {
-  "id": "9ca8a3c5-c58c-4439-a841-d73b1a156f67",
+  "id": "e86c73a5-802a-4523-b459-bd2a744eb02b",
   "prevId": "72173303-0bd2-4bd9-b81f-28d2151a5cd3",
   "version": "7",
   "dialect": "postgresql",
@@ -810,143 +810,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.money_ai_categorize_runs": {
-      "name": "money_ai_categorize_runs",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "import_id": {
-          "name": "import_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "merchants_asked": {
-          "name": "merchants_asked",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "rows_suggested": {
-          "name": "rows_suggested",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "failed": {
-          "name": "failed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "capped": {
-          "name": "capped",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "money_ai_categorize_runs_user_id_created_at_idx": {
-          "name": "money_ai_categorize_runs_user_id_created_at_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "money_ai_categorize_runs_user_id_users_id_fk": {
-          "name": "money_ai_categorize_runs_user_id_users_id_fk",
-          "tableFrom": "money_ai_categorize_runs",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "money_ai_categorize_runs_import_id_money_imports_id_fk": {
-          "name": "money_ai_categorize_runs_import_id_money_imports_id_fk",
-          "tableFrom": "money_ai_categorize_runs",
-          "tableTo": "money_imports",
-          "columnsFrom": [
-            "import_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "money_ai_categorize_runs_import_id_unique": {
-          "name": "money_ai_categorize_runs_import_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "import_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.money_ai_categorize_uses": {
       "name": "money_ai_categorize_uses",
       "schema": "",
@@ -1469,6 +1332,12 @@
         },
         "debit_values": {
           "name": "debit_values",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_values": {
+          "name": "completed_values",
           "type": "text[]",
           "primaryKey": false,
           "notNull": false

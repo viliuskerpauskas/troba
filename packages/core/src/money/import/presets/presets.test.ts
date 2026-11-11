@@ -87,6 +87,10 @@ describe("presetBrand", () => {
   });
 });
 
+function fixtureOf(preset: ImportPreset): Buffer {
+  return readFileSync(path.join(import.meta.dirname, fixtureName(preset)));
+}
+
 // The fictional fixture beside each preset is a file in the preset's own format.
 describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
   "preset %s",
@@ -105,20 +109,28 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
       expect(table.ok && headerFingerprint(table.headers)).toBe(preset.fingerprint);
     });
 
-    it("reads every row of its fixture", () => {
+    // The payments read, by their row number (a fee transaction shares its payment's).
+    const payments = () => {
       const { table, result } = parsed();
+      const byRow = new Map(result.rows.filter((row) => !row.fee).map((row) => [row.row, row]));
+      return { table, result, byRow };
+    };
+
+    it("reads every row of its fixture, or skips it for not being completed", () => {
+      const { table, result, byRow } = payments();
       expect(table.rows.length).toBeGreaterThan(0);
       expect(result.failed).toEqual([]);
-      expect(result.rows).toHaveLength(table.rows.length);
+      const skipped = (result.skipped ?? []).reduce((sum, state) => sum + state.rows, 0);
+      expect(byRow.size + skipped).toBe(table.rows.length);
     });
 
     it("reads a signed amount with its own sign", () => {
       if (preset.profile.columns.debitCredit !== undefined) return;
-      const { table, result } = parsed();
+      const { table, byRow } = payments();
       const column = table.headers.indexOf(preset.profile.columns.amount);
-      const signs = table.rows.map((row, i) => {
-        const negative = row[column]!.trim().startsWith("-");
-        expect(result.rows[i]!.amountCents < 0n).toBe(negative);
+      const signs = [...byRow.values()].map((payment) => {
+        const negative = table.rows[payment.row - 1]![column]!.trim().startsWith("-");
+        expect(payment.amountCents < 0n).toBe(negative);
         return negative;
       });
       // The fixture has money out and money in, so a sign read the wrong way shows.
@@ -132,19 +144,46 @@ describe.each(importPresets.map((preset) => [preset.id, preset] as const))(
       if (indicator === undefined) return;
       const column = table.headers.indexOf(indicator);
       const debits = preset.profile.debitValues!.map((value) => value.toUpperCase());
-      for (const [i, row] of table.rows.entries()) {
-        const debit = debits.includes(row[column]!.toUpperCase());
-        expect(result.rows[i]!.amountCents < 0n).toBe(debit);
+      for (const payment of result.rows.filter((row) => !row.fee)) {
+        const debit = debits.includes(table.rows[payment.row - 1]![column]!.toUpperCase());
+        expect(payment.amountCents < 0n).toBe(debit);
       }
+    });
+
+    it("charges each non-zero fee of its fixture as a fee transaction beside its payment", () => {
+      const header = preset.profile.columns.fee;
+      if (header === undefined) return;
+      const { table, result, byRow } = payments();
+      const column = table.headers.indexOf(header);
+      const charged = [...byRow.keys()].filter(
+        (row) => Number(table.rows[row - 1]![column]!.trim() || "0") !== 0,
+      );
+      const fees = result.rows.filter((row) => row.fee);
+      // The fixture has a fee, so a fee that isn't read shows.
+      expect(charged.length).toBeGreaterThan(0);
+      expect(fees.map((fee) => fee.row)).toEqual(charged);
+      for (const fee of fees) {
+        expect(fee.amountCents < 0n).toBe(true);
+        expect(fee.dedupKey).toBe(`${byRow.get(fee.row)!.dedupKey}:fee`);
+      }
+    });
+
+    it("skips the rows of its fixture that aren't completed", () => {
+      const header = preset.profile.columns.state;
+      if (header === undefined) return;
+      const { table, result } = parsed();
+      const column = table.headers.indexOf(header);
+      const completed = preset.profile.completedValues!.map((value) => value.toUpperCase());
+      const open = table.rows.filter((row) => !completed.includes(row[column]!.toUpperCase()));
+      // The fixture has a row that isn't completed, so one read as completed shows.
+      expect(open.length).toBeGreaterThan(0);
+      expect(result.skipped!.reduce((sum, state) => sum + state.rows, 0)).toBe(open.length);
     });
   },
 );
 
 // Presets are found by their headers, so no two may be told apart by anything else.
 describe("the presets together", () => {
-  const fixtureOf = (preset: ImportPreset) =>
-    readFileSync(path.join(import.meta.dirname, fixtureName(preset)));
-
   it("have their own ids and fingerprints", () => {
     expect(new Set(importPresets.map((preset) => preset.id)).size).toBe(importPresets.length);
     expect(new Set(importPresets.map((preset) => preset.fingerprint)).size).toBe(
@@ -165,4 +204,30 @@ describe("the presets together", () => {
       expect(own.ok && headerFingerprint(own.headers)).toBe(preset.fingerprint);
     },
   );
+});
+
+// The second preset's fixture states its balance after each row: what is imported must move it
+// by as much, fees included.
+describe("preset revolut", () => {
+  const preset = importPresets.find((candidate) => candidate.id === "revolut")!;
+
+  it("imports what moved the fixture's balance, fees included", () => {
+    const table = readTable(fixtureOf(preset), preset.profile);
+    if (!table.ok) throw new Error(table.reason);
+    const result = parseRows(preset.profile, table, { accountCurrency: "EUR" });
+    if (!result.ok) throw new Error(result.reason);
+    const cents = (text: string) => BigInt(Math.round(Number(text) * 100));
+    const column = (name: string) => table.headers.indexOf(name);
+    const [first] = table.rows;
+    const last = table.rows.at(-1)!;
+    const opening = cents(first![column("Balance")]!) - cents(first![column("Amount")]!);
+
+    const imported = result.rows.reduce((sum, row) => sum + row.amountCents, 0n);
+
+    expect(opening + imported).toBe(cents(last[column("Balance")]!));
+    expect(result.skipped).toEqual([
+      { value: "REVERTED", rows: 1 },
+      { value: "PENDING", rows: 1 },
+    ]);
+  });
 });

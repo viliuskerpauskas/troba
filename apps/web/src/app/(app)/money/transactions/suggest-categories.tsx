@@ -9,7 +9,7 @@ import { useSuggestionRun } from "./use-suggestion-run";
 // The transactions list's AI strip (SPEC-money M5, ADR-0016): a button that asks the model for a
 // category for the uncategorized imported rows, and the sentence that says what is sent. With no
 // key on the server the page passes enabled={false} and nothing about the feature is rendered. The
-// worker asks the model (ADR-0020): the button stays busy, and the page follows the run, until it is
+// worker asks the model (ADR-0021): the button stays busy, and the page follows the run, until it is
 // done; `runId` is a run of the user's the page found under way.
 export function SuggestCategories({
   enabled,

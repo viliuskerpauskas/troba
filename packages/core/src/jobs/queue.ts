@@ -16,7 +16,7 @@ export const jobs = {
   // Reads a PDF statement through the model (T152, ADR-0018). The handler checks the PDF import is
   // this user's.
   "read-pdf-import": z.object({ userId: z.uuid(), pdfImportId: z.uuid() }).strict(),
-  // One run of AI-suggested categories (T144, ADR-0020). The handler checks the run is this
+  // One run of AI-suggested categories (T144, ADR-0021). The handler checks the run is this
   // user's and not finished, so a repeated job does nothing.
   "suggest-categories": z.object({ userId: z.uuid(), runId: z.uuid() }).strict(),
   // Deletes PDF imports never confirmed, once expired (T155). Scheduled, for no user.

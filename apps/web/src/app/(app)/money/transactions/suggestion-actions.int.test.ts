@@ -19,7 +19,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SuggestState } from "./suggestion-actions";
 
-// The "Suggest categories" button's actions (SPEC-money M5, ADR-0020): the button queues a run for
+// The "Suggest categories" button's actions (SPEC-money M5, ADR-0021): the button queues a run for
 // the worker and answers at once, and the page asks how the run went until it is done. The test
 // plays the worker with core's runCategorySuggestions and a fake model. The server's session,
 // database and job queue are the only things replaced; the actions, core and Postgres are real.

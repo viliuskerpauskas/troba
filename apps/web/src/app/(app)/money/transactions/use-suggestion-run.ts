@@ -3,7 +3,7 @@
 import { startTransition, useActionState, useEffect } from "react";
 import { suggestionRunStatusAction, type SuggestState } from "./suggestion-actions";
 
-// How often the page asks how a run is going (ADR-0020). A run is a few model requests, seconds
+// How often the page asks how a run is going (ADR-0021). A run is a few model requests, seconds
 // each when the provider is healthy.
 const pollMs = 2_000;
 

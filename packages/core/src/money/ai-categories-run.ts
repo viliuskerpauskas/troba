@@ -8,7 +8,7 @@ import {
 } from "./ai-categories";
 import { aiCategorizationEnabledFor } from "./ai-categorization-setting";
 
-// AI-suggested categories, run by the worker (SPEC-money M5, ADR-0020). The web app starts a run,
+// AI-suggested categories, run by the worker (SPEC-money M5, ADR-0021). The web app starts a run,
 // which queues a suggest-categories job, and reads back how it went; the job asks the model through
 // suggestCategories, which keeps the opt-out, the daily cap and the masking. No request waits on
 // the model. A run row holds counts only, never merchant text.

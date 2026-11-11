@@ -9,7 +9,7 @@ import { useSuggestionRun } from "./use-suggestion-run";
 // "Ask again" on the transactions list (SPEC-money M5, ADR-0016): offers the merchants that were
 // dismissed, or that the model couldn't place, to the model again, for example after adding
 // categories. Like the "Suggest categories" button, it is absent without a key on the server.
-// The run is the worker's, followed like the button's (ADR-0020).
+// The run is the worker's, followed like the button's (ADR-0021).
 export function AskAgain({ enabled }: { enabled: boolean }) {
   const { state, startRun, busy } = useSuggestionRun(askAgainAction);
   const descriptionId = useId();

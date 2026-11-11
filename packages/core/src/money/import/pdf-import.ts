@@ -589,6 +589,7 @@ function rowSource(answer: StatementAnswer): RowSource {
         : null,
       description: transaction.description?.trim() || null,
       bankTxType: null,
+      fee: false,
       dedupKey: `${pdfDedupKeyPrefix}${hash}:${occurrence}`,
       raw: transaction,
     });
@@ -600,7 +601,14 @@ function rowSource(answer: StatementAnswer): RowSource {
     read: () =>
       ownIbans.size > 1
         ? { ok: false, reason: "multiple-own-ibans" }
-        : { ok: true, ownIban: [...ownIbans][0] ?? null, rows, failed, debitCredit: null },
+        : {
+            ok: true,
+            ownIban: [...ownIbans][0] ?? null,
+            rows,
+            failed,
+            debitCredit: null,
+            skipped: null,
+          },
   };
 }
 

@@ -19,7 +19,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportState } from "./actions";
 
-// An import with AI suggestions on (SPEC-money M5, ADR-0020): the import never waits on the model.
+// An import with AI suggestions on (SPEC-money M5, ADR-0021): the import never waits on the model.
 // It is saved, a run for its rows is queued for the worker, and the result says suggestions are
 // being prepared. The test plays the worker with core's runCategorySuggestions. The server's
 // session, database and job queue are the only things replaced; the actions, core and Postgres

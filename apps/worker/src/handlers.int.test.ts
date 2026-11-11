@@ -17,7 +17,7 @@ import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { handlers } from "./handlers";
 
-// ADR-0016, ADR-0020: the merchant text sent and the model's answer are a user's data, so no part
+// ADR-0016, ADR-0021: the merchant text sent and the model's answer are a user's data, so no part
 // of the exchange is logged, on any path. The worker's suggest-categories handler runs here with
 // the real OpenAI client and transport behind a fake fetch, and every way the process prints is
 // watched: the console and stdout and stderr, which a logger writes to.

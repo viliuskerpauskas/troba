@@ -154,6 +154,8 @@ describe("the import wizard's PDF steps", () => {
         rowsFailed: 1,
         failed: [{ row: 2, reason: "invalid-date" }],
         debitCredit: null,
+        fees: 0,
+        skipped: null,
         mixedFormats: false,
       },
     });
@@ -182,6 +184,8 @@ describe("the import wizard's PDF steps", () => {
         rowsFailed: 0,
         failed: [],
         debitCredit: null,
+        fees: 0,
+        skipped: null,
         mixedFormats: false,
       },
     });
@@ -200,6 +204,8 @@ describe("the mixed-formats warning", () => {
     rowsFailed: 0,
     failed: [],
     debitCredit: null,
+    fees: 0,
+    skipped: null,
     mixedFormats,
   });
   const pdf = (mixedFormats: boolean) =>
@@ -233,6 +239,50 @@ describe("the mixed-formats warning", () => {
   it("isn't shown without rows of the other kind", () => {
     expect(pdf(false)).not.toContain("won&#x27;t be detected as duplicates");
     expect(file(false)).not.toContain("won&#x27;t be detected as duplicates");
+  });
+});
+
+describe("the preview of a file with fees and rows that aren't completed", () => {
+  const file = (fees: number, skipped: { value: string; rows: number }[] | null) =>
+    at({
+      step: "preview",
+      profile: { id: "p", name: "Example Bank", brand: null },
+      accountId: "a",
+      preview: {
+        ok: true,
+        account: { id: "a", name: "Example Bank" },
+        rowsParsed: 5,
+        rowsNew: 4,
+        rowsDuplicate: 0,
+        rowsFailed: 0,
+        failed: [],
+        debitCredit: null,
+        fees,
+        skipped,
+        mixedFormats: false,
+      },
+    });
+
+  it("says how many fees become transactions of their own", () => {
+    expect(file(1, null)).toContain("1 fee charged on top of its payment");
+    expect(file(2, null)).toContain("2 fees charged on top of their payments");
+  });
+
+  it("says how many rows are skipped for not being completed, by state", () => {
+    const html = file(0, [
+      { value: "PENDING", rows: 2 },
+      { value: "", rows: 1 },
+    ]);
+    expect(html).toContain("Not completed, skipped");
+    expect(html).toContain("PENDING");
+    expect(html).toContain("2 rows");
+    expect(html).toContain("(blank)");
+  });
+
+  it("says nothing of either when there are none", () => {
+    const html = file(0, []);
+    expect(html).not.toContain("fee");
+    expect(html).not.toContain("Not completed");
   });
 });
 

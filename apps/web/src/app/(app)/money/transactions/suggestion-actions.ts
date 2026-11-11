@@ -14,7 +14,7 @@ import { requireUser } from "@/server/session";
 
 // AI-suggested categories for the transactions no rule matched (SPEC-money M5, ADR-0016). A
 // suggestion is stored on the row and shown as a chip; the row stays uncategorized until the user
-// accepts it. The model is asked by the worker (ADR-0020): the button queues a run and answers at
+// accepts it. The model is asked by the worker (ADR-0021): the button queues a run and answers at
 // once, and the page asks how it went until it is done.
 //
 // The merchant text and the model's answer are a user's data: nothing here logs them, and the

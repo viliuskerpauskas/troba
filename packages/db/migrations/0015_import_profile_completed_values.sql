@@ -1,0 +1,1 @@
+ALTER TABLE "money_import_profiles" ADD COLUMN "completed_values" text[];

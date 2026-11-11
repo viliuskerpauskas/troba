@@ -110,8 +110,15 @@
     {
       "idx": 15,
       "version": "7",
-      "when": 1794402126730,
-      "tag": "0015_ai_categorize_runs",
+      "when": 1794402321338,
+      "tag": "0015_import_profile_completed_values",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794403777048,
+      "tag": "0016_ai_categorize_runs",
       "breakpoints": true
     }
   ]

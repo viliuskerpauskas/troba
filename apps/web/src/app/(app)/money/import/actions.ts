@@ -162,6 +162,10 @@ export type PreviewView =
       // ones say why.
       failed: ImportRowFailure[];
       debitCredit: { value: string; debit: boolean; rows: number }[] | null;
+      // Fee transactions among the new and duplicate ones, and the rows skipped for not being
+      // completed, by state (ADR-0020).
+      fees: number;
+      skipped: { value: string; rows: number }[] | null;
       // The account has imported rows of the other kind (PDF versus CSV or spreadsheet) in the
       // file's dates, which won't be detected as duplicates: the preview warns.
       mixedFormats: boolean;
@@ -468,7 +472,7 @@ async function previewState(
 
 async function previewView(userId: string, result: PreviewImportResult): Promise<PreviewView> {
   if (result.ok) {
-    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit, mixedFormats } =
+    const { account, rowsParsed, rowsNew, rowsDuplicate, failed, debitCredit, fees, skipped } =
       result;
     return {
       ok: true,
@@ -479,7 +483,9 @@ async function previewView(userId: string, result: PreviewImportResult): Promise
       rowsFailed: failed.length,
       failed: failed.slice(0, shownFailures),
       debitCredit,
-      mixedFormats,
+      fees,
+      skipped,
+      mixedFormats: result.mixedFormats,
     };
   }
   switch (result.reason) {
