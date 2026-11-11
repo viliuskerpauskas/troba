@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseListQuery, transactionsHref } from "./params";
+import { parseListQuery, parseView, transactionsHref } from "./params";
 
 const accountId = "3e413bad-a83a-40f4-954e-0bc4fd345c67";
 const categoryId = "8c1f2d4e-5b6a-4c7d-9e8f-0a1b2c3d4e5f";
@@ -62,5 +62,14 @@ describe("transaction list parameters", () => {
     expect(transactionsHref({ accountId, page: 1 })).toBe(
       `/money/transactions?account=${accountId}`,
     );
+  });
+});
+
+describe("the transaction list's view", () => {
+  it("is the list of transactions unless the suggestions by merchant are asked for", () => {
+    expect(parseView({})).toBe("transactions");
+    expect(parseView({ view: "merchants" })).toBe("merchants");
+    expect(parseView({ view: "something" })).toBe("transactions");
+    expect(parseView({ view: ["merchants", "merchants"] })).toBe("transactions");
   });
 });

@@ -3,6 +3,7 @@ import {
   countPendingSuggestions,
   listAccounts,
   listCategories,
+  listSuggestionsByMerchant,
   listTransactions,
   transactionListLimit,
 } from "@troba/core";
@@ -17,12 +18,19 @@ import { db } from "@/server/db";
 import { aiCategorizationEnabled } from "@/server/env";
 import { requireMoneyUser } from "@/server/money";
 import { formatAmount } from "../format";
-import { parseListQuery, searchMaxLength, transactionsHref } from "./params";
+import {
+  merchantsViewHref,
+  parseListQuery,
+  parseView,
+  searchMaxLength,
+  transactionsHref,
+} from "./params";
 import { AcceptAll } from "./accept-all";
 import { AskAgain } from "./ask-again";
 import { SuggestCategories, SuggestionChip } from "./suggest-categories";
 import { rowElementId } from "./row-id";
 import { SuggestionControls } from "./suggestion-controls";
+import { SuggestionGroups } from "./suggestion-groups";
 import { SuggestionNotice } from "./suggestion-notice";
 
 export const metadata: Metadata = { title: "Transactions · troba" };
@@ -30,49 +38,40 @@ export const metadata: Metadata = { title: "Transactions · troba" };
 // SPEC-money M8: newest first, a page at a time, filtered by the query in the URL.
 export default async function TransactionsPage({ searchParams }: PageProps<"/money/transactions">) {
   const { userId } = await requireMoneyUser();
-  const query = parseListQuery(await searchParams);
+  const params = await searchParams;
+  const query = parseListQuery(params);
+  // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
+  const aiEnabled = aiCategorizationEnabled();
+  // The suggestions grouped by merchant, in place of the list; only while the server has a key.
+  const merchantsView = aiEnabled && parseView(params) === "merchants";
   const { page, ...filter } = query;
   const filtered = Object.keys(filter).length > 0;
-  const [accounts, categories, rows, userOptedIn, pendingSuggestions] = await Promise.all([
+  const [accounts, categories, rows, userOptedIn, pendingSuggestions, groups] = await Promise.all([
     // Archived accounts keep their transactions, so they stay in the filter.
     listAccounts(db(), userId, { includeArchived: true }),
     listCategories(db(), userId),
-    // One more than a page, to know whether there is a next one.
-    listTransactions(db(), userId, {
-      ...filter,
-      limit: transactionListLimit + 1,
-      offset: (page - 1) * transactionListLimit,
-    }),
+    // One more than a page, to know whether there is a next one. Not read for the merchants view.
+    merchantsView
+      ? []
+      : listTransactions(db(), userId, {
+          ...filter,
+          limit: transactionListLimit + 1,
+          offset: (page - 1) * transactionListLimit,
+        }),
     aiCategorizationEnabledFor(db(), userId),
     // One aggregate over the user's rows, for the strip; never the rows themselves. Without a key
     // the strip is never shown, so nothing is counted.
-    aiCategorizationEnabled() ? countPendingSuggestions(db(), userId) : null,
+    aiEnabled ? countPendingSuggestions(db(), userId) : null,
+    merchantsView ? listSuggestionsByMerchant(db(), userId) : null,
   ]);
   const transactions = rows.slice(0, transactionListLimit);
-  // Without a key the feature is not mentioned anywhere, so suggestions already stored stay hidden.
-  const aiEnabled = aiCategorizationEnabled();
   // A user who opted out gets no button and no control that asks or accepts, but suggestions they
   // already have stay visible (and, once they can be dismissed, stay dismissable).
   const aiOffered = aiEnabled && userOptedIn;
 
-  return (
-    <Page>
-      <h1>Transactions</h1>
-      <div className="flex flex-wrap gap-2">
-        <Link href="/money/transactions/new" className={buttonVariants()}>
-          Add transaction
-        </Link>
-        <Link href="/money/import" className={buttonVariants({ variant: "outline" })}>
-          Import a bank statement
-        </Link>
-      </div>
-      {aiOffered && pendingSuggestions && (
-        <AcceptAll rows={pendingSuggestions.rows} merchants={pendingSuggestions.merchants} />
-      )}
-      <SuggestCategories enabled={aiOffered} />
-      <AskAgain enabled={aiOffered} />
-      <SuggestionNotice />
-
+  // The list of transactions, a page at a time, as it is without the merchants view.
+  const transactionList = (
+    <>
       <form method="get" aria-label="Filter transactions" className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor="filter-q">Search</FieldLabel>
@@ -213,6 +212,59 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/mon
           </Link>
         )}
       </div>
+    </>
+  );
+
+  return (
+    <Page>
+      <h1>Transactions</h1>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/money/transactions/new" className={buttonVariants()}>
+          Add transaction
+        </Link>
+        <Link href="/money/import" className={buttonVariants({ variant: "outline" })}>
+          Import a bank statement
+        </Link>
+      </div>
+      {aiOffered && pendingSuggestions && (
+        <AcceptAll rows={pendingSuggestions.rows} merchants={pendingSuggestions.merchants} />
+      )}
+      <SuggestCategories enabled={aiOffered} />
+      <AskAgain enabled={aiOffered} />
+      <SuggestionNotice />
+      {aiEnabled && (merchantsView || (pendingSuggestions?.rows ?? 0) > 0) && (
+        <nav aria-label="Transaction views" className="flex flex-wrap gap-2">
+          <Link
+            href="/money/transactions"
+            aria-current={merchantsView ? undefined : "page"}
+            className={buttonVariants({ variant: merchantsView ? "ghost" : "secondary" })}
+          >
+            All transactions
+          </Link>
+          <Link
+            href={merchantsViewHref}
+            aria-current={merchantsView ? "page" : undefined}
+            className={buttonVariants({ variant: merchantsView ? "secondary" : "ghost" })}
+          >
+            Suggestions by merchant
+          </Link>
+        </nav>
+      )}
+
+      {groups ? (
+        <section aria-labelledby="suggestions-by-merchant" className="flex flex-col gap-4">
+          <h2 id="suggestions-by-merchant" className="text-lg font-medium">
+            Suggestions by merchant
+          </h2>
+          <SuggestionGroups
+            groups={groups}
+            merchants={pendingSuggestions?.merchants ?? groups.length}
+            canAccept={aiOffered}
+          />
+        </section>
+      ) : (
+        transactionList
+      )}
     </Page>
   );
 }

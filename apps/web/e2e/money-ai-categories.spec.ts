@@ -191,6 +191,81 @@ test("dismisses a suggestion, asks again, accepts all after a confirmation, and 
   await expect(list.locator(":focus")).toHaveCount(0);
 });
 
+test("reviews the suggestions grouped by merchant and accepts a group, by keyboard and on a phone", async ({
+  page,
+}) => {
+  await signIn(page, {
+    email: "e2e-ai-categories-groups@example.test",
+    name: "Avery Example",
+    ip: "198.51.100.36",
+  });
+  // Two rows of the one merchant the fake model knows: one group of two. The other user's name is
+  // not this user's, so it would reach the fake, which refuses it.
+  await importStatement(page, {
+    ...statement,
+    buffer: Buffer.from(
+      statement.buffer
+        .toString("utf8")
+        .replace('"EXAMPLE STREAMING"', '"GROCERY MART"')
+        .replace('"CORNER CAFE JORDAN QUINN"', '"CORNER CAFE NORTH"'),
+    ),
+  });
+  await expect(page.locator('p[aria-live="polite"]')).toContainText(
+    "AI suggested categories for 2 transactions.",
+  );
+
+  await page.goto("/money/transactions");
+  await page.setViewportSize({ width: 375, height: 812 });
+  // The view switch is reached by keyboard and says which view is showing.
+  const views = page.getByRole("navigation", { name: "Transaction views" });
+  await expect(views.getByRole("link", { name: "All transactions" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  const byMerchant = views.getByRole("link", { name: "Suggestions by merchant" });
+  await byMerchant.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/money/transactions?view=merchants");
+  await expect(byMerchant).toHaveAttribute("aria-current", "page");
+
+  // The merchant appears once, with its count, total and suggested category.
+  const groups = page.getByRole("list", { name: "Suggestions by merchant" });
+  await expect(groups.getByRole("listitem")).toHaveCount(1);
+  const grocery = groups.getByRole("listitem").filter({ hasText: "GROCERY MART" });
+  await expect(grocery).toContainText("suggested: Food");
+  await expect(grocery).toContainText("2 transactions");
+  await expect(grocery).toContainText("-€56.09");
+  await expect(page.getByRole("list", { name: "Transactions, newest first" })).toHaveCount(0);
+  await expectPageFitsPhone(page);
+
+  const accept = grocery.getByRole("button", {
+    name: "Accept Food for all 2 transactions of GROCERY MART",
+  });
+  const box = (await accept.boundingBox())!;
+  expect(box.height, "Accept is touch-sized").toBeGreaterThanOrEqual(44);
+  await accept.focus();
+  await page.keyboard.press("Enter");
+
+  // The notice says what changed and takes the focus, since the group is gone.
+  const notice = page.locator('[role="status"][tabindex="-1"]');
+  await expect(notice).toHaveText("Categorized 2 transactions as Food.");
+  await expect(notice).toBeFocused();
+  await expect(groups).toHaveCount(0);
+  await expect(page.getByText("No suggestions are waiting.")).toBeVisible();
+
+  // Both rows are now Food on the list of transactions, which is unchanged.
+  await views.getByRole("link", { name: "All transactions" }).click();
+  const rows = page
+    .getByRole("list", { name: "Transactions, newest first" })
+    .getByRole("listitem")
+    .filter({ hasText: "GROCERY MART" });
+  await expect(rows).toHaveCount(2);
+  for (const row of await rows.all()) {
+    await expect(row).toContainText("Food");
+    await expect(row).not.toContainText("suggested:");
+  }
+});
+
 // What the import result and the list say when no suggestion could be made: the daily limit is
 // spent, the model is unavailable, or the user turned the feature off. In none of them does a
 // row get a suggestion.
