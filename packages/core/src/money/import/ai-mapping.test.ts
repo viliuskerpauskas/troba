@@ -516,7 +516,7 @@ describe("mappingAnswerJsonSchema", () => {
     }
   });
 
-  it("covers every field of the profile and no other", () => {
+  it("covers every field of the profile but the fee and state, and no other", () => {
     expect(Object.keys(schema.properties.columns!.properties).toSorted()).toEqual(
       Object.keys(goodAnswer.columns).toSorted(),
     );

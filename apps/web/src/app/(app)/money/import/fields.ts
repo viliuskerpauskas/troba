@@ -30,6 +30,14 @@ export const importFields: Record<ImportField, { label: string; hint?: string }>
   },
   transactionType: { label: "Transaction type" },
   ownIban: { label: "Your account's IBAN", hint: "Picks the account for you." },
+  fee: {
+    label: "Fee",
+    hint: "Only when the bank charges it on top of the amount: a fee becomes a transaction of its own.",
+  },
+  state: {
+    label: "State",
+    hint: "Only rows in a completed state are imported; list those states below.",
+  },
 };
 
 export const requiredFields: ReadonlySet<ImportField> = new Set(["bookingDate", "amount"]);

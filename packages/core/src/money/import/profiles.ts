@@ -68,7 +68,13 @@ export async function saveImportProfile(
       return { ok: false, reason: "too-many-profiles" };
   }
 
-  const values = { ...profile, kind, headerFingerprint: headerFingerprint(table.headers) };
+  const values = {
+    ...profile,
+    // Set either way: an edit that unmaps the state column clears them.
+    completedValues: profile.completedValues ?? null,
+    kind,
+    headerFingerprint: headerFingerprint(table.headers),
+  };
   const [saved] = input.profileId
     ? await db
         .update(moneyImportProfiles)
@@ -176,7 +182,13 @@ function sameSettings(a: ReadSettings, b: ReadSettings): boolean {
   return a.skipLines === b.skipLines && a.delimiter === b.delimiter && a.encoding === b.encoding;
 }
 
-// Rows are only written through importProfileSchema, so they parse.
+// Rows are only written through importProfileSchema, so they parse. No completed values is stored
+// as null and read back as none, as a profile without a state column has them.
 function toSaved(row: typeof moneyImportProfiles.$inferSelect): SavedImportProfile {
-  return { id: row.id, kind: row.kind, ...importProfileSchema.parse(row) };
+  const { completedValues, ...rest } = row;
+  const profile = importProfileSchema.parse({
+    ...rest,
+    ...(completedValues === null ? {} : { completedValues }),
+  });
+  return { id: row.id, kind: row.kind, ...profile };
 }

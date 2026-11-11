@@ -115,6 +115,11 @@ describe("importProfileSchema", () => {
       },
     ],
     [
+      "a state column without completed values",
+      { columns: { ...signedProfile.columns, state: "State" } },
+    ],
+    ["completed values without a state column", { completedValues: ["COMPLETED"] }],
+    [
       "an original currency without its amount",
       {
         columns: { ...signedProfile.columns, originalCurrency: "Orig cur" },
@@ -578,6 +583,7 @@ describe("parseRows", () => {
       counterpartyIban: null,
       description: "Card purchase",
       bankTxType: "CARD",
+      fee: false,
       dedupKey: "tx:T1001",
       raw: {
         "Transaction ID": "T1001",
@@ -592,5 +598,164 @@ describe("parseRows", () => {
         Account: "DE89 3704 0044 0532 0130 00",
       },
     });
+  });
+});
+
+// Example Bank, style 3: a fee charged apart from the signed amount, and a state per row. The
+// file's balance moves by the amount and then by the fee.
+const feeProfile: ImportProfile = {
+  name: "Example Bank (fees)",
+  skipLines: 0,
+  delimiter: ",",
+  encoding: "utf-8",
+  decimalSeparator: ".",
+  dateFormat: "YYYY-MM-DD",
+  columns: {
+    bookingDate: "Date",
+    amount: "Amount",
+    fee: "Fee",
+    state: "State",
+    counterparty: "Description",
+    transactionType: "Type",
+  },
+  debitValues: null,
+  completedValues: ["Completed"],
+};
+
+const feeText = [
+  "Date,Type,Description,Amount,Fee,State,Balance",
+  "2026-09-01,Deposit,EXAMPLE EMPLOYER LTD,2400.00,0.00,COMPLETED,2400.00",
+  "2026-09-08,Card Payment,EXAMPLE ATM,-60.00,1.50,COMPLETED,2338.50",
+  "2026-09-09,Card Payment,GROCERY MART,-12.00,,completed,2326.50",
+  "2026-09-10,Card Payment,EXAMPLE STREAMING,-9.99,0.00,PENDING,2326.50",
+  "2026-09-11,Card Payment,CORNER CAFE,-4.20,0.00,REVERTED,2326.50",
+  "2026-09-12,Card Payment,EXAMPLE STREAMING,-9.99,0.00,PENDING,2326.50",
+  "2026-09-13,Card Payment,CORNER CAFE,-3.10,0.00,,2326.50",
+  "",
+].join("\n");
+
+// The same, with only the columns a short test row needs.
+const shortFeeProfile: ImportProfile = {
+  ...feeProfile,
+  columns: { bookingDate: "Date", amount: "Amount", fee: "Fee", state: "State" },
+};
+
+describe("parseRows with a fee column and a state column", () => {
+  const parsed = () => {
+    const result = parseRows(feeProfile, table(feeText, feeProfile), euro);
+    if (!result.ok) throw new Error(result.reason);
+    return result;
+  };
+
+  it("adds a non-zero fee as a fee transaction of its own, next to its payment", () => {
+    const { rows, failed } = parsed();
+
+    expect(failed).toEqual([]);
+    expect(rows.map((row) => [row.row, row.amountCents, row.fee])).toEqual([
+      [1, 240000n, false],
+      [2, -6000n, false],
+      [2, -150n, true],
+      [3, -1200n, false],
+    ]);
+    const [, payment, fee] = rows;
+    expect(fee).toEqual({
+      ...payment,
+      amountCents: -150n,
+      description: "Fee",
+      bankTxType: "Fee",
+      fee: true,
+      dedupKey: `${payment!.dedupKey}:fee`,
+    });
+  });
+
+  it("keeps the payment's own dedup key, so a file imported before fees were read matches again", () => {
+    const withoutFee: ImportProfile = {
+      ...feeProfile,
+      columns: omit(feeProfile.columns, ["fee"]),
+    };
+    const before = parseRows(withoutFee, table(feeText, withoutFee), euro);
+
+    expect(before.ok && before.rows.map((row) => row.dedupKey)).toEqual(
+      parsed()
+        .rows.filter((row) => !row.fee)
+        .map((row) => row.dedupKey),
+    );
+  });
+
+  it("gives the same keys on every read of the file", () => {
+    expect(parsed().rows.map((row) => row.dedupKey)).toEqual(
+      parsed().rows.map((row) => row.dedupKey),
+    );
+  });
+
+  it("charges a fee written with a minus sign too", () => {
+    const text = "Date,Amount,Fee,State\n2026-09-08,-60.00,-1.50,COMPLETED\n";
+
+    const result = parseRows(shortFeeProfile, table(text, shortFeeProfile), euro);
+
+    expect(result.ok && result.rows.map((row) => row.amountCents)).toEqual([-6000n, -150n]);
+  });
+
+  it("names a fee after its payment's description", () => {
+    const profile: ImportProfile = {
+      ...shortFeeProfile,
+      columns: { ...shortFeeProfile.columns, description: "Details" },
+    };
+    const text =
+      "Date,Amount,Fee,State,Details\n2026-09-08,-60.00,1.50,COMPLETED,Cash withdrawal\n";
+
+    const result = parseRows(profile, table(text, profile), euro);
+
+    expect(result.ok && result.rows.map((row) => row.description)).toEqual([
+      "Cash withdrawal",
+      "Fee: Cash withdrawal",
+    ]);
+  });
+
+  it("refuses a row whose fee isn't an amount", () => {
+    const text = "Date,Amount,Fee,State\n2026-09-08,-60.00,n/a,COMPLETED\n";
+
+    const result = parseRows(shortFeeProfile, table(text, shortFeeProfile), euro);
+
+    expect(result).toMatchObject({
+      ok: true,
+      rows: [],
+      failed: [{ row: 1, reason: "invalid-fee" }],
+    });
+  });
+
+  it("skips rows that aren't completed, counting them by state, blank included", () => {
+    const { rows, skipped } = parsed();
+
+    expect(rows.map((row) => row.row)).not.toContain(4);
+    expect(skipped).toEqual([
+      { value: "PENDING", rows: 2 },
+      { value: "REVERTED", rows: 1 },
+      { value: "", rows: 1 },
+    ]);
+  });
+
+  it("skips a row that isn't completed before reading it, so it never fails", () => {
+    const text = "Date,Amount,Fee,State\n,-9.99,0.00,PENDING\n";
+
+    const result = parseRows(shortFeeProfile, table(text, shortFeeProfile), euro);
+
+    expect(result).toMatchObject({
+      ok: true,
+      rows: [],
+      failed: [],
+      skipped: [{ value: "PENDING", rows: 1 }],
+    });
+  });
+
+  it("skips nothing without a state column", () => {
+    const result = parseRows(
+      signedProfile,
+      fixture("example-bank-signed.csv", signedProfile),
+      euro,
+    );
+
+    expect(result.ok && result.skipped).toBeNull();
+    expect(result.ok && result.rows.every((row) => !row.fee)).toBe(true);
   });
 });

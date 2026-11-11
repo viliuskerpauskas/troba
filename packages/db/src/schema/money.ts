@@ -117,6 +117,8 @@ export const moneyImportProfiles = pgTable(
     columns: jsonb("columns").$type<Record<string, string>>().notNull(),
     // With an unsigned amount column: the indicator values that mean a debit.
     debitValues: text("debit_values").array(),
+    // With a state column: the state values that mean a row is completed (ADR-0020).
+    completedValues: text("completed_values").array(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

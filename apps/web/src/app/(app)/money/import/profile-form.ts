@@ -11,7 +11,7 @@ import { importFields } from "./fields";
 
 // The mapping form's fields ↔ an import profile. The form keeps a column's header under
 // "column.<field>", "" for unmapped; delimiter "detect" for none fixed and "tab" for a tab (a
-// tab doesn't survive as an option value); debit values comma-separated.
+// tab doesn't survive as an option value); debit values and completed values comma-separated.
 
 export type ProfileFormValues = Record<string, string>;
 
@@ -24,6 +24,7 @@ const formNames = new Set([
   "decimalSeparator",
   "dateFormat",
   "debitValues",
+  "completedValues",
   ...fieldNames.map((field) => `column.${field}`),
 ]);
 
@@ -37,6 +38,7 @@ const problems = [
   "dateFormat",
   "columns",
   "debitValues",
+  "completedValues",
 ] as const;
 export type ProfileFormProblem = (typeof problems)[number];
 
@@ -59,10 +61,8 @@ export function profileFromForm(formData: FormData): ProfileFromFormResult {
     if (name.startsWith("column.") && !formNames.has(name))
       return { ok: false, problem: "columns" };
   }
-  const debitValues = text(formData, "debitValues")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const debitValues = list(formData, "debitValues");
+  const completedValues = list(formData, "completedValues");
   const skipLines = SkipLines.safeParse(text(formData, "skipLines"));
 
   const parsed = importProfileSchema.safeParse({
@@ -79,6 +79,7 @@ export function profileFromForm(formData: FormData): ProfileFromFormResult {
         .filter(([, header]) => header !== ""),
     ),
     debitValues: debitValues.length > 0 ? debitValues : null,
+    ...(completedValues.length > 0 && { completedValues }),
   });
   if (parsed.success) return { ok: true, profile: parsed.data };
   const wrong = new Set(parsed.error.issues.map((issue) => issue.path[0]));
@@ -107,6 +108,7 @@ export function profileFormValues(profile: ImportProfile): ProfileFormValues {
     decimalSeparator: profile.decimalSeparator,
     dateFormat: profile.dateFormat,
     debitValues: profile.debitValues?.join(", ") ?? "",
+    completedValues: profile.completedValues?.join(", ") ?? "",
     ...Object.fromEntries(
       fieldNames.map((field) => [`column.${field}`, profile.columns[field] ?? ""]),
     ),
@@ -118,6 +120,14 @@ export function echoFormValues(formData: FormData): ProfileFormValues {
   return Object.fromEntries(
     [...formNames].map((name) => [name, text(formData, name).slice(0, 200)]),
   );
+}
+
+// A comma-separated list, blanks dropped.
+function list(formData: FormData, name: string): string[] {
+  return text(formData, name)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function text(formData: FormData, name: string): string {

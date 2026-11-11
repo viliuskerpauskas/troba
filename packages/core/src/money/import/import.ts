@@ -8,6 +8,7 @@ import {
   type ImportProfile,
   type ParsedRow,
   type RowFailureReason,
+  type StateCount,
 } from "./profile";
 import { readTable, tableKindOf, type TableReadFailure } from "./table";
 
@@ -59,11 +60,17 @@ export type ImportRowFailure = { row: number; reason: RowFailureReason | "curren
 
 export type ImportPreview = {
   account: Account;
-  // Data rows in the file: new + duplicates + failed.
+  // Data rows in the file: the rows behind new and duplicate transactions, failed and skipped.
   rowsParsed: number;
+  // Transactions, a row's fee transaction included (ADR-0020).
   rowsNew: number;
   // Already saved for this account; skipped.
   rowsDuplicate: number;
+  // How many of the new and duplicate transactions are fees, split from their payment's row.
+  fees: number;
+  // Rows that aren't completed (pending, reverted), skipped by state; null without a state column
+  // (see parseRows).
+  skipped: StateCount[] | null;
   failed: ImportRowFailure[];
   // With a debit/credit column, the indicators seen, for the user to check (see parseRows).
   debitCredit: DebitCreditCount[] | null;
@@ -99,7 +106,13 @@ export async function previewPrepared(
   const existing = await existingDedupKeys(db, userId, preview.account.id, rows);
   const rowsDuplicate = rows.filter((row) => existing.has(row.dedupKey)).length;
   const mixedFormats = await hasOtherKindInRange(db, userId, preview.account.id, rows);
-  return { ...preview, rowsNew: rows.length - rowsDuplicate, rowsDuplicate, mixedFormats };
+  return {
+    ...preview,
+    rowsNew: rows.length - rowsDuplicate,
+    rowsDuplicate,
+    fees: feeCount(rows),
+    mixedFormats,
+  };
 }
 
 // A PDF row's dedup key starts with this; a CSV or spreadsheet row's never does.
@@ -294,7 +307,11 @@ export async function savePrepared(
     .update(moneyImports)
     .set({ rowsNew, rowsDuplicate })
     .where(and(eq(moneyImports.id, importId), eq(moneyImports.userId, userId)));
-  return { ...preview, importId, rowsNew, rowsDuplicate };
+  return { ...preview, importId, rowsNew, rowsDuplicate, fees: feeCount(rows) };
+}
+
+function feeCount(rows: ImportRow[]): number {
+  return rows.filter((row) => row.fee).length;
 }
 
 // Money moved between the user's own accounts is a transfer, not spending: a row whose
@@ -327,7 +344,7 @@ export type ImportRow = Omit<ParsedRow, "raw"> & { raw: Record<string, unknown> 
 // The preview without its duplicate counts, plus the rows that could be saved.
 export type PreparedImport = { ok: true; rows: ImportRow[] } & Omit<
   ImportPreview,
-  "rowsNew" | "rowsDuplicate"
+  "rowsNew" | "rowsDuplicate" | "fees"
 >;
 
 // A statement file's rows, whatever its kind, read for the currency of the account they go to.
@@ -341,6 +358,7 @@ export type RowSource = {
         rows: ImportRow[];
         failed: ImportRowFailure[];
         debitCredit: DebitCreditCount[] | null;
+        skipped: StateCount[] | null;
       }
     | Extract<ImportRefusal, { reason: "missing-columns" | "multiple-own-ibans" }>;
   // The currency offered for a new account, when the file states one; else its first row's.
@@ -424,7 +442,8 @@ export async function prepareRows(
   const failed: ImportRowFailure[] = [...parsed.failed];
   for (const row of parsed.rows) {
     if (row.currency === account.currency) rows.push(row);
-    else failed.push({ row: row.row, reason: "currency-mismatch" });
+    // A fee shares its payment's row and currency: the row is listed once.
+    else if (!row.fee) failed.push({ row: row.row, reason: "currency-mismatch" });
   }
   failed.sort((a, b) => a.row - b.row);
 
@@ -435,6 +454,7 @@ export async function prepareRows(
     rows,
     failed,
     debitCredit: parsed.debitCredit,
+    skipped: parsed.skipped,
   };
 }
 

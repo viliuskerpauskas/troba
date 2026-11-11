@@ -56,8 +56,30 @@ describe("profileFromForm", () => {
     });
   });
 
+  it("reads a fee column, and a state column with its completed values", () => {
+    const read = profileFromForm(
+      form({
+        ...filled,
+        "column.fee": "Fee",
+        "column.state": "State",
+        completedValues: "Completed, Done ,",
+      }),
+    );
+
+    expect(read).toMatchObject({
+      ok: true,
+      profile: {
+        columns: { fee: "Fee", state: "State" },
+        completedValues: ["Completed", "Done"],
+      },
+    });
+    expect(read.ok && profileFromForm(form(profileFormValues(read.profile)))).toEqual(read);
+  });
+
   it.each([
     ["no name", { name: " " }, "name"],
+    ["a state column without completed values", { "column.state": "State" }, "completedValues"],
+    ["completed values without the column", { completedValues: "Completed" }, "completedValues"],
     ["no amount column", { "column.amount": "" }, "columns"],
     ["a debit/credit column without debit values", { debitValues: "" }, "debitValues"],
     ["debit values without the column", { "column.debitCredit": "" }, "debitValues"],

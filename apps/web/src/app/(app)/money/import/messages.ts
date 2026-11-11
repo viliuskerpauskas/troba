@@ -117,6 +117,8 @@ export const problemMessages: Record<ProfileFormProblem, string> = {
     "Map the booking date and the amount, and the original amount and original currency together or neither.",
   debitValues:
     "A debit/credit column needs its debit values, such as D, and debit values need the column.",
+  completedValues:
+    "A state column needs its completed values, such as COMPLETED, and completed values need the column.",
 };
 
 export const failureReasons: Record<ImportRowFailure["reason"], string> = {
@@ -126,6 +128,7 @@ export const failureReasons: Record<ImportRowFailure["reason"], string> = {
   "invalid-currency": "the currency isn't a three-letter code",
   "invalid-original-amount": "the original amount isn't a number",
   "invalid-own-iban": "the account IBAN isn't valid",
+  "invalid-fee": "the fee isn't a number with the profile's decimal separator",
   "duplicate-transaction-id": "another row has the same transaction ID",
   "currency-mismatch": "the row's currency isn't the account's",
 };
