@@ -1,13 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   categorizationAnswerJsonSchema,
   categorizationInstructions,
   type CategorizationRequest,
-} from "@troba/core";
-import {
-  categorizationModelClient,
-  createOpenAiCategorizationClient,
-} from "./openai-categorization";
+} from "../money/ai-categories";
+import { createOpenAiCategorizationClient } from "./categorization";
 
 const config = { apiKey: "sk-test-not-a-real-key", model: "test-model" };
 
@@ -116,21 +113,5 @@ describe("createOpenAiCategorizationClient", () => {
     expect((error as Error).message).toBe(expected);
     // A cause would carry the original error, and its text, to whatever prints this one.
     expect((error as Error).cause).toBeUndefined();
-  });
-});
-
-describe("categorizationModelClient", () => {
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("is null while no key is set, so nothing can be sent", () => {
-    vi.stubEnv("OPENAI_API_KEY", "");
-
-    expect(categorizationModelClient()).toBeNull();
-  });
-
-  it("is a client once a key is set", () => {
-    vi.stubEnv("OPENAI_API_KEY", config.apiKey);
-
-    expect(categorizationModelClient()).not.toBeNull();
   });
 });

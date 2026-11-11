@@ -16,6 +16,9 @@ export const jobs = {
   // Reads a PDF statement through the model (T152, ADR-0018). The handler checks the PDF import is
   // this user's.
   "read-pdf-import": z.object({ userId: z.uuid(), pdfImportId: z.uuid() }).strict(),
+  // One run of AI-suggested categories (T144, ADR-0020). The handler checks the run is this
+  // user's and not finished, so a repeated job does nothing.
+  "suggest-categories": z.object({ userId: z.uuid(), runId: z.uuid() }).strict(),
   // Deletes PDF imports never confirmed, once expired (T155). Scheduled, for no user.
   "clean-up-pdf-imports": z.object({}).strict(),
 } as const;
@@ -32,6 +35,10 @@ const queueOptions: { [N in JobName]?: QueueOptions } = {
   // reading itself and finishes, so a retry only follows a crash or an expiry: once, after which
   // the job fails and the PDF import is left for the user to start over.
   "read-pdf-import": { expireInSeconds: 5 * 60, retryLimit: 1, retryDelay: 30 },
+  // At most four model requests of up to 30 seconds (maxMerchantsPerRun / categorizationBatchSize,
+  // defaultCategorizationTimeoutMs). A model failure is a result the handler records, so a retry
+  // only follows a crash or an expiry; the run is given up on after categorySuggestionRunStaleMs.
+  "suggest-categories": { expireInSeconds: 5 * 60, retryLimit: 1, retryDelay: 30 },
 };
 
 // Jobs the worker queues itself on a cron schedule (UTC), with empty data.

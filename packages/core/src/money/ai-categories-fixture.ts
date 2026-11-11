@@ -11,7 +11,7 @@ import { ensureMoneyDefaults } from "./defaults";
 // web app (as @troba/core/test-ai-categories). Fictional data only. Not exported from the package
 // index: nothing outside tests uses them.
 
-// The web app's default daily cap (AI_CATEGORIZE_DAILY_LIMIT unset), for tests about something
+// The worker's default daily cap (AI_CATEGORIZE_DAILY_LIMIT unset), for tests about something
 // else; a test of the cap passes its own.
 export const testAiCategorizeDailyLimit = 200;
 

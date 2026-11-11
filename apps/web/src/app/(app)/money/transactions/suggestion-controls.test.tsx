@@ -10,7 +10,10 @@ vi.mock("./suggestion-review-actions", () => ({
   dismissSuggestionAction: vi.fn(),
   askAgainAction: vi.fn(),
 }));
-vi.mock("./suggestion-actions", () => ({ suggestCategoriesAction: vi.fn() }));
+vi.mock("./suggestion-actions", () => ({
+  suggestCategoriesAction: vi.fn(),
+  suggestionRunStatusAction: vi.fn(),
+}));
 
 const id = "11111111-1111-4111-8111-111111111111";
 const categoryId = "22222222-2222-4222-8222-222222222222";

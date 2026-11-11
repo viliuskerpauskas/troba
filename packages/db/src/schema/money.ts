@@ -197,6 +197,32 @@ export const moneyAiCategorizeUses = pgTable(
   ],
 );
 
+// One run of AI-suggested categories, done by the worker (T144, ADR-0020): from the "Suggest
+// categories" button (import_id null) or after an import (that import, at most one run each). The
+// web app queues it and reads back how it went; the counts are SuggestCategoriesResult's, set with
+// finished_at when the run ends. No merchant text is kept here. A finished run is deleted a day
+// later, when the user starts another.
+export const moneyAiCategorizeRuns = pgTable(
+  "money_ai_categorize_runs",
+  {
+    id: id(),
+    userId: userId(),
+    importId: uuid("import_id")
+      .unique()
+      .references(() => moneyImports.id, { onDelete: "cascade" }),
+    finishedAt: timestamptz("finished_at"),
+    merchantsAsked: integer("merchants_asked").default(0).notNull(),
+    rowsSuggested: integer("rows_suggested").default(0).notNull(),
+    failed: boolean("failed").default(false).notNull(),
+    capped: boolean("capped").default(false).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index("money_ai_categorize_runs_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 // One row per PDF import the model was asked to read (T154, ADR-0018), counted per user over the
 // last day to cap what one account can spend. Keyed by the PDF import, so a retried job reuses its
 // claim; no foreign key, since the use outlives the PDF import. Rows older than a day are deleted

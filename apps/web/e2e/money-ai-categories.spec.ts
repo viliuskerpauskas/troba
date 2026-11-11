@@ -55,12 +55,13 @@ test("suggests a category after an import, changes nothing until it is accepted,
   await expect(page.getByText("Read with the profile")).toBeVisible();
   await page.getByRole("button", { name: "Import 8 transactions" }).click();
 
-  // The result says the model placed one row, and that nothing changes until the user accepts.
+  // The import doesn't wait for the model (ADR-0020): the result says suggestions are being
+  // prepared by the worker, and that nothing changes until the user accepts.
   await expect(page.getByRole("status")).toHaveText(
     "Imported 8 transactions into Example Bank current.",
   );
   const note =
-    "AI suggested a category for 1 transaction. It stays uncategorized until you accept it on the transactions list.";
+    "AI is preparing category suggestions. They appear on the transactions list when ready, and each transaction stays uncategorized until you accept its suggestion.";
   await expect(page.locator("p:not(.sr-only)", { hasText: note })).toBeVisible();
   await expect(page.locator('p[aria-live="polite"]')).toContainText(note);
 
@@ -141,7 +142,7 @@ test("dismisses a suggestion, asks again, accepts all after a confirmation, and 
   await page.getByRole("button", { name: "Create the account and preview" }).click();
   await page.getByRole("button", { name: "Import 8 transactions" }).click();
   await expect(page.locator('p[aria-live="polite"]')).toContainText(
-    "AI suggested categories for 2 transactions.",
+    "AI is preparing category suggestions.",
   );
 
   await page.goto("/money/transactions");
@@ -198,7 +199,7 @@ test("dismisses a suggestion, asks again, accepts all after a confirmation, and 
 const listSuggestionsStatus = (page: Page) =>
   page.locator("form", { has: page.getByRole("button", { name: "Suggest categories" }) });
 
-test("says the daily limit is reached, after an import and on the list, and suggests nothing", async ({
+test("says the daily limit is reached on the list, after an import, and suggests nothing", async ({
   page,
 }) => {
   const user = {
@@ -217,11 +218,12 @@ test("says the daily limit is reached, after an import and on the list, and sugg
   await expect(page.getByRole("status")).toHaveText(
     "Imported 8 transactions into Example Bank current.",
   );
-  const note =
-    "The daily limit on AI suggestions is reached, so the rest stay uncategorized for now.";
-  await expect(page.locator("p:not(.sr-only)", { hasText: note })).toBeVisible();
-  await expect(page.locator('p[aria-live="polite"]')).toHaveText(note);
+  // The cap is the worker's: the import only queued the run.
+  await expect(page.locator('p[aria-live="polite"]')).toHaveText(
+    "AI is preparing category suggestions. They appear on the transactions list when ready, and each transaction stays uncategorized until you accept its suggestion.",
+  );
 
+  // The list follows the import's run; the button is usable again once it has ended.
   await page.goto("/money/transactions");
   await page.getByRole("button", { name: "Suggest categories" }).click();
   await expect(listSuggestionsStatus(page).getByRole("status")).toHaveText(
@@ -231,7 +233,7 @@ test("says the daily limit is reached, after an import and on the list, and sugg
   await expect(page.getByRole("region", { name: "Suggestions waiting" })).toHaveCount(0);
 });
 
-test("says suggestions aren't available when the model fails, after an import and on the list", async ({
+test("says suggestions aren't available when the model fails, and the import is saved anyway", async ({
   page,
 }) => {
   await signIn(page, {
@@ -251,10 +253,10 @@ test("says suggestions aren't available when the model fails, after an import an
   await expect(page.getByRole("status")).toHaveText(
     "Imported 8 transactions into Example Bank current.",
   );
-  const note =
-    "AI category suggestions aren't available right now. The import is saved; try Suggest categories on the transactions list later.";
-  await expect(page.locator("p:not(.sr-only)", { hasText: note })).toBeVisible();
-  await expect(page.locator('p[aria-live="polite"]')).toHaveText(note);
+  // The model fails in the worker, after the import has answered.
+  await expect(page.locator('p[aria-live="polite"]')).toHaveText(
+    "AI is preparing category suggestions. They appear on the transactions list when ready, and each transaction stays uncategorized until you accept its suggestion.",
+  );
 
   await page.goto("/money/transactions");
   await expect(

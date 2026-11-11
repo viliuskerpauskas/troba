@@ -1,35 +1,49 @@
-import { listTransactions, setAiCategorization, type CategorizationModelClient } from "@troba/core";
+import {
+  listTransactions,
+  runCategorySuggestions,
+  setAiCategorization,
+  startJobQueue,
+  type CategorizationModelClient,
+  type JobQueue,
+} from "@troba/core";
 import { createDb, schema, type Db } from "@troba/db";
 import {
   createMoneyUser,
   insertImportedRows,
   recordingModel,
+  testAiCategorizeDailyLimit,
   type MoneyUser,
 } from "@troba/core/test-ai-categories";
 import { createTestDatabase } from "@troba/db/test-database";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Accept, dismiss and "Ask again" on suggested categories (SPEC-money M5, ADR-0016): what the user
-// is told and what the list holds. The session, database and model client are the only things
-// replaced; the actions, core and Postgres are real.
+// is told and what the list holds. The session, database, job queue and whether the server has a
+// key are the only things replaced; the actions, core and Postgres are real. "Ask again" queues a
+// run, which the test runs as the worker would, with `server.client` as the model.
 
 const session = vi.hoisted(() => ({ userId: "" }));
 const server = vi.hoisted(() => ({
   db: undefined as unknown,
+  // Null: the server has no key.
   client: null as CategorizationModelClient | null,
+  queue: undefined as unknown,
 }));
 
 vi.mock("@/server/session", () => ({
   requireUser: async () => ({ userId: session.userId, role: "user" }),
 }));
 vi.mock("@/server/db", () => ({ db: () => server.db }));
-vi.mock("@/server/openai-categorization", () => ({
-  categorizationModelClient: () => server.client,
+vi.mock("@/server/env", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/env")>()),
+  aiCategorizationEnabled: () => server.client !== null,
 }));
+vi.mock("@/server/jobs", () => ({ jobQueue: async () => server.queue }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let db: Db;
+let queue: JobQueue;
 let actions: typeof import("./suggestion-review-actions");
 
 function createUser(name: string) {
@@ -52,11 +66,14 @@ async function askedRow(user: MoneyUser, counterparty: string, suggested?: strin
 beforeAll(async () => {
   database = await createTestDatabase();
   db = createDb(database.url);
+  queue = await startJobQueue(database.url);
   server.db = db;
+  server.queue = queue;
   actions = await import("./suggestion-review-actions");
 });
 
 afterAll(async () => {
+  await queue.stop({ graceful: false });
   await db.$client.end();
   await database.drop();
 });
@@ -217,8 +234,17 @@ describe("askAgainAction", () => {
     await actions.dismissSuggestionAction(id);
 
     const state = await actions.askAgainAction();
+    expect(state).toMatchObject({ status: "pending", runId: expect.any(String) });
+    await runCategorySuggestions(db, user.userId, state.runId!, {
+      client: model.client,
+      dailyLimit: testAiCategorizeDailyLimit,
+    });
 
-    expect(state).toEqual({ status: "suggested", message: "1 transaction has a suggestion." });
+    const { suggestionRunStatusAction } = await import("./suggestion-actions");
+    expect(await suggestionRunStatusAction(state.runId!)).toEqual({
+      status: "suggested",
+      message: "1 transaction has a suggestion.",
+    });
     expect(model.requests).toHaveLength(1);
     expect(await listTransactions(db, user.userId)).toEqual([
       expect.objectContaining({ suggestedCategoryName: "Food" }),

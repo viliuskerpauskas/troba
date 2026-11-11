@@ -1,6 +1,8 @@
 import {
   deleteExpiredPdfImports,
   readPdfImport,
+  runCategorySuggestions,
+  type CategorizationModelClient,
   type JobData,
   type JobName,
   type StatementModelClient,
@@ -13,6 +15,10 @@ export type JobContext = {
   statementClient: StatementModelClient | null;
   // Each user's PDF imports a day (AI_PDF_IMPORT_DAILY_LIMIT), claimed as each is read.
   pdfImportDailyLimit: number;
+  // Null when the worker has no OpenAI key: a category suggestion run then fails.
+  categorizationClient: CategorizationModelClient | null;
+  // Each user's merchants a day (AI_CATEGORIZE_DAILY_LIMIT), claimed before each model request.
+  categorizeDailyLimit: number;
 };
 
 // One handler per job in core's `jobs`. A handler is a thin caller of core, like a server action.
@@ -35,6 +41,22 @@ export const handlers: JobHandlers = {
       client: statementClient,
       dailyLimit: pdfImportDailyLimit,
     });
+  },
+  // The run must be the user's the job was queued for, and not finished; core filters by both. A
+  // model failure is recorded on the run, so the job still completes. Anything else is rethrown
+  // without its message, which pg-boss would store and a database error can quote merchant text in.
+  "suggest-categories": async (
+    { userId, runId },
+    { db, categorizationClient, categorizeDailyLimit },
+  ) => {
+    try {
+      await runCategorySuggestions(db, userId, runId, {
+        client: categorizationClient,
+        dailyLimit: categorizeDailyLimit,
+      });
+    } catch {
+      throw new Error("suggest-categories failed");
+    }
   },
   "clean-up-pdf-imports": async (_data, { db }) => {
     await deleteExpiredPdfImports(db);

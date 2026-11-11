@@ -240,13 +240,14 @@ describe("the note under the import result", () => {
   const note = (suggestions: Parameters<typeof AfterImportNote>[0]["suggestions"]) =>
     renderToStaticMarkup(<AfterImportNote suggestions={suggestions} />);
 
-  it("says how many transactions got a suggestion", () => {
-    expect(note({ status: "suggested", rows: 3 })).toContain("3 transactions");
+  it("says suggestions are being prepared and where they will appear", () => {
+    expect(note({ status: "pending" })).toContain(
+      "AI is preparing category suggestions. They appear on the transactions list when ready",
+    );
   });
 
-  it("says when suggestions are unavailable, and when the limit is reached", () => {
+  it("says when suggestions are unavailable", () => {
     expect(note({ status: "unavailable" })).toContain("aren&#x27;t available right now");
-    expect(note({ status: "capped", rows: 0 })).toContain("daily limit");
   });
 
   it("renders nothing when the feature is off or there was nothing to ask", () => {

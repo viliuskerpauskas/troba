@@ -1,5 +1,7 @@
 // The worker process: `node worker.js` in the image, `pnpm --filter @troba/worker dev` locally.
 import {
+  aiCategorizeDailyLimitFrom,
+  createOpenAiCategorizationClient,
   createOpenAiStatementClient,
   openAiConfigFrom,
   pdfImportDailyLimitFrom,
@@ -12,11 +14,14 @@ if (!url) {
   process.exit(1);
 }
 
-// Without a key, the web app offers no PDF import, and one queued before the key was removed fails.
+// Without a key, the web app offers no PDF import and no category suggestions, and a job queued
+// before the key was removed fails.
 const openAi = openAiConfigFrom(process.env);
 const worker = await startWorker(url, {
   statementClient: openAi && createOpenAiStatementClient(openAi),
   pdfImportDailyLimit: pdfImportDailyLimitFrom(process.env),
+  categorizationClient: openAi && createOpenAiCategorizationClient(openAi),
+  categorizeDailyLimit: aiCategorizeDailyLimitFrom(process.env),
 });
 // e2e: playwright.config.ts waits for this line.
 console.log("worker started");
