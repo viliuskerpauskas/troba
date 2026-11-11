@@ -55,12 +55,13 @@ const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:tex
   variants: {
     orientation: {
       // Every child takes the full width, over any w-* class of its own: cap a narrower control
-      // with max-w-* instead.
-      vertical: "flex-col *:w-full [&>.sr-only]:w-auto",
+      // with max-w-* instead. A visually hidden (sr-only) child keeps sr-only's 1px: at auto width
+      // the absolutely positioned label is as wide as its text and the page scrolls sideways.
+      vertical: "flex-col *:w-full [&>.sr-only]:w-px",
       horizontal:
         "flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
       responsive:
-        "flex-col *:w-full @md/field-group:flex-row @md/field-group:items-center @md/field-group:*:w-auto @md/field-group:has-[>[data-slot=field-content]]:items-start @md/field-group:*:data-[slot=field-label]:flex-auto [&>.sr-only]:w-auto @md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+        "flex-col *:w-full @md/field-group:flex-row @md/field-group:items-center @md/field-group:*:w-auto @md/field-group:has-[>[data-slot=field-content]]:items-start @md/field-group:*:data-[slot=field-label]:flex-auto [&>.sr-only]:w-px @md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
     },
   },
   defaultVariants: {
